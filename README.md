@@ -1,10 +1,25 @@
 # FS25 Dashboard
 
+**English** · [Čeština](README.cs.md)
+
 Real-time web dashboard for **Farming Simulator 25** — see your farm's fields, vehicles, animals, silos, market prices and balance live in your browser while you play.
 
 ![status](https://img.shields.io/badge/status-beta-yellow) ![FS25](https://img.shields.io/badge/FS25-1.x-green) ![license](https://img.shields.io/badge/license-MIT-blue)
 
 > 📸 **Screenshots / GIF placeholder** — add `docs/screenshot-main.png`, `docs/screenshot-history.png`, `docs/demo.gif` before the first release.
+
+---
+
+## ⚠️ Heads-up — personal hobby project
+
+This is a side project I built for my own use and decided to open-source. It is not a commercial or professionally-maintained product.
+
+- **Developed against vanilla maps.** Works well there. Community maps (Hof Bergmann, etc.) are mostly tested but bugs specific to a particular map pack may not get fixed.
+- **No backwards-compatibility guarantee** across FS25 patches. If GIANTS breaks an API, the fix may take a while — or never come.
+- **Multiplayer**: works in single-player and on the hosting player's side (listen server). Dedicated server is not supported and not on my roadmap.
+- **Issues and PRs welcome**, but I can't promise a fast (or any) response. If you need something urgently, **fork it** and adapt it — that's why it's MIT.
+
+If something doesn't work, feel free to open an issue but take it with a pinch of salt. If you need a stable product, this isn't it.
 
 ---
 
