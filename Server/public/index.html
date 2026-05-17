@@ -1,0 +1,1151 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FS25 Dashboard</title>
+<script>
+    // Pre-paint theme application — must run before stylesheet is parsed
+    // to avoid a dark→light flash on themed reloads.
+    (function () {
+        try {
+            var q = (location.search.match(/[?&]theme=([\w-]+)/) || [])[1];
+            var t = q || localStorage.getItem('fs25.dash.v1.theme') || 'dark-green';
+            document.documentElement.setAttribute('data-theme', t);
+            if (q) { try { localStorage.setItem('fs25.dash.v1.theme', t); } catch (_) {} }
+        } catch (e) {
+            document.documentElement.setAttribute('data-theme', 'dark-green');
+        }
+    })();
+</script>
+<link rel="stylesheet" href="style.css">
+<script src="state.js" defer></script>
+<script src="theme.js" defer></script>
+<script src="notifications.js" defer></script>
+<script src="bell.js" defer></script>
+<script src="crop-icons.js" defer></script>
+<script src="money.js" defer></script>
+<script src="app.js" defer></script>
+<script src="tabletools.js" defer></script>
+<script src="sortable.js" defer></script>
+</head>
+<body>
+
+<!-- ── Nav ─────────────────────────────────────────────────────────── -->
+<nav>
+    <span class="nav-brand">🌾 FS25</span>
+    <div class="nav-links">
+        <a href="/"           class="active">Dashboard</a>
+        <a href="/calendar.html">Kalendář polí</a>
+        <a href="/profit.html">Zisk polí</a>
+        <a href="/calculator.html">Kalkulátor</a>
+        <a href="/history.html">Historie</a>
+    </div>
+    <div class="nav-status">
+        <span class="bell-slot" id="bell-slot"></span>
+        <span class="nav-updated" id="s-updated"></span>
+        <span class="dot" id="ws-dot"></span>
+        <span id="ws-label">Připojování…</span>
+    </div>
+</nav>
+
+<!-- ── Main ────────────────────────────────────────────────────────── -->
+<main>
+
+    <!-- KPI hero row -->
+    <div class="kpi-row">
+        <div class="kpi-card">
+            <span class="kpi-label">Zůstatek</span>
+            <span class="kpi-value" id="kpi-balance">—</span>
+            <span class="kpi-sub" id="kpi-balance-sub"></span>
+        </div>
+        <div class="kpi-card">
+            <span class="kpi-label">Počasí</span>
+            <span class="kpi-value">
+                <span class="kpi-icon" id="kpi-weather-icon"></span>
+                <span id="kpi-weather-temp">—</span>
+            </span>
+            <span class="kpi-sub" id="kpi-weather-sub"></span>
+        </div>
+        <div class="kpi-card">
+            <span class="kpi-label">Den</span>
+            <span class="kpi-value" id="kpi-day">—</span>
+            <span class="kpi-sub" id="kpi-day-sub"></span>
+        </div>
+        <div class="kpi-card">
+            <span class="kpi-label">Čas</span>
+            <span class="kpi-value" id="kpi-time">—</span>
+            <span class="kpi-sub" id="kpi-time-sub"></span>
+        </div>
+    </div>
+
+    <div class="masonry" id="masonry">
+
+    <!-- Fields quick overview (spans 2 columns in masonry) -->
+    <div class="section sec-fields" id="sec-fields" draggable="true" data-tt-dnd="sections" data-tt-key="fields">
+        <div class="section-header">
+            🌱 Pole – přehled <span class="count" id="cnt-fields">0</span>
+            <span style="margin-left:auto;font-size:11px;font-weight:400">
+                <a href="/calendar.html" style="color:var(--accent)">→ Kalendář</a>
+            </span>
+        </div>
+        <div class="table-wrap">
+            <table data-sort-key="fields" data-default-sort="0:asc">
+                <thead>
+                    <tr>
+                        <th class="num" title="Interní ID pole v mapě (NE číslo zemědělské půdy z UI)">#</th>
+                        <th class="num" title="Číslo zemědělské půdy — to, co ukazuje hra">ZP</th>
+                        <th>Plodina</th>
+                        <th class="num">Rozloha</th>
+                        <th>Stav</th>
+                        <th>Růst</th>
+                        <th class="num">Dní do sklizně</th>
+                        <th style="width:32px"></th>
+                    </tr>
+                </thead>
+                <tbody id="fields-body"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Vehicles -->
+    <div class="section" id="sec-vehicles" draggable="true" data-tt-dnd="sections" data-tt-key="vehicles">
+        <div class="section-header">
+            🚜 Vozidla <span class="count" id="cnt-vehicles">0</span>
+            <label class="section-toggle" style="margin-left:auto">
+                <input type="checkbox" id="veh-active-only">
+                <span>Pouze aktivní</span>
+            </label>
+        </div>
+        <div id="vehicles-body"></div>
+        <div id="vehicles-hidden-wrap" style="display:none">
+            <div class="subgroup-header" id="veh-hidden-toggle">
+                <span class="group-toggle">▶</span> Skryté vozidla <span class="count" id="cnt-veh-hidden">0</span>
+            </div>
+            <div id="vehicles-hidden-body" class="hidden-row"></div>
+        </div>
+    </div>
+
+    <!-- Animals -->
+    <div class="section" id="sec-animals" draggable="true" data-tt-dnd="sections" data-tt-key="animals">
+        <div class="section-header">🐄 Zvířata <span class="count" id="cnt-animals">0</span></div>
+        <div id="animals-body"></div>
+        <div id="animals-empty-wrap" style="display:none">
+            <div class="subgroup-header" id="anim-empty-toggle">
+                <span class="group-toggle">▶</span> Prázdné chovy <span class="count" id="cnt-anim-empty">0</span>
+            </div>
+            <div id="animals-empty-body" class="hidden-row"></div>
+        </div>
+    </div>
+
+    <!-- Storage -->
+    <div class="section" id="sec-storage" draggable="true" data-tt-dnd="sections" data-tt-key="storage">
+        <div class="section-header">🏚 Sklady <span class="count" id="cnt-storage">0</span></div>
+        <div class="table-wrap">
+            <table data-sort-key="storage" data-default-sort="1:desc">
+                <thead>
+                    <tr>
+                        <th>Komodita</th>
+                        <th class="num">Množství (l)</th>
+                        <th class="num">Kapacita (l)</th>
+                        <th style="min-width:140px">Zaplnění</th>
+                    </tr>
+                </thead>
+                <tbody id="storage-body"></tbody>
+            </table>
+        </div>
+        <div id="storages-hidden-wrap" style="display:none">
+            <div class="subgroup-header" id="stor-hidden-toggle">
+                <span class="group-toggle">▶</span> Skryté sklady <span class="count" id="cnt-stor-hidden">0</span>
+            </div>
+            <div class="table-wrap hidden-row" id="storages-hidden-body-wrap">
+                <table>
+                    <tbody id="storages-hidden-body"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Productions -->
+    <div class="section" id="sec-productions" draggable="true" data-tt-dnd="sections" data-tt-key="productions">
+        <div class="section-header">🏭 Výrobny <span class="count" id="cnt-productions">0</span></div>
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th style="width:auto">Komodita / recept</th>
+                        <th class="num" style="width:70px">Množství</th>
+                        <th class="num" style="width:70px">Kapacita</th>
+                        <th style="width:90px">Zaplnění / stav</th>
+                    </tr>
+                </thead>
+                <tbody id="productions-body"></tbody>
+            </table>
+        </div>
+        <div id="productions-hidden-wrap" style="display:none">
+            <div class="subgroup-header" id="prod-hidden-toggle">
+                <span class="group-toggle">▶</span> Skryté výrobny <span class="count" id="cnt-prod-hidden">0</span>
+            </div>
+            <div class="table-wrap hidden-row">
+                <table>
+                    <tbody id="productions-hidden-body"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Prices -->
+    <div class="section" id="sec-prices" draggable="true" data-tt-dnd="sections" data-tt-key="prices">
+        <div class="section-header">💰 Výkupní ceny (<span class="cur-unit">€</span> / t)
+            <button id="btn-hide-zero-prices" class="section-btn" title="Skrýt všechny komodity, které momentálně nemáš na skladě" style="margin-left:auto">Skrýt vše bez skladu</button>
+        </div>
+        <div class="table-wrap">
+            <table>
+                <thead><tr><th>Komodita</th><th class="num"><span class="cur-unit">€</span> / t</th><th style="width:32px"></th></tr></thead>
+                <tbody id="prices-body"></tbody>
+            </table>
+        </div>
+    </div>
+
+    </div><!-- /.masonry -->
+
+    <!-- Animal detail modal -->
+    <div id="animal-modal" class="modal" hidden>
+        <div class="modal-backdrop" data-modal-close></div>
+        <div class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="amodal-title">
+            <button class="modal-close" data-modal-close aria-label="Zavřít">✕</button>
+            <h3 id="amodal-title">…</h3>
+            <div id="amodal-body"></div>
+        </div>
+    </div>
+
+</main>
+
+<script>
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+const fmt = n  => Number(n).toLocaleString('cs-CZ');
+// Currency formatting lives in money.js (FS25Money). Local thin wrapper for
+// readability; updates happen via app.js WS handler calling FS25Money.setCurrency.
+const fmtMoney = v => (window.FS25Money ? FS25Money.format(v) : String(v));
+
+function bar(pct, extra = '') {
+    const cls = pct <= 20 ? 'danger' : pct <= 50 ? 'warn' : pct >= 95 ? 'full' : '';
+    return `<div class="bar-wrap ${extra}">
+        <div class="bar-bg"><div class="bar-fill ${cls}" style="width:${pct}%"></div></div>
+        <span class="bar-pct">${pct}%</span>
+    </div>`;
+}
+
+// Inline donut chart (SVG) — shows a fill ratio in the silo header.
+// `currentColor` lets us tint via parent CSS class (.donut-warn / .donut-full).
+function donutSVG(pct, size = 14) {
+    const stroke = 2.5;
+    const r = (size - stroke) / 2;
+    const c = 2 * Math.PI * r;
+    const offset = c * (1 - Math.max(0, Math.min(100, pct)) / 100);
+    const cls = pct >= 95 ? 'donut-full' : pct >= 70 ? 'donut-warn' : '';
+    return `<svg class="silo-donut ${cls}" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" aria-hidden="true">
+        <circle cx="${size/2}" cy="${size/2}" r="${r}" fill="none" stroke="var(--border)" stroke-width="${stroke}"/>
+        <circle cx="${size/2}" cy="${size/2}" r="${r}" fill="none" stroke="currentColor" stroke-width="${stroke}"
+                stroke-dasharray="${c.toFixed(2)}" stroke-dashoffset="${offset.toFixed(2)}"
+                stroke-linecap="round"
+                transform="rotate(-90 ${size/2} ${size/2})"/>
+    </svg>`;
+}
+
+// Animal icon resolution: explicit type code → emoji; otherwise match the
+// husbandry's name (Czech / English substring). Fallback 🐾 for unknowns.
+const ANIMAL_ICONS = {
+    COW: '🐄', BULL: '🐂', BUFFALO: '🐃',
+    PIG: '🐷', BOAR: '🐗',
+    SHEEP: '🐑', GOAT: '🐐',
+    CHICKEN: '🐔', ROOSTER: '🐓',
+    HORSE: '🐎', DONKEY: '🫏',
+    QUAIL: '🐦', DUCK: '🦆',
+    RABBIT: '🐰', BEE: '🐝',
+    DEER: '🦌', DOG: '🐶',
+};
+const ANIMAL_NAME_FALLBACKS = [
+    [/krav|kráv|cow/i,            '🐄'],
+    [/krepel|křepel|quail/i,      '🐦'],
+    [/kurník|kuř|chicken/i,       '🐔'],
+    [/ovč|sheep/i,                '🐑'],
+    [/koz|goat/i,                 '🐐'],
+    [/prasn|prase|pig/i,          '🐷'],
+    [/koní|hors/i,                '🐎'],
+    [/psí|dog/i,                  '🐶'],
+    [/králík|rabbit/i,            '🐰'],
+    [/hus|goose/i,                '🪿'],
+    [/včel|bee/i,                 '🐝'],
+];
+function resolveAnimalIcon(a) {
+    if (a.type && ANIMAL_ICONS[a.type]) return ANIMAL_ICONS[a.type];
+    const name = a.husbandryName || '';
+    for (const [re, emoji] of ANIMAL_NAME_FALLBACKS) {
+        if (re.test(name)) return emoji;
+    }
+    return '🐾';
+}
+
+// ─── Render ───────────────────────────────────────────────────────────────────
+
+// FS25 WeatherType enum → Czech label + emoji (keyed by numeric typeId from JSON).
+// Type 5 = Sněžení confirmed from in-game snow-cloud icon on Hof Bergmann winter.
+const WEATHER_CS = {
+    0: 'Jasno', 1: 'Slunečno', 2: 'Polojasno', 3: 'Oblačno',
+    4: 'Déšť',  5: 'Sněžení',  6: 'Bouřka',    7: 'Kroupy', 8: 'Mlha',
+};
+const WEATHER_ICON = {
+    0: '☀️', 1: '☀️', 2: '🌤', 3: '☁️',
+    4: '🌧', 5: '❄️', 6: '⛈', 7: '🌨', 8: '🌫',
+};
+
+// Czech season name from gameDay (FS25 default 28 days/season starting in spring).
+function seasonForDay(day) {
+    if (!Number.isFinite(day) || day < 1) return '';
+    const idx = Math.floor(((day - 1) / 28) % 4);
+    return ['jaro', 'léto', 'podzim', 'zima'][idx];
+}
+
+// FS25 period (1..12) maps to a calendar month starting March (in-game year begins in spring).
+const MONTH_CS = ['', 'březen', 'duben', 'květen', 'červen', 'červenec', 'srpen',
+                  'září', 'říjen', 'listopad', 'prosinec', 'leden', 'únor'];
+function monthLabel(month) {
+    if (!Number.isFinite(month) || month < 1 || month > 12) return '';
+    return MONTH_CS[month] || '';
+}
+
+function renderKPI(d) {
+    // Currency context is updated centrally by app.js (FS25Money.setCurrency).
+    // Refresh static "currency symbol" placeholders so column headers etc. match.
+    const sym = window.FS25Money ? FS25Money.symbol() : '€';
+    document.querySelectorAll('.cur-unit').forEach(el => { el.textContent = sym; });
+
+    const balance = d.farmBalance ?? 0;
+    $('kpi-balance').textContent = fmtMoney(balance);
+
+    // Delta vs. most-recent earlier game-day balance (server-injected).
+    const deltaEl = $('kpi-balance-sub');
+    const delta = d.farmBalanceDeltaDay;
+    deltaEl.classList.remove('delta-up', 'delta-down');
+    if (Number.isFinite(delta)) {
+        if (delta > 0)      { deltaEl.textContent = '↑ ' + fmtMoney(delta) + ' od minulého dne'; deltaEl.classList.add('delta-up'); }
+        else if (delta < 0) { deltaEl.textContent = '↓ ' + fmtMoney(Math.abs(delta)) + ' od minulého dne'; deltaEl.classList.add('delta-down'); }
+        else                  deltaEl.textContent = '→ beze změny od minulého dne';
+    } else {
+        deltaEl.textContent = '';
+    }
+
+    // Weather
+    const w = d.weather || {};
+    const wLabel = (w.typeId != null && w.typeId >= 0) ? (WEATHER_CS[w.typeId] ?? `typ_${w.typeId}`) : (w.title || '');
+    const wEmoji = (w.typeId != null && w.typeId >= 0) ? (WEATHER_ICON[w.typeId] ?? '·') : '·';
+    $('kpi-weather-icon').textContent = wEmoji;
+    $('kpi-weather-temp').textContent = (w.temperature != null) ? `${w.temperature} °C` : '—';
+    let wSub = wLabel;
+    if (w.temperatureMin != null && w.temperatureMax != null) {
+        wSub += (wSub ? ' · ' : '') + `${w.temperatureMin}–${w.temperatureMax} °C`;
+    }
+    $('kpi-weather-sub').textContent = wSub;
+
+    // Day
+    $('kpi-day').textContent  = d.gameDay ?? '—';
+    const mLabel = monthLabel(d.gameMonth);
+    const season = seasonForDay(d.gameDay);
+    $('kpi-day-sub').textContent = mLabel ? (season ? `${mLabel} · ${season}` : mLabel) : season;
+
+    // Time
+    $('kpi-time').textContent = d.gameTime ?? '—';
+    $('kpi-time-sub').textContent = '';
+}
+
+function render(d) {
+    window.__lastData = d;
+    renderKPI(d);
+    $('s-updated').textContent = new Date().toLocaleTimeString('cs-CZ');
+
+    renderVehicles(d.vehicles || []);
+    renderAnimals(d.animals   || []);
+    renderFields(d.fields     || []);
+    renderStorage(d.storage   || []);
+    renderProductions(d.productions || []);
+    renderPrices(d.prices     || []);
+    relayoutMasonry();
+}
+
+function vehicleCardHTML(v, opts) {
+    const fp = v.fuelPercent ?? 0;
+    const adblue = v.adBlueCapacity
+        ? ` · AdBlue ${v.adBluePercent ?? 0} %`
+        : '';
+    const dotCls = v.isInUse ? 'dot-active' : 'dot-idle';
+    const fuelTitle = `${fmt(v.fuelLiters)} / ${fmt(v.fuelCapacity)} l`;
+    return `<div class="vehicle-row ${v.isInUse ? 'in-use' : ''}" ${TableTools.dndAttrs('vehicles', v.name)} title="Přetáhni do/ze sekce ‚Skryté vozidla‘ pro skrytí">
+        <span class="${dotCls}"></span>
+        <span class="vc-name">${esc(v.name)}</span>
+        <span class="vc-type">${esc(v.typeName)} · ${v.motorHours ?? 0} mh${adblue}</span>
+        <div class="vc-fuel" title="${esc(fuelTitle)}">
+            ${bar(fp)}
+            <span class="vc-fuel-num">${fmt(v.fuelLiters)}/${fmt(v.fuelCapacity)} l</span>
+        </div>
+    </div>`;
+}
+
+function renderVehicles(vehicles) {
+    $('cnt-vehicles').textContent = vehicles.length;
+
+    const hidden = new Set(DashState.get(DashState.KEYS.hiddenVehicles, []));
+    const activeOnly = DashState.get(DashState.KEYS.showActiveVehiclesOnly, false);
+    $('veh-active-only').checked = activeOnly;
+
+    const ordered = TableTools.applyOrder(vehicles, 'vehicles', v => v.name);
+    const visible = [];
+    const hiddenList = [];
+    for (const v of ordered) {
+        if (hidden.has(v.name))      hiddenList.push(v);
+        else if (activeOnly && !v.isInUse) hiddenList.push(v);
+        else visible.push(v);
+    }
+
+    const body = $('vehicles-body');
+    if (!visible.length) {
+        body.innerHTML = '<div class="empty">Žádná aktivní vozidla.</div>';
+    } else {
+        body.innerHTML = visible.map(v => vehicleCardHTML(v, { canHide: true })).join('');
+    }
+
+    const hiddenWrap = $('vehicles-hidden-wrap');
+    hiddenWrap.style.display = '';
+    $('cnt-veh-hidden').textContent = hiddenList.length;
+    $('vehicles-hidden-body').innerHTML = hiddenList.length
+        ? hiddenList.map(v => vehicleCardHTML(v, { canHide: false })).join('')
+        : '<div class="empty vc-drop-hint">Přetáhni sem vozidla, která chceš skrýt.</div>';
+}
+
+function animalCardHTML(a, opts) {
+    const fp = a.foodPercent  ?? 0;
+    const wp = a.waterPercent;        // nil for animals without manual water (pigs, sheep, ...)
+    const sp = a.strawPercent;
+    const mp = a.milkPercent;
+    const mn = a.manurePercent;
+    const lm = a.liquidManurePercent;
+
+    // Alert: low food/water/straw (inputs); high milk/manure (outputs full → needs collection)
+    const isAlert = (a.count > 0) && (
+        fp < 25 ||
+        (wp != null && wp < 25) ||
+        (sp != null && sp < 25) ||
+        (mp != null && mp >= 90) ||
+        (mn != null && mn >= 90) ||
+        (lm != null && lm >= 90)
+    );
+    const alertMsg = isAlert
+        ? (fp < 25 || (wp != null && wp < 25) || (sp != null && sp < 25) ? 'Doplnit!' : 'Odvézt!')
+        : '';
+    const badge = isAlert ? `<span class="alert-badge">⚠ ${alertMsg}</span>` : '';
+    const icon = resolveAnimalIcon(a);
+
+    // Build bar pairs: inputs (low=bad) and outputs (high=bad)
+    const pairs = [
+        { lbl: 'K', pct: fp,                      title: 'Krmivo' },
+        ...(wp != null ? [{ lbl: 'V', pct: wp,    title: 'Voda' }]       : []),
+        ...(sp != null ? [{ lbl: 'P', pct: sp,    title: 'Podestýlka' }] : []),
+        ...(mp != null ? [{ lbl: 'M', pct: mp,    title: 'Mléko' }]      : []),
+        ...(mn != null ? [{ lbl: 'H', pct: mn,    title: 'Hnůj' }]       : []),
+        ...(lm != null ? [{ lbl: 'Kj', pct: lm,  title: 'Kejda' }]      : []),
+    ];
+    const barsHTML = pairs.map(p =>
+        `<span class="ac-barpair"><span class="ac-bar-lbl" title="${p.title}">${p.lbl}</span>${bar(p.pct)}</span>`
+    ).join('');
+
+    const canHide = opts ? opts.canHide : true;
+    const hideBtn = canHide
+        ? TableTools.hideBtn('animals', a.husbandryName, 'Skrýt chov')
+        : TableTools.unhideBtn('animals', a.husbandryName, 'Zobrazit chov');
+    return `<div class="animal-row ${isAlert ? 'alert' : ''}" ${TableTools.dndAttrs('animals', a.husbandryName)} data-animal-name="${esc(a.husbandryName)}" title="Klikni pro detail">
+        <span class="ac-icon">${icon}</span>
+        <div class="ac-meta">
+            <div class="ac-name">${esc(a.husbandryName)} ${badge}</div>
+            <div class="ac-sub">${a.count} ks · prod. ${a.productivity ?? 0} %</div>
+        </div>
+        <div class="ac-bars">${barsHTML}</div>
+        <span style="margin-left:4px">${hideBtn}</span>
+    </div>`;
+}
+
+// ─── Animal type → Czech label (FS25 doesn't expose i18n keys per type) ──────
+const ANIMAL_TYPE_CS = {
+    COW: 'Kráva', BULL: 'Býk', PIG: 'Prase', SHEEP: 'Ovce',
+    CHICKEN: 'Slepice', GOOSE: 'Husa', QUAIL: 'Křepelka',
+    DOG: 'Pes', CAT: 'Kočka', RABBIT: 'Králík',
+    HORSE: 'Kůň', GOAT: 'Koza', DONKEY: 'Osel',
+};
+const ANIMAL_SUBTYPE_CS = {
+    COW_HOLSTEIN: 'Holštýnská kráva', COW_ANGUS: 'Angus', COW_LIMOUSIN: 'Limousin', COW_SWISS: 'Švýcarská',
+    BULL_HOLSTEIN: 'Holštýnský býk', BULL_ANGUS: 'Angus býk', BULL_LIMOUSIN: 'Limousin býk',
+    CHICKEN: 'Slepice', CHICKEN_ROOSTER: 'Kohout',
+    QUAIL: 'Křepelka',
+    PIG_LANDRACE: 'Landrace', PIG_DUROC: 'Duroc', PIG_PIETRAIN: 'Pietrain',
+    SHEEP: 'Ovce', SHEEP_BLACK: 'Černá ovce', GOAT: 'Koza',
+    GOOSE: 'Husa', RABBIT: 'Králík',
+    DOG_LABRADORRETRIEVER: 'Labrador', DOG_LABRADORRETRIEVERCHARCOAL: 'Labrador (charcoal)', DOG_LABRADORRETRIEVERFOX: 'Labrador (fox)',
+    DOG_AUSTRALIANSHEPHERD: 'Australský ovčák',
+};
+function csAnimalName(enumName)    { return ANIMAL_TYPE_CS[enumName]    || enumName || '—'; }
+function csSubtypeName(enumName)   { return ANIMAL_SUBTYPE_CS[enumName] || enumName || '—'; }
+
+// ─── Detail modal ────────────────────────────────────────────────────────────
+function openAnimalModal(name) {
+    const data = (window.__lastAnimals || []).find(a => a.husbandryName === name);
+    if (!data) return;
+    $('amodal-title').textContent = data.husbandryName;
+
+    const head = `
+        <div class="amodal-meta">
+            <div><span class="amodal-lbl">Druh:</span> ${esc(csAnimalName(data.type))} (${esc(data.type || '—')})</div>
+            <div><span class="amodal-lbl">Počet:</span> ${data.count} / ${data.maxCount ?? '—'} ks</div>
+            <div><span class="amodal-lbl">Produktivita:</span> ${data.productivity ?? 0} %</div>
+        </div>`;
+
+    const fillRow = (label, lvl, cap, pct, suffix='L') => {
+        if (lvl == null && cap == null && pct == null) return '';
+        const v = (lvl != null && cap != null && cap > 0)
+            ? `${lvl.toLocaleString('cs-CZ')} / ${cap.toLocaleString('cs-CZ')} ${suffix} (${pct ?? 0}%)`
+            : (pct != null ? `${pct} %` : '—');
+        return `<tr><td>${label}</td><td class="num">${v}</td></tr>`;
+    };
+    const fillsTable = `
+        <table class="amodal-fills">
+            <tbody>
+                ${fillRow('🌾 Krmivo',         data.foodLiters,         data.foodCapacity,         data.foodPercent)}
+                ${fillRow('💧 Voda',           data.waterLiters,        data.waterCapacity,        data.waterPercent)}
+                ${data.strawCapacity != null ? fillRow('🛏️ Podestýlka', data.strawLiters, data.strawCapacity, data.strawPercent) : ''}
+                ${data.milkCapacity != null && data.milkCapacity > 0 ? fillRow('🥛 ' + (data.milkType || 'Mléko'), data.milkLiters, data.milkCapacity, data.milkPercent) : ''}
+                ${data.manureCapacity != null ? fillRow('💩 Hnůj',     data.manureLiters,       data.manureCapacity,       data.manurePercent) : ''}
+                ${data.liquidManureCapacity != null ? fillRow('🪣 Kejda', data.liquidManureLiters, data.liquidManureCapacity, data.liquidManurePercent) : ''}
+            </tbody>
+        </table>`;
+
+    const clusters = (data.clusters && data.clusters.length) ? `
+        <h4>Stáda (${data.clusters.length})</h4>
+        <table class="amodal-clusters">
+            <thead><tr>
+                <th>Plemeno</th><th class="num">Ks</th><th class="num">Věk</th>
+                <th class="num">Zdraví</th><th class="num">Reprodukce</th><th class="num">Cena/ks</th>
+            </tr></thead>
+            <tbody>
+                ${data.clusters.map(c => `<tr>
+                    <td>${esc(csSubtypeName(c.subType))}</td>
+                    <td class="num">${c.count}</td>
+                    <td class="num">${c.age} m</td>
+                    <td class="num">${c.health} %</td>
+                    <td class="num">${c.reproduction} %</td>
+                    <td class="num">${fmtMoney(c.sellPrice || 0)}</td>
+                </tr>`).join('')}
+            </tbody>
+        </table>` : '';
+
+    $('amodal-body').innerHTML = head + fillsTable + clusters;
+    $('animal-modal').hidden = false;
+}
+function closeAnimalModal() { $('animal-modal').hidden = true; }
+document.addEventListener('click', e => {
+    if (e.target.closest('[data-modal-close]')) { closeAnimalModal(); return; }
+    const row = e.target.closest('.animal-row');
+    if (row && row.dataset.animalName) openAnimalModal(row.dataset.animalName);
+});
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeAnimalModal(); });
+
+function renderAnimals(animals) {
+    window.__lastAnimals = animals;
+    $('cnt-animals').textContent = animals.length;
+    const body = $('animals-body');
+    if (!animals.length) {
+        body.innerHTML = '<div class="empty">Žádná zvířata.</div>';
+        $('animals-empty-wrap').style.display = 'none';
+        return;
+    }
+
+    const ordered = TableTools.applyOrder(animals, 'animals', a => a.husbandryName);
+    const { visible, hidden } = TableTools.split(ordered, 'animals', a => a.husbandryName);
+
+    const filled = visible.filter(a => a.count > 0);
+    const empty  = visible.filter(a => !(a.count > 0));
+
+    if (!filled.length) {
+        body.innerHTML = '<div class="empty">Všechny chovy jsou prázdné.</div>';
+    } else {
+        body.innerHTML = filled.map(a => animalCardHTML(a, { canHide: true })).join('')
+            + (hidden.length ? `<div class="subgroup-header"><span class="group-toggle">▶</span> Skryté chovy <span class="count">${hidden.length}</span></div>`
+                + `<div class="hidden-row">${hidden.map(a => animalCardHTML(a, { canHide: false })).join('')}</div>`
+                : '');
+    }
+
+    const wrap = $('animals-empty-wrap');
+    if (empty.length) {
+        wrap.style.display = '';
+        $('cnt-anim-empty').textContent = empty.length;
+        $('animals-empty-body').innerHTML = empty.map(a => animalCardHTML(a, { canHide: true })).join('');
+    } else {
+        wrap.style.display = 'none';
+    }
+}
+
+// Vehicle hide via drag-and-drop between visible/hidden zones.
+// Tracks which container a drag started in; on drop, if the user crossed into
+// the other container, toggle the persisted hide state. Reorder within a single
+// container is left to TableTools.
+let __vehicleDragOrigin = null;  // 'visible' | 'hidden'
+function __vehicleZoneOf(el) {
+    if (!el) return null;
+    if (el.closest('#vehicles-hidden-body, #vehicles-hidden-wrap')) return 'hidden';
+    if (el.closest('#vehicles-body')) return 'visible';
+    return null;
+}
+document.addEventListener('dragstart', e => {
+    const row = e.target.closest('.vehicle-row');
+    if (!row) { __vehicleDragOrigin = null; return; }
+    __vehicleDragOrigin = __vehicleZoneOf(row);
+});
+document.addEventListener('dragover', e => {
+    if (!__vehicleDragOrigin) return;
+    const zone = __vehicleZoneOf(e.target);
+    if (!zone || zone === __vehicleDragOrigin) return;
+    e.preventDefault();  // allow drop on the opposite zone
+    const target = zone === 'hidden' ? $('vehicles-hidden-wrap') : $('vehicles-body');
+    target.classList.add('vc-drop-active');
+});
+document.addEventListener('dragleave', e => {
+    const wrap = e.target.closest('#vehicles-hidden-wrap, #vehicles-body');
+    if (wrap) wrap.classList.remove('vc-drop-active');
+});
+document.addEventListener('drop', e => {
+    document.querySelectorAll('.vc-drop-active').forEach(el => el.classList.remove('vc-drop-active'));
+    if (!__vehicleDragOrigin) return;
+    const row = e.target.closest('.vehicle-row');
+    const zone = __vehicleZoneOf(e.target);
+    if (!zone || zone === __vehicleDragOrigin) { __vehicleDragOrigin = null; return; }
+    // Cross-zone drop: toggle hide state for the dragged vehicle.
+    const draggedName = (e.dataTransfer && e.dataTransfer.getData('text/plain')) || (row && row.dataset.ttKey);
+    if (draggedName) {
+        DashState.setToggle(DashState.KEYS.hiddenVehicles, draggedName);
+        if (window.__lastData) renderVehicles(window.__lastData.vehicles || []);
+    }
+    __vehicleDragOrigin = null;
+});
+document.addEventListener('dragend', () => {
+    document.querySelectorAll('.vc-drop-active').forEach(el => el.classList.remove('vc-drop-active'));
+    __vehicleDragOrigin = null;
+});
+
+// Other section hide/show buttons (storage, productions) ─────────────────
+document.addEventListener('click', e => {
+    const hideSt = e.target.closest('button[data-hide-storage]');
+    const showSt = e.target.closest('button[data-show-storage]');
+    if (hideSt) {
+        e.stopPropagation();
+        DashState.setToggle(DashState.KEYS.hiddenStorages, hideSt.dataset.hideStorage);
+        if (window.__lastData) renderStorage(window.__lastData.storage || []);
+        return;
+    }
+    if (showSt) {
+        e.stopPropagation();
+        DashState.setToggle(DashState.KEYS.hiddenStorages, showSt.dataset.showStorage);
+        if (window.__lastData) renderStorage(window.__lastData.storage || []);
+        return;
+    }
+    const hideProd = e.target.closest('button[data-hide-prod]');
+    const showProd = e.target.closest('button[data-show-prod]');
+    if (hideProd) {
+        e.stopPropagation();
+        DashState.setToggle(DashState.KEYS.hiddenProductions, hideProd.dataset.hideProd);
+        if (window.__lastData) renderProductions(window.__lastData.productions || []);
+        return;
+    }
+    if (showProd) {
+        e.stopPropagation();
+        DashState.setToggle(DashState.KEYS.hiddenProductions, showProd.dataset.showProd);
+        if (window.__lastData) renderProductions(window.__lastData.productions || []);
+        return;
+    }
+    // Subgroup toggles (Skryté vozidla, Prázdné chovy)
+    const sub = e.target.closest('.subgroup-header');
+    if (sub) {
+        const body = sub.nextElementSibling;
+        const toggle = sub.querySelector('.group-toggle');
+        const collapsed = body.classList.toggle('hidden-row');
+        if (toggle) toggle.textContent = collapsed ? '▶' : '▼';
+    }
+});
+
+// Active-only filter toggle
+document.addEventListener('change', e => {
+    if (e.target && e.target.id === 'veh-active-only') {
+        DashState.set(DashState.KEYS.showActiveVehiclesOnly, e.target.checked);
+        if (window.__lastData) renderVehicles(window.__lastData.vehicles || []);
+    }
+});
+
+// FS25 ground-type → Czech label + tag class. Save file is more granular
+// (HARVEST_READY vs HARVEST_READY_OTHER vs RIDGE_SOWN) than what the mod
+// derives from growth-percent alone.
+const GROUND_TYPE_LABELS = {
+    HARVEST_READY:        { label: 'Připraveno',    cls: 'tag-ready' },
+    HARVEST_READY_OTHER:  { label: 'Připraveno',    cls: 'tag-ready' },
+    SOWN:                 { label: 'Zaseto',        cls: 'tag-growing' },
+    PLANTED:              { label: 'Sazenice',      cls: 'tag-growing' },
+    RIDGE_SOWN:           { label: 'Hřebeny',       cls: 'tag-growing' },
+    CULTIVATED:           { label: 'Zkultivováno',  cls: 'tag-sow' },
+    GRASS:                { label: 'Tráva',         cls: 'tag-growing' },
+};
+
+function fieldStateTag(f) {
+    const gt = f.saveGroundType && GROUND_TYPE_LABELS[f.saveGroundType];
+    if (gt) return `<span class="tag ${gt.cls}" title="groundType: ${esc(f.saveGroundType)}">${gt.label}</span>`;
+    if (f.isReadyToHarvest) return '<span class="tag tag-ready">Připraveno</span>';
+    if (f.fruitTypeId)      return '<span class="tag tag-growing">Roste</span>';
+    if (f.needsSowing)      return '<span class="tag tag-sow">Sít</span>';
+    return '<span class="tag tag-empty">Prázdné</span>';
+}
+
+// Visual hint when a field genuinely needs attention right now (from save
+// XML, weedState 0-9). We deliberately don't surface plowLevel / limeLevel
+// here — those are stable bookkeeping values, not actionable today, and
+// they'd otherwise badge nearly every field. They're still in the WS payload
+// for whoever wants to consume them.
+function fieldConditionBadge(f) {
+    if (f.weedState >= 5)  return ` <span class="c-red"    title="Plevel ${f.weedState}/9 — sekat či postříkat">🌿${f.weedState}</span>`;
+    if (f.weedState >= 3)  return ` <span class="c-yellow" title="Plevel ${f.weedState}/9">🌿${f.weedState}</span>`;
+    return '';
+}
+
+function renderFields(fields) {
+    const owned = fields.filter(f => f.owned);
+    $('cnt-fields').textContent = `${owned.length} / ${fields.length}`;
+    const tbody = $('fields-body');
+    if (!owned.length) { tbody.innerHTML = '<tr><td colspan="8" class="empty">Žádná vlastněná pole.</td></tr>'; return; }
+
+    const STATE_KEY = 'fields';
+    const getKey = f => f.id;
+    const ordered = TableTools.applyOrder(owned, STATE_KEY, getKey);
+    const { visible, hidden } = TableTools.split(ordered, STATE_KEY, getKey);
+
+    const rowHTML = (f, canHide) => {
+        const stateTag = fieldStateTag(f);
+        let growthCell;
+        if (f.isReadyToHarvest)      growthCell = '<span class="c-green">100%</span>';
+        else if (f.fruitTypeId)      growthCell = bar(f.growthPercent ?? 0);
+        else                         growthCell = '—';
+        const days = f.daysToHarvest > 0
+            ? `<span class="c-yellow">${f.daysToHarvest}</span>`
+            : (f.isReadyToHarvest ? '<span class="c-green">✓</span>' : '—');
+        const fruitCell = f.fruitTypeId
+            ? CropIcons.iconWithName(f.fruitTypeId, esc(f.fruitName))
+            : '<span class="c-muted">—</span>';
+        const farmlandCell = f.farmlandId != null
+            ? `<span title="Zemědělská půda ${f.farmlandId} (z map UI)">${f.farmlandId}</span>`
+            : '<span class="c-muted" title="Mod nezná farmland binding pro toto pole">—</span>';
+        const btn = canHide ? TableTools.hideBtn(STATE_KEY, f.id) : TableTools.unhideBtn(STATE_KEY, f.id);
+        return `<tr ${TableTools.dndAttrs(STATE_KEY, f.id)}>
+            <td class="num">${f.id}</td>
+            <td class="num">${farmlandCell}</td>
+            <td>${fruitCell}${fieldConditionBadge(f)}</td>
+            <td class="num"${f.farmlandAreaHa != null && f.farmlandAreaHa !== f.area ? ` title="Pole: ${f.area} ha · Parcela (Zemědělská půda): ${f.farmlandAreaHa} ha"` : ''}>${f.area} ha</td>
+            <td>${stateTag}</td>
+            <td style="min-width:120px">${growthCell}</td>
+            <td class="num">${days}</td>
+            <td>${btn}</td>
+        </tr>`;
+    };
+
+    let html = visible.map(f => rowHTML(f, true)).join('');
+    if (hidden.length) {
+        html += TableTools.hiddenSubgroupRow(STATE_KEY, hidden.length, 8);
+        html += hidden.map(f => {
+            // hidden rows start collapsed
+            return rowHTML(f, false).replace('<tr ', '<tr class="hidden-row" ');
+        }).join('');
+    }
+    tbody.innerHTML = html;
+}
+
+// Persistent collapse state — survives WebSocket re-renders.
+// Default: every newly seen group starts collapsed (compact view).
+const collapsedGroups = new Set();
+const seenGroups      = new Set();
+function groupState(key) {
+    if (!seenGroups.has(key)) {
+        seenGroups.add(key);
+        collapsedGroups.add(key);  // default: collapsed
+    }
+    return collapsedGroups.has(key);
+}
+
+function storageRowsHTML(st, opts) {
+    const key = `${st.type || 'silo'}:${st.storageName}`;
+    const collapsed = groupState(key);
+    const indicator = collapsed ? '▶' : '▼';
+    const items = st.items || [];
+    const totalAmount = items.reduce((s, i) => s + (i.amount || 0), 0);
+    const totalCap    = items.reduce((s, i) => s + (i.capacity || 0), 0);
+    const pct = totalCap > 0 ? Math.round(totalAmount / totalCap * 100) : 0;
+    const donut = totalCap > 0 ? donutSVG(pct) : '';
+    const summary = items.length
+        ? `<span class="group-meta">${items.length} ${items.length === 1 ? 'položka' : items.length < 5 ? 'položky' : 'položek'} · ${fmt(totalAmount)}${totalCap > 0 ? ' / ' + fmt(totalCap) : ''} l</span>`
+        : '<span class="group-meta">prázdné</span>';
+    const pctTxt = totalCap > 0 ? `<span class="silo-pct">${pct} %</span>` : '';
+    const hideBtn = opts.canHide
+        ? `<button class="vc-hide" title="Skrýt sklad" data-hide-storage="${esc(key)}" style="float:right">✕</button>`
+        : `<button class="vc-hide" title="Zobrazit sklad" data-show-storage="${esc(key)}" style="float:right">+</button>`;
+    const header = `<tr class="st-row collapsible" ${TableTools.dndAttrs('storages', key)} data-group="${esc(key)}"><td colspan="4">${hideBtn}<span class="group-toggle">${indicator}</span> ${donut} ${esc(st.storageName)} ${summary} ${pctTxt}</td></tr>`;
+    const rows = items.map(item => {
+        const ipct = item.capacity > 0 ? Math.round(item.amount / item.capacity * 100) : 0;
+        const cls = ipct >= 95 ? 'full' : ipct >= 70 ? 'warn' : '';
+        const hidden = collapsed ? ' hidden-row' : '';
+        return `<tr class="group-item${hidden}" data-group="${esc(key)}">
+            <td>${esc(item.name)}</td>
+            <td class="num">${fmt(item.amount)}</td>
+            <td class="num">${item.capacity > 0 ? fmt(item.capacity) : '—'}</td>
+            <td><div class="bar-wrap"><div class="bar-bg"><div class="bar-fill ${cls}" style="width:${ipct}%"></div></div><span class="bar-pct">${item.capacity > 0 ? ipct+'%' : ''}</span></div></td>
+        </tr>`;
+    }).join('');
+    return header + rows;
+}
+
+function renderStorage(storage) {
+    $('cnt-storage').textContent = storage.length;
+    const tbody = $('storage-body');
+    if (!storage.length) { tbody.innerHTML = '<tr><td colspan="4" class="empty">Žádné sklady.</td></tr>'; $('storages-hidden-wrap').style.display = 'none'; return; }
+
+    const hidden = new Set(DashState.get(DashState.KEYS.hiddenStorages, []));
+    const visible = [];
+    const hiddenList = [];
+    for (const st of storage) {
+        const key = `${st.type || 'silo'}:${st.storageName}`;
+        (hidden.has(key) ? hiddenList : visible).push(st);
+    }
+    // Sort: non-empty (actual content) first. Within each group keep user's
+    // custom D&D order if set, otherwise alphabetical.
+    const dndKey = st => `${st.type || 'silo'}:${st.storageName}`;
+    const totalAmount = st => (st.items || []).reduce((s, i) => s + (i.amount || 0), 0);
+    const ordered = TableTools.applyOrder(visible, 'storages', dndKey);
+    ordered.sort((a, b) => {
+        const aEmpty = totalAmount(a) <= 0 ? 1 : 0;
+        const bEmpty = totalAmount(b) <= 0 ? 1 : 0;
+        return aEmpty - bEmpty;  // stable: preserves order within each group
+    });
+    visible.length = 0; visible.push(...ordered);
+    hiddenList.sort((a, b) => (a.storageName || '').localeCompare(b.storageName || ''));
+
+    tbody.innerHTML = visible.map(st => storageRowsHTML(st, { canHide: true })).join('')
+        || '<tr><td colspan="4" class="empty">Všechny sklady jsou skryté.</td></tr>';
+
+    const hWrap = $('storages-hidden-wrap');
+    if (hiddenList.length) {
+        hWrap.style.display = '';
+        $('cnt-stor-hidden').textContent = hiddenList.length;
+        $('storages-hidden-body').innerHTML = hiddenList.map(st => storageRowsHTML(st, { canHide: false })).join('');
+    } else {
+        hWrap.style.display = 'none';
+    }
+}
+
+const PRODUCTION_STATUS_LABEL = {
+    active:     '<span class="tag tag-ready">běží</span>',
+    inactive:   '<span class="tag tag-empty">vypnuto</span>',
+    noInput:    '<span class="tag tag-sow">chybí vstupy</span>',
+    outputFull: '<span class="tag tag-growing">výstup plný</span>',
+};
+
+function productionRowsHTML(p, opts) {
+    const key = `prod:${p.name}`;
+    const collapsed = groupState(key);
+    const indicator = collapsed ? '▶' : '▼';
+    const items   = p.items || [];
+    const recipes = p.productions || [];
+    const totalAmount = items.reduce((s, i) => s + (i.amount || 0), 0);
+    const totalCap    = items.reduce((s, i) => s + (i.capacity || 0), 0);
+    const pct = totalCap > 0 ? Math.round(totalAmount / totalCap * 100) : 0;
+    const donut = totalCap > 0 ? donutSVG(pct) : '';
+    const activeRecipes = recipes.filter(r => r.status === 'active').length;
+    const summary = `<span class="group-meta">${recipes.length} recept${recipes.length === 1 ? '' : 'y'}${activeRecipes ? ' · ' + activeRecipes + ' běží' : ''}${items.length ? ' · ' + fmt(totalAmount) + (totalCap > 0 ? ' / ' + fmt(totalCap) : '') + ' l' : ''}</span>`;
+    const pctTxt = totalCap > 0 ? `<span class="silo-pct">${pct} %</span>` : '';
+    const hideBtn = opts.canHide
+        ? `<button class="vc-hide" title="Skrýt výrobnu" data-hide-prod="${esc(key)}" style="float:right">✕</button>`
+        : `<button class="vc-hide" title="Zobrazit výrobnu" data-show-prod="${esc(key)}" style="float:right">+</button>`;
+    const header = `<tr class="st-row collapsible" ${TableTools.dndAttrs('productions', key)} data-group="${esc(key)}"><td colspan="4">${hideBtn}<span class="group-toggle">${indicator}</span> ${donut} ${esc(p.name)} ${summary} ${pctTxt}</td></tr>`;
+    const hiddenCls = collapsed ? ' hidden-row' : '';
+    const stockRows = items.map(item => {
+        const ipct = item.capacity > 0 ? Math.round(item.amount / item.capacity * 100) : 0;
+        const cls = ipct >= 95 ? 'full' : ipct >= 70 ? 'warn' : '';
+        return `<tr class="group-item${hiddenCls}" data-group="${esc(key)}">
+            <td>📦 ${esc(item.name)}</td>
+            <td class="num">${fmt(item.amount)}</td>
+            <td class="num">${item.capacity > 0 ? fmt(item.capacity) : '—'}</td>
+            <td><div class="bar-wrap"><div class="bar-bg"><div class="bar-fill ${cls}" style="width:${ipct}%"></div></div><span class="bar-pct">${item.capacity > 0 ? ipct + '%' : ''}</span></div></td>
+        </tr>`;
+    }).join('');
+    const recipeRows = recipes.map(r => {
+        const tag = PRODUCTION_STATUS_LABEL[r.status] || `<span class="tag">${esc(r.status || '?')}</span>`;
+        const ins  = (r.inputs  || []).map(i => `${esc(i.name)} ${fmt(i.amount)}l`).join(' + ') || '—';
+        const outs = (r.outputs || []).map(o => `${esc(o.name)} ${fmt(o.amount)}l`).join(' + ') || '—';
+        return `<tr class="group-item${hiddenCls}" data-group="${esc(key)}">
+            <td>⚙️ <strong>${esc(r.name)}</strong><br><span class="c-muted" style="font-size:0.85em">${ins} → ${outs}${r.cyclesPerHour ? ' · ' + r.cyclesPerHour + ' /hod' : ''}</span></td>
+            <td colspan="2" class="num">${r.cyclesPerHour ? fmt(r.cyclesPerHour) + ' /h' : '—'}</td>
+            <td>${tag}</td>
+        </tr>`;
+    }).join('');
+    return header + stockRows + recipeRows;
+}
+
+
+function renderProductions(productions) {
+    $('cnt-productions').textContent = productions.length;
+    const tbody = $('productions-body');
+    if (!productions.length) { tbody.innerHTML = '<tr><td colspan="4" class="empty">Žádné výrobny.</td></tr>'; $('productions-hidden-wrap').style.display = 'none'; return; }
+
+    const hidden = new Set(DashState.get(DashState.KEYS.hiddenProductions, []));
+    const visible = [];
+    const hiddenList = [];
+    for (const p of productions) {
+        const key = `prod:${p.name}`;
+        (hidden.has(key) ? hiddenList : visible).push(p);
+    }
+    // Custom D&D order wins; otherwise: active first, then by name.
+    const customOrder = TableTools.getOrder('productions');
+    if (customOrder && customOrder.length) {
+        const visOrd = TableTools.applyOrder(visible, 'productions', p => `prod:${p.name}`);
+        visible.length = 0; visible.push(...visOrd);
+    } else {
+        const sortFn = (a, b) => {
+            const aActive = (a.productions || []).some(r => r.status === 'active') ? 0 : 1;
+            const bActive = (b.productions || []).some(r => r.status === 'active') ? 0 : 1;
+            if (aActive !== bActive) return aActive - bActive;
+            return (a.name || '').localeCompare(b.name || '');
+        };
+        visible.sort(sortFn);
+    }
+    hiddenList.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+
+    tbody.innerHTML = visible.map(p => productionRowsHTML(p, { canHide: true })).join('')
+        || '<tr><td colspan="4" class="empty">Všechny výrobny jsou skryté.</td></tr>';
+
+    const hWrap = $('productions-hidden-wrap');
+    if (hiddenList.length) {
+        hWrap.style.display = '';
+        $('cnt-prod-hidden').textContent = hiddenList.length;
+        $('productions-hidden-body').innerHTML = hiddenList.map(p => productionRowsHTML(p, { canHide: false })).join('');
+    } else {
+        hWrap.style.display = 'none';
+    }
+}
+
+function buildStockMap(data) {
+    const map = {};
+    const walk = list => {
+        for (const st of list || []) {
+            for (const item of st.items || []) {
+                map[item.name] = (map[item.name] || 0) + (item.amount || 0);
+            }
+        }
+    };
+    walk(data && data.storage);
+    walk(data && data.productions);
+    return map;
+}
+
+function renderPrices(prices) {
+    const tbody = $('prices-body');
+    if (!prices.length) { tbody.innerHTML = '<tr><td colspan="3" class="empty">Žádná výkupní místa.</td></tr>'; return; }
+
+    const stock = buildStockMap(window.__lastData);
+    const STATE_KEY = 'prices';
+    const ITEM_KEY  = 'priceItems';
+    const getKey = sp => sp.sellPoint;
+    const hiddenItems = TableTools.getHidden(ITEM_KEY);   // per-commodity hide is global
+    const ordered = TableTools.applyOrder(prices, STATE_KEY, getKey);
+    const { visible, hidden } = TableTools.split(ordered, STATE_KEY, getKey);
+
+    const groupHTML = (sp, canHide) => {
+        const key = `sell:${sp.sellPoint}`;
+        const collapsed = groupState(key);
+        const indicator = collapsed ? '▶' : '▼';
+        // Split items by per-commodity hide; sort each part by stock desc → name.
+        const sortItems = (arr) => arr.slice().sort((a, b) => {
+            const aHas = stock[a.name] || 0, bHas = stock[b.name] || 0;
+            if (aHas !== bHas) return bHas - aHas;
+            return (a.name || '').localeCompare(b.name || '');
+        });
+        const allItems = sp.items || [];
+        const visibleItems = sortItems(allItems.filter(it => !hiddenItems.has(String(it.name))));
+        const hiddenItemRows = sortItems(allItems.filter(it => hiddenItems.has(String(it.name))));
+
+        const summary = `<span class="group-meta">${visibleItems.length}${hiddenItemRows.length ? ' / ' + allItems.length : ''} komodit</span>`;
+        const btn = canHide
+            ? TableTools.hideBtn(STATE_KEY, sp.sellPoint, 'Skrýt výkupní místo')
+            : TableTools.unhideBtn(STATE_KEY, sp.sellPoint, 'Zobrazit výkupní místo');
+        const header = `<tr class="sp-row collapsible" ${TableTools.dndAttrs(STATE_KEY, sp.sellPoint)} data-group="${esc(key)}"><td colspan="3"><span style="float:right">${btn}</span><span class="group-toggle">${indicator}</span> 📍 ${esc(sp.sellPoint)} ${summary}</td></tr>`;
+
+        const itemRow = (item, canHideItem) => {
+            const cls = item.pricePerTon >= 800 ? 'c-green' : item.pricePerTon >= 500 ? 'c-yellow' : '';
+            const hCls = collapsed ? ' hidden-row' : '';
+            const has = stock[item.name] || 0;
+            const stockTxt = has > 0 ? ` <span class="c-muted" style="font-size:0.85em">(${fmt(has)} l)</span>` : '';
+            const itemBtn = canHideItem
+                ? TableTools.hideBtn(ITEM_KEY, item.name, 'Skrýt komoditu')
+                : TableTools.unhideBtn(ITEM_KEY, item.name, 'Zobrazit komoditu');
+            return `<tr class="group-item${hCls}" data-group="${esc(key)}"><td>${esc(item.name)}${stockTxt}</td><td class="num ${cls}">${fmtMoney(item.pricePerTon)}</td><td>${itemBtn}</td></tr>`;
+        };
+
+        let rows = visibleItems.map(it => itemRow(it, true)).join('');
+        if (hiddenItemRows.length) {
+            const hCls = collapsed ? ' hidden-row' : '';
+            rows += `<tr class="group-item tt-hidden-sep${hCls}" data-group="${esc(key)}" data-tt-hidden-toggle="${esc(ITEM_KEY)}:${esc(sp.sellPoint)}"><td colspan="3"><span class="group-toggle">▶</span> Skryté komodity <span class="count">${hiddenItemRows.length}</span></td></tr>`;
+            rows += hiddenItemRows.map(it => itemRow(it, false).replace('<tr ', '<tr class="hidden-row" ')).join('');
+        }
+        return header + rows;
+    };
+
+    let html = visible.map(sp => groupHTML(sp, true)).join('');
+    if (hidden.length) {
+        html += TableTools.hiddenSubgroupRow(STATE_KEY, hidden.length, 3);
+        html += hidden.map(sp => groupHTML(sp, false).replace(/<tr /g, '<tr class="hidden-row" ').replace(/class="hidden-row" class="/g, 'class="hidden-row ')).join('');
+    }
+    tbody.innerHTML = html;
+}
+
+function hideAllZeroStockPrices() {
+    if (!window.__lastData) return;
+    const stock = buildStockMap(window.__lastData);
+    const names = new Set();
+    for (const sp of window.__lastData.prices || []) {
+        for (const it of sp.items || []) {
+            if (!(stock[it.name] > 0)) names.add(it.name);
+        }
+    }
+    for (const n of names) TableTools.hide('priceItems', n);
+    renderPrices(window.__lastData.prices || []);
+}
+
+// Click anywhere on a collapsible row → toggle its group's items.
+document.addEventListener('click', e => {
+    const header = e.target.closest('tr.collapsible');
+    if (!header) return;
+    const key = header.dataset.group;
+    const willCollapse = !collapsedGroups.has(key);
+    if (willCollapse) collapsedGroups.add(key); else collapsedGroups.delete(key);
+    const tbody = header.parentElement;
+    tbody.querySelectorAll(`tr.group-item[data-group="${CSS.escape(key)}"]`)
+        .forEach(r => r.classList.toggle('hidden-row', willCollapse));
+    const toggle = header.querySelector('.group-toggle');
+    if (toggle) toggle.textContent = willCollapse ? '▶' : '▼';
+    if (typeof relayoutMasonry === 'function') relayoutMasonry();
+});
+
+// Also relayout when subgroup toggles fire (Skryté/Prázdné chovy).
+document.addEventListener('click', e => {
+    if (e.target.closest('.subgroup-header, [data-tt-hidden-toggle]')) {
+        if (typeof relayoutMasonry === 'function') setTimeout(relayoutMasonry, 0);
+    }
+});
+
+// ─── WebSocket (via shared app.js) ────────────────────────────────────────────
+
+function applySectionOrder() {
+    if (!window.TableTools) return;
+    const grid = document.getElementById('masonry');
+    if (!grid) return;
+    const order = TableTools.getOrder('sections');
+    if (order && order.length) {
+        const byKey = {};
+        grid.querySelectorAll('[data-tt-dnd="sections"][data-tt-key]').forEach(el => {
+            byKey[el.dataset.ttKey] = el;
+        });
+        for (const k of order) {
+            if (byKey[k]) grid.appendChild(byKey[k]);  // moves existing node to end in given order
+        }
+    }
+    relayoutMasonry();
+}
+
+// Masonry packing — places sections absolutely into the column with the smallest
+// running height. `.sec-fields` spans 2 columns when at least 2 columns fit.
+let _masonryPending = false;
+function relayoutMasonry() {
+    if (_masonryPending) return;
+    _masonryPending = true;
+    requestAnimationFrame(() => {
+        _masonryPending = false;
+        _doRelayout();
+    });
+}
+function _doRelayout() {
+    const container = document.getElementById('masonry');
+    if (!container) return;
+    const sections = [...container.children].filter(c => c.classList && c.classList.contains('section'));
+    if (!sections.length) return;
+
+    const containerW = container.clientWidth;
+    const gap = 12;
+    const minColW = 440;
+    let ncols = Math.max(1, Math.floor((containerW + gap) / (minColW + gap)));
+    const colW = (containerW - gap * (ncols - 1)) / ncols;
+
+    container.classList.add('laid-out');
+
+    // Pass 1: set widths so each section's measured height is at its final width.
+    sections.forEach(s => {
+        const wide = s.classList.contains('sec-fields') && ncols >= 2;
+        s._span = wide ? 2 : 1;
+        s.style.width = (colW * s._span + gap * (s._span - 1)) + 'px';
+    });
+
+    // Pass 2: compute positions.
+    const colY = new Array(ncols).fill(0);
+    sections.forEach(s => {
+        const span = s._span;
+        let bestCol = 0, bestY = Infinity;
+        for (let i = 0; i <= ncols - span; i++) {
+            const maxY = Math.max(...colY.slice(i, i + span));
+            if (maxY < bestY) { bestY = maxY; bestCol = i; }
+        }
+        s.style.left = (bestCol * (colW + gap)) + 'px';
+        s.style.top = bestY + 'px';
+        const h = s.offsetHeight;
+        const newY = bestY + h + gap;
+        for (let i = bestCol; i < bestCol + span; i++) colY[i] = newY;
+    });
+
+    container.style.height = (Math.max(...colY) - gap) + 'px';
+}
+
+window.addEventListener('resize', relayoutMasonry);
+
+window.addEventListener('DOMContentLoaded', () => {
+    FS25App.connect(render);
+
+    const btnHideZero = document.getElementById('btn-hide-zero-prices');
+    if (btnHideZero) btnHideZero.addEventListener('click', hideAllZeroStockPrices);
+
+    applySectionOrder();
+
+    relayoutMasonry();
+
+    // Register TableTools render callbacks (defer scripts are now loaded).
+    if (window.TableTools) {
+        TableTools.onChange('sections', applySectionOrder);
+        TableTools.onChange('fields',      () => { if (window.__lastData) { renderFields(window.__lastData.fields || []); relayoutMasonry(); } });
+        TableTools.onChange('vehicles',    () => { if (window.__lastData) { renderVehicles(window.__lastData.vehicles || []); relayoutMasonry(); } });
+        TableTools.onChange('animals',     () => { if (window.__lastData) { renderAnimals(window.__lastData.animals || []); relayoutMasonry(); } });
+        TableTools.onChange('storages',    () => { if (window.__lastData) { renderStorage(window.__lastData.storage || []); relayoutMasonry(); } });
+        TableTools.onChange('productions', () => { if (window.__lastData) { renderProductions(window.__lastData.productions || []); relayoutMasonry(); } });
+        TableTools.onChange('prices',      () => { if (window.__lastData) { renderPrices(window.__lastData.prices || []); relayoutMasonry(); } });
+        TableTools.onChange('priceItems',  () => { if (window.__lastData) { renderPrices(window.__lastData.prices || []); relayoutMasonry(); } });
+    }
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,26 @@
+﻿<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<modDesc descVersion="104">
+  <author>Sapavlisna</author>
+  <version>1.0.0.56</version>
+  <title>
+    <en>FS25 Dashboard</en>
+    <cz>FS25 Dashboard</cz>
+  </title>
+  <description>
+    <en><![CDATA[Exports live game state (fields, vehicles, animals, silos, prices, balance, weather) to JSON for the FS25 Dashboard web app.
+
+Uses field:getFieldState() (per-tick terrain truth) and iterates g_farmlandManager.farmlands so the panel and the dashboard show the same fruit on the same farmland.
+
+Writes to: Documents/My Games/FarmingSimulator2025/dashboard_data.json every 2 seconds when state changes.]]></en>
+    <cz><![CDATA[Exportuje aktuální stav hry (pole, vozidla, zvířata, sila, ceny, zůstatek, počasí) do JSON pro web FS25 Dashboard.
+
+Používá field:getFieldState() (terénní pravda) a iteruje g_farmlandManager.farmlands, aby panel ve hře a dashboard ukazovaly stejnou plodinu na stejné zemědělské půdě.
+
+Zapisuje do: Documents/My Games/FarmingSimulator2025/dashboard_data.json každé 2 sekundy při změně stavu.]]></cz>
+  </description>
+  <iconFilename>icon_dashboard.dds</iconFilename>
+  <multiplayer supported="false" />
+  <extraSourceFiles>
+    <sourceFile filename="DashboardExport.lua" />
+  </extraSourceFiles>
+</modDesc>

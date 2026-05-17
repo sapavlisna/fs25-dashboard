@@ -1,0 +1,12 @@
+@echo off
+REM Optional local override for deploy.bat. Copy this file to deploy.local.bat
+REM (no `.example`) and edit. deploy.local.bat is gitignored, so your personal
+REM path won't end up in commits.
+REM
+REM Set FS25_MODS_DIR to the FS25 mod folder you actually use. Examples:
+
+REM Standard location (Documents under your user profile):
+REM set "FS25_MODS_DIR=%USERPROFILE%\Documents\My Games\FarmingSimulator2025\mods"
+
+REM Custom location on a different drive (e.g. Steam Library):
+REM set "FS25_MODS_DIR=D:\SteamLibrary\FS25-Mods"

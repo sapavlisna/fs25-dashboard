@@ -1,0 +1,109 @@
+name: Release
+
+# Triggered when a tag like v1.0.0 is pushed. Builds:
+#   1. The FS25 Lua mod ZIP            (drop into FS25 mods folder)
+#   2. The Node.js server as a single  Windows .exe via pkg, bundled with a
+#      tiny end-user readme + config.example.json in a ZIP.
+# Both ZIPs are attached to a GitHub Release automatically.
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read version from tag
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      # ─── Mod ZIP ─────────────────────────────────────────────────────────
+      # FS25 mods must have files at the archive root (not under a folder).
+      - name: Build mod ZIP
+        run: |
+          cd FS25
+          zip -r "../FS25_Dashboard.zip" . -x "*.bat" "*.bat.example"
+
+      # ─── Single-file server build via pkg ────────────────────────────────
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: Server/package-lock.json
+
+      - name: Install server deps
+        working-directory: Server
+        run: npm ci
+
+      - name: Build single-file server (Windows x64)
+        working-directory: Server
+        run: npm run build
+
+      # ─── Server bundle ZIP ───────────────────────────────────────────────
+      - name: Package server bundle
+        run: |
+          mkdir -p dist-server
+          cp Server/dist/FS25_Dashboard_Server.exe dist-server/
+          cp Server/config.example.json dist-server/
+          cat > dist-server/README.txt << 'EOF'
+          FS25 Dashboard Server
+          =====================
+
+          1. Make sure the FS25_Dashboard mod is installed in your FS25 mods folder
+             and enabled in the in-game mod menu of your save.
+
+          2. Double-click FS25_Dashboard_Server.exe.
+             - First run may take a few seconds while the server starts.
+             - A console window will show the server log. Keep it open.
+
+          3. Open http://localhost:3000 in your browser.
+
+          Configuration (optional):
+          - Copy config.example.json to config.local.json (same folder as the .exe)
+            and edit the keys you want to change.
+          - Or set environment variables before running:
+              set DASHBOARD_PORT=4000
+              set FS25_DOCS_DIR=D:\Games\FS25-Docs
+              FS25_Dashboard_Server.exe
+
+          Stopping the server: close the console window (or press Ctrl+C in it).
+
+          Project: https://github.com/Sapavlisna/fs25-dashboard
+          EOF
+          cd dist-server && zip -r "../FS25_Dashboard_Server.zip" .
+
+      # ─── Release ─────────────────────────────────────────────────────────
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: v${{ steps.version.outputs.version }}
+          body: |
+            ## FS25 Dashboard ${{ steps.version.outputs.version }}
+
+            See [CHANGELOG.md](CHANGELOG.md) for details.
+
+            ### Install
+
+            **1. The in-game mod**
+            Download `FS25_Dashboard.zip` and drop it into:
+            `Documents/My Games/FarmingSimulator2025/mods/`
+
+            **2. The dashboard server**
+            Download `FS25_Dashboard_Server.zip`, extract anywhere, double-click
+            `FS25_Dashboard_Server.exe`. Open http://localhost:3000.
+
+            No Node.js installation required — the server is a single bundled
+            Windows executable (~50 MB).
+          files: |
+            FS25_Dashboard.zip
+            FS25_Dashboard_Server.zip
+          draft: false
+          prerelease: false

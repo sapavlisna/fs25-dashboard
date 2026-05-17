@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>WebSocket Test – FS25 Dashboard</title>
+<style>
+  body { font-family: monospace; background: #0f1a0e; color: #d4e8cf; padding: 20px; }
+  button { background: #5aad3f; color: #0f1a0e; border: none; padding: 8px 16px; margin: 4px; border-radius: 4px; cursor: pointer; font-weight: bold; }
+  #log { background: #111; padding: 12px; height: 400px; overflow-y: auto; border: 1px solid #2e4a2a; border-radius: 4px; margin-top: 12px; font-size: 12px; white-space: pre-wrap; }
+  .ok   { color: #5aad3f; }
+  .err  { color: #e05252; }
+  .data { color: #f0b429; }
+</style>
+</head>
+<body>
+<h3>WebSocket Test – FS25 Dashboard</h3>
+<button onclick="connect()">Connect ws://localhost:3000</button>
+<button onclick="disconnect()">Disconnect</button>
+<button onclick="clearLog()">Clear</button>
+<div id="log"></div>
+
+<script>
+let ws = null;
+const log = document.getElementById('log');
+
+function addLog(msg, cls = '') {
+    const line = document.createElement('div');
+    line.className = cls;
+    line.textContent = new Date().toLocaleTimeString('cs-CZ') + '  ' + msg;
+    log.prepend(line);
+}
+
+function connect() {
+    if (ws && ws.readyState <= 1) { addLog('Already connected.'); return; }
+    ws = new WebSocket('ws://localhost:3000');
+
+    ws.onopen = () => addLog('CONNECTED ✓', 'ok');
+    ws.onclose = (e) => addLog(`DISCONNECTED (code ${e.code})`, 'err');
+    ws.onerror = () => addLog('ERROR – is the server running? (node server/index.js)', 'err');
+
+    ws.onmessage = (e) => {
+        try {
+            const d = JSON.parse(e.data);
+            addLog(
+                `DATA  day=${d.gameDay} time=${d.gameTime} ` +
+                `balance=${(d.farmBalance||0).toLocaleString()}  ` +
+                `fields=${d.fields?.length??'?'} vehicles=${d.vehicles?.length??'?'} ` +
+                `animals=${d.animals?.length??'?'} storage=${d.storage?.length??'?'}`,
+                'data'
+            );
+        } catch {
+            addLog('RAW (not JSON): ' + e.data.slice(0, 120));
+        }
+    };
+}
+
+function disconnect() { ws && ws.close(); }
+function clearLog()   { log.innerHTML = ''; }
+</script>
+</body>
+</html>

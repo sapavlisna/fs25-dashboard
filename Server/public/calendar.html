@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Kalendář polí – FS25</title>
+<script>
+    (function () {
+        try {
+            var q = (location.search.match(/[?&]theme=([\w-]+)/) || [])[1];
+            var t = q || localStorage.getItem('fs25.dash.v1.theme') || 'dark-green';
+            document.documentElement.setAttribute('data-theme', t);
+            if (q) { try { localStorage.setItem('fs25.dash.v1.theme', t); } catch (_) {} }
+        } catch (e) {
+            document.documentElement.setAttribute('data-theme', 'dark-green');
+        }
+    })();
+</script>
+<link rel="stylesheet" href="style.css">
+<script src="theme.js" defer></script>
+<script src="notifications.js" defer></script>
+<script src="bell.js" defer></script>
+<script src="crop-icons.js" defer></script>
+<script src="app.js" defer></script>
+<script src="tabletools.js" defer></script>
+<style>
+/* ─── Gantt ──────────────────────────────────────────────────────── */
+#gantt-wrap {
+    overflow-x: auto;
+    padding: 0 16px 16px;
+    position: relative;
+}
+.gantt-container {
+    display: grid;
+    min-width: 600px;
+}
+/* Row */
+.gantt-row {
+    display: flex;
+    align-items: center;
+    border-top: 1px solid var(--border);
+    min-height: 32px;
+}
+.gantt-row:hover { background: color-mix(in srgb, var(--accent) 5%, transparent); }
+.gantt-label {
+    width: 160px;
+    flex-shrink: 0;
+    padding: 0 10px;
+    font-size: 12px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.gantt-label .field-id  { color: var(--muted); font-size: 10px; margin-right: 4px; }
+.gantt-label .field-name { font-size: 11px; color: var(--muted); display: flex; align-items: center; }
+.gantt-label .field-name .fert { margin-left: auto; padding-right: 4px; }
+.gantt-timeline {
+    flex: 1;
+    position: relative;
+    height: 32px;
+}
+/* Day grid lines (drawn via repeating-linear-gradient in JS) */
+.gantt-bar {
+    position: absolute;
+    top: 6px; height: 20px;
+    border-radius: 3px;
+    cursor: pointer;
+    transition: filter .15s;
+    display: flex; align-items: center; padding: 0 6px;
+    font-size: 10px; font-weight: 600; white-space: nowrap; overflow: hidden;
+    color: rgba(0,0,0,.7);
+}
+.gantt-bar:hover { filter: brightness(1.2); }
+
+.fert {
+    font-size: 12px; margin-left: 6px;
+    letter-spacing: -1px;
+    font-weight: 700;
+}
+.fert.fert-ok   { color: #4ade80; }   /* bright green — fully fertilized */
+.fert.fert-half { color: #facc15; }   /* yellow — half done */
+.fert.fert-none { color: #f87171; }   /* red — not fertilized */
+
+/* Header row */
+.gantt-header {
+    display: flex;
+    border-bottom: 2px solid var(--border);
+    font-size: 10px; color: var(--muted);
+    font-weight: 700;
+}
+.gantt-header-label { width: 160px; flex-shrink: 0; padding: 6px 10px; }
+.gantt-header-days  { flex: 1; position: relative; height: 28px; }
+.gantt-day-tick {
+    position: absolute; top: 0; height: 100%;
+    display: flex; align-items: center;
+    font-size: 10px; color: var(--muted);
+    border-left: 1px solid var(--border);
+    padding-left: 3px;
+}
+/* Today marker */
+.gantt-today {
+    position: absolute; top: 0; bottom: 0;
+    width: 2px; background: var(--accent2);
+    opacity: .6; z-index: 2;
+    pointer-events: none;
+}
+
+/* ─── Legend ─────────────────────────────────────────────────────── */
+.legend {
+    display: flex; gap: 12px; flex-wrap: wrap;
+    padding: 12px 16px; font-size: 12px;
+}
+.legend-item { display: flex; align-items: center; gap: 6px; }
+.legend-dot   { width: 12px; height: 12px; border-radius: 2px; flex-shrink: 0; }
+
+/* ─── Filter bar ─────────────────────────────────────────────────── */
+.filter-bar {
+    display: flex; gap: 10px; align-items: center;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border);
+    flex-wrap: wrap;
+}
+.filter-bar label { font-size: 12px; color: var(--muted); }
+.filter-bar select, .filter-bar input[type=range] {
+    background: var(--surface2); border: 1px solid var(--border);
+    color: var(--text); border-radius: 4px; padding: 4px 8px; font-size: 12px;
+}
+
+/* ─── Modal ──────────────────────────────────────────────────────── */
+#modal-overlay {
+    display: none; position: fixed; inset: 0;
+    background: rgba(0,0,0,.6); z-index: 200;
+    align-items: center; justify-content: center;
+}
+#modal-overlay.open { display: flex; }
+#modal {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 24px; max-width: 420px; width: 90%;
+}
+#modal h3 { margin-bottom: 12px; }
+#modal table { width: 100%; font-size: 13px; }
+#modal td { padding: 5px 0; }
+#modal td:first-child { color: var(--muted); width: 140px; }
+#modal-close {
+    margin-top: 16px; display: block; width: 100%;
+    background: var(--surface2); border: 1px solid var(--border);
+    color: var(--text); padding: 8px; border-radius: 4px; cursor: pointer; font-size: 13px;
+}
+</style>
+</head>
+<body>
+
+<nav>
+    <span class="nav-brand">🌾 FS25</span>
+    <div class="nav-links">
+        <a href="/">Dashboard</a>
+        <a href="/calendar.html" class="active">Kalendář polí</a>
+        <a href="/profit.html">Zisk polí</a>
+        <a href="/calculator.html">Kalkulátor</a>
+        <a href="/history.html">Historie</a>
+    </div>
+    <div class="nav-status">
+        <span class="bell-slot" id="bell-slot"></span>
+        <span class="dot" id="ws-dot"></span>
+        <span id="ws-label">Připojování…</span>
+    </div>
+</nav>
+
+<main>
+
+    <!-- KPI hero row -->
+    <div class="kpi-row">
+        <div class="kpi-card">
+            <span class="kpi-label">Vlastněná pole</span>
+            <span class="kpi-value" id="kpi-owned">—</span>
+            <span class="kpi-sub" id="kpi-owned-sub"></span>
+        </div>
+        <div class="kpi-card">
+            <span class="kpi-label">Sklízet teď</span>
+            <span class="kpi-value" id="kpi-ready">—</span>
+            <span class="kpi-sub" id="kpi-ready-sub"></span>
+        </div>
+        <div class="kpi-card">
+            <span class="kpi-label">Rostou</span>
+            <span class="kpi-value" id="kpi-growing">—</span>
+            <span class="kpi-sub" id="kpi-growing-sub"></span>
+        </div>
+        <div class="kpi-card">
+            <span class="kpi-label">Čekají na setbu</span>
+            <span class="kpi-value" id="kpi-sow">—</span>
+            <span class="kpi-sub" id="kpi-sow-sub"></span>
+        </div>
+    </div>
+
+    <div class="section">
+        <div class="section-header">
+            📅 Kalendář polí – Gantt
+            <span class="count" id="cnt-fields">0</span>
+            <div class="filter-bar" style="margin-left:auto;border:0;padding:0;flex-wrap:nowrap">
+                <select id="filter-owned">
+                    <option value="owned">Jen vlastněná pole</option>
+                    <option value="all">Všechna pole</option>
+                </select>
+                <label>Výhled:</label>
+                <input type="range" id="range-days" min="10" max="60" value="30" style="width:100px">
+                <span id="range-label" style="font-size:12px;color:var(--muted);min-width:42px">30 dní</span>
+            </div>
+        </div>
+
+        <!-- Legend -->
+        <div class="legend">
+            <div class="legend-item"><div class="legend-dot" style="background:var(--accent)"></div> Připraveno ke sklizni</div>
+            <div class="legend-item"><div class="legend-dot" style="background:var(--teal)"></div> Roste</div>
+            <div class="legend-item"><div class="legend-dot" style="background:var(--accent2)"></div> Potřebuje setí</div>
+            <div class="legend-item"><div class="legend-dot" style="background:var(--muted);opacity:.5"></div> Prázdné / bez plodiny</div>
+            <div class="legend-item" style="margin-left:12px"><span style="color:#4ade80;font-weight:700">●●</span> hnojeno · <span style="color:#facc15;font-weight:700">●○</span> 1× · <span style="color:#f87171;font-weight:700">○○</span> nehnojeno</div>
+        </div>
+
+        <!-- Gantt -->
+        <div id="gantt-wrap">
+            <div id="gantt-container" class="gantt-container">
+                <div class="empty" style="padding:32px">Čeká na data ze serveru…</div>
+            </div>
+        </div>
+    </div>
+</main>
+
+<!-- Modal -->
+<div id="modal-overlay">
+    <div id="modal">
+        <h3 id="modal-title">Pole #</h3>
+        <table id="modal-table"></table>
+        <button id="modal-close" onclick="closeModal()">Zavřít</button>
+    </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+
+// ─── State ────────────────────────────────────────────────────────────────────
+
+let currentData = null;
+let gameDay = 0;
+
+// Fruit → colour mapping (delegated to CropIcons)
+function fruitColor(id) { return (window.CropIcons && CropIcons.color(id)) || '#888'; }
+
+// Two-dot fertilization badge: filled vs hollow per pass. FS25 has 2 fert
+// phases (level 0 = none, 1 = first done, 2 = both done). Colour follows
+// the "is this OK?" axis: green when fully fertilized, yellow halfway,
+// red when not started.
+function fertBadge(level) {
+    if (level == null) return '';
+    const lvl = Math.max(0, Math.min(2, +level || 0));
+    const cls   = lvl === 2 ? 'fert-ok' : lvl === 1 ? 'fert-half' : 'fert-none';
+    const dots  = lvl === 2 ? '●●' : lvl === 1 ? '●○' : '○○';
+    const title = lvl === 2 ? 'Hnojeno 2× (plné)'
+                : lvl === 1 ? 'Hnojeno 1× — chybí 2. fáze'
+                : 'Nehnojeno';
+    return ` <span class="fert ${cls}" title="${title}">${dots}</span>`;
+}
+
+// ─── Render ───────────────────────────────────────────────────────────────────
+
+function renderKPI(fields) {
+    const owned   = fields.filter(f => f.owned);
+    const ready   = owned.filter(f => f.isReadyToHarvest);
+    const growing = owned.filter(f => f.fruitTypeId && !f.isReadyToHarvest);
+    const sow     = owned.filter(f => f.needsSowing);
+
+    $('kpi-owned').textContent   = owned.length;
+    const totalHa = owned.reduce((s, f) => s + (f.area || 0), 0);
+    $('kpi-owned-sub').textContent = totalHa > 0 ? totalHa.toFixed(2) + ' ha celkem' : '';
+
+    $('kpi-ready').textContent  = ready.length;
+    const readyHa = ready.reduce((s, f) => s + (f.area || 0), 0);
+    $('kpi-ready-sub').textContent = ready.length ? readyHa.toFixed(2) + ' ha k sklizni' : 'Vše roste';
+
+    $('kpi-growing').textContent = growing.length;
+    if (growing.length) {
+        const minDays = Math.min(...growing.map(f => f.daysToHarvest || 0).filter(d => d > 0));
+        $('kpi-growing-sub').textContent = Number.isFinite(minDays) ? 'nejbližší ' + minDays + ' dní' : '';
+    } else {
+        $('kpi-growing-sub').textContent = '';
+    }
+
+    $('kpi-sow').textContent = sow.length;
+    const sowHa = sow.reduce((s, f) => s + (f.area || 0), 0);
+    $('kpi-sow-sub').textContent = sow.length ? sowHa.toFixed(2) + ' ha k osetí' : 'Vše osázeno';
+}
+
+function renderGantt(fields) {
+    const onlyOwned = $('filter-owned').value === 'owned';
+    const viewDays  = parseInt($('range-days').value);
+    $('range-label').textContent = viewDays + ' dní';
+
+    const list = onlyOwned ? fields.filter(f => f.owned) : fields;
+    $('cnt-fields').textContent = `${list.length} / ${fields.length}`;
+
+    if (!list.length) {
+        $('gantt-container').innerHTML = '<div class="empty" style="padding:32px">Žádná pole.</div>';
+        return;
+    }
+
+    const startDay = gameDay;
+    const endDay   = gameDay + viewDays;
+    const PX_PER_DAY = Math.max(20, Math.floor(($('gantt-wrap').clientWidth - 200) / viewDays));
+
+    // Header
+    let headerDays = '';
+    for (let d = startDay; d <= endDay; d++) {
+        const x = (d - startDay) * PX_PER_DAY;
+        if ((d - startDay) % 5 === 0) {
+            headerDays += `<div class="gantt-day-tick" style="left:${x}px">D${d}</div>`;
+        }
+    }
+
+    // Today marker x
+    const todayX = 0;
+
+    let html = `
+        <div class="gantt-header">
+            <div class="gantt-header-label">Pole</div>
+            <div class="gantt-header-days" style="width:${viewDays * PX_PER_DAY}px">
+                ${headerDays}
+                <div class="gantt-today" style="left:${todayX}px"></div>
+            </div>
+        </div>`;
+
+    html += list.map(f => {
+        const fruitDisplay = f.fruitTypeId
+            ? CropIcons.iconWithName(f.fruitTypeId, esc(f.fruitName), 14)
+            : esc(f.needsSowing ? 'Bez plodiny' : '—');
+        const fertInLabel = f.fruitTypeId ? fertBadge(f.fertilizationLevel) : '';
+        const rowLabel = `<div class="gantt-label">
+            <span class="field-id">#${f.id}</span>${fruitDisplay}
+            <div class="field-name"${f.farmlandAreaHa != null && f.farmlandAreaHa !== f.area ? ` title="Pole: ${f.area} ha · Parcela: ${f.farmlandAreaHa} ha"` : ''}>${f.area} ha${fertInLabel}</div>
+        </div>`;
+
+        let bars = '';
+
+        if (f.fruitTypeId) {
+            // Growing bar: from today to estimated harvest
+            const barStart  = 0;
+            const barWidth  = Math.max(1, f.daysToHarvest || 0) * PX_PER_DAY;
+            // Bar colours mirror the 4-state legend so users can map at a
+            // glance. Crop identity is already conveyed by the icon + name
+            // in the row label.
+            const color     = f.isReadyToHarvest ? 'var(--accent)' : 'var(--teal)';
+            const phase     = (f.maxGrowthState > 0) ? ` ${f.growthState}/${f.maxGrowthState}` : '';
+            const barLabel  = f.isReadyToHarvest
+                ? 'Sklízet!'
+                : `${esc(f.fruitName)}${phase} · ${f.growthPercent}%`;
+
+            if (barStart * PX_PER_DAY < viewDays * PX_PER_DAY) {
+                bars += `<div class="gantt-bar"
+                    style="left:${barStart}px; width:${Math.min(barWidth, viewDays * PX_PER_DAY - barStart)}px; background:${color};"
+                    data-field='${JSON.stringify(f).replace(/'/g,"&#39;")}'
+                    onclick="openModal(this)"
+                >${barLabel}</div>`;
+            }
+        } else if (f.needsSowing) {
+            bars += `<div class="gantt-bar" style="left:0;width:40px;background:var(--accent2);"
+                data-field='${JSON.stringify(f).replace(/'/g,"&#39;")}'
+                onclick="openModal(this)">Sít</div>`;
+        }
+
+        return `<div class="gantt-row">
+            ${rowLabel}
+            <div class="gantt-timeline" style="width:${viewDays * PX_PER_DAY}px">
+                <div class="gantt-today" style="left:0"></div>
+                ${bars}
+            </div>
+        </div>`;
+    }).join('');
+
+    $('gantt-container').innerHTML = html;
+}
+
+// ─── Modal ────────────────────────────────────────────────────────────────────
+
+function openModal(el) {
+    try {
+        const f = JSON.parse(el.getAttribute('data-field').replace(/&#39;/g, "'"));
+        $('modal-title').textContent = `Pole #${f.id}`;
+        const harvestDay = gameDay + (f.daysToHarvest || 0);
+
+        // Basic table
+        const fruitDisplay = f.fruitTypeId
+            ? CropIcons.iconWithName(f.fruitTypeId, esc(f.fruitName), 18)
+            : '—';
+        const rows = [
+            ['Plodina',       fruitDisplay],
+            ['Rozloha pole',  f.area + ' ha' + (f.farmlandAreaHa != null && f.farmlandAreaHa !== f.area ? ` <span class="c-muted">(parcela ${f.farmlandAreaHa} ha)</span>` : '')],
+            ['Fáze růstu',    `${f.growthState} / ${f.maxGrowthState}`],
+            ['Růst %',        f.growthPercent + '%'],
+            ['Sklizeň za',    f.isReadyToHarvest ? '<span class="c-green">Připraveno!</span>' : f.daysToHarvest + ' dní'],
+            ['Odhadovaný den sklizně', f.isReadyToHarvest ? '<span class="c-green">Dnes</span>' : 'Den ' + harvestDay],
+            ['Potřebuje setí', f.needsSowing ? '<span class="c-yellow">Ano</span>' : 'Ne'],
+        ];
+
+        // Conditions block
+        const condBadges = [];
+        const cb = (label, value, cls) => condBadges.push(`<div class="cond-badge ${cls}"><span>${label}</span><span class="v">${value}</span></div>`);
+
+        if (f.needsPlowing != null)        cb('Orat',       f.needsPlowing       ? 'ANO'       : 'OK',     f.needsPlowing       ? 'warn' : 'ok');
+        if (f.needsCultivating != null)    cb('Kultivovat', f.needsCultivating   ? 'ANO'       : 'OK',     f.needsCultivating   ? 'warn' : 'ok');
+        if (f.needsLime != null)           cb('Vápno',      f.needsLime          ? 'POTŘEBA'   : 'OK',     f.needsLime          ? 'warn' : 'ok');
+        if (f.fertilizationLevel != null)  cb('Hnojení',    ['Žádné','Polovina','Plné'][f.fertilizationLevel] || '?', f.fertilizationLevel >= 2 ? 'ok' : 'warn');
+        if (f.weedLevel != null)           cb('Plevel',     f.weedLevel === 0    ? 'OK'        : f.weedLevel + '/3',  f.weedLevel === 0 ? 'ok' : 'bad');
+        if (f.stoneLevel != null)          cb('Kameny',     f.stoneLevel === 0   ? 'OK'        : f.stoneLevel + '/3', f.stoneLevel === 0 ? 'ok' : 'bad');
+
+        const condHTML = condBadges.length
+            ? `<tr><td colspan="2" style="padding-top:14px"><div style="color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.06em">Stav pole</div><div class="cond-grid">${condBadges.join('')}</div></td></tr>`
+            : '';
+
+        $('modal-table').innerHTML =
+            rows.map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join('') + condHTML;
+
+        $('modal-overlay').classList.add('open');
+    } catch(e) { console.error(e); }
+}
+
+function closeModal() {
+    $('modal-overlay').classList.remove('open');
+}
+
+$('modal-overlay').addEventListener('click', e => {
+    if (e.target === $('modal-overlay')) closeModal();
+});
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+
+// ─── Filter/range handlers ────────────────────────────────────────────────────
+
+$('filter-owned').addEventListener('change', () => currentData && renderGantt(currentData.fields || []));
+$('range-days').addEventListener('input',    () => currentData && renderGantt(currentData.fields || []));
+
+// ─── WebSocket (via shared app.js) ────────────────────────────────────────────
+
+const esc = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+window.addEventListener('DOMContentLoaded', () => {
+    FS25App.connect(data => {
+        currentData = data;
+        gameDay = data.gameDay || 0;
+        const fields = data.fields || [];
+        renderKPI(fields);
+        renderGantt(fields);
+    });
+});
+</script>
+</body>
+</html>

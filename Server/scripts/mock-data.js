@@ -1,0 +1,258 @@
+#!/usr/bin/env node
+// Generates realistic mock dashboard_data.json every 5s (simulates the FS25 mod).
+// Use to test server + frontend WITHOUT running FS25.
+// Run: npm run mock
+
+const fs   = require('fs');
+const path = require('path');
+const config = require('../config');
+
+const OUTPUT = process.argv[2] || config.DATA_FILE;
+
+const ri = (a, b) => Math.floor(Math.random() * (b - a + 1)) + a;
+const rf = (a, b) => Math.random() * (b - a) + a;
+const pct = (n) => Math.round(n * 10) / 10;
+
+const FRUITS = [
+    { id: 'WHEAT',      name: 'Pšenice' },
+    { id: 'BARLEY',     name: 'Ječmen' },
+    { id: 'CANOLA',     name: 'Řepka' },
+    { id: 'MAIZE',      name: 'Kukuřice' },
+    { id: 'SUNFLOWER',  name: 'Slunečnice' },
+    { id: 'SOYBEAN',    name: 'Sójové boby' },
+    { id: 'SUGARBEET',  name: 'Cukrová řepa' },
+    { id: 'POTATO',     name: 'Brambory' },
+    { id: 'GRASS',      name: 'Tráva' },
+];
+
+const SELL_POINTS = ['Getreidelager Bergmann', 'BGA Bergmann', 'Sägewerk', 'Mühle Bergmann'];
+
+// Stable vehicle list (doesn't change per tick)
+const VEHICLES = [
+    { name: 'Fendt 942 Vario',     typeName: 'Traktor',    fuelCap: 400,  adblueCap: 55  },
+    { name: 'Fendt 516 Vario',     typeName: 'Traktor',    fuelCap: 200,  adblueCap: null },
+    { name: 'CLAAS LEXION 8900',   typeName: 'Kombajn',    fuelCap: 630,  adblueCap: 65  },
+    { name: 'Fendt 1100 MT',       typeName: 'Traktor',    fuelCap: 650,  adblueCap: 70  },
+    { name: 'HORSCH Leeb 15 PT',   typeName: 'Postřikovač', fuelCap: 160, adblueCap: null },
+    { name: 'Deutz-Fahr 5125',     typeName: 'Traktor',    fuelCap: 160,  adblueCap: null },
+];
+
+// Stable field list
+const FIELDS = Array.from({ length: 22 }, (_, i) => {
+    const fruitIdx = ri(0, FRUITS.length - 1);
+    const hasCrop  = Math.random() > 0.15;
+    return {
+        id:          i + 1,
+        area:        pct(rf(0.5, 9.0)),
+        owned:       Math.random() > 0.25,
+        fruitIdx:    hasCrop ? fruitIdx : -1,
+        maxGrowth:   6,
+        _growthState: hasCrop ? ri(0, 6) : 0,
+        // Field condition (slowly degrade over harvests)
+        _plowed:     true,
+        _limed:      Math.random() > 0.3,
+        _fertilized: ri(0, 2),
+        _weed:       ri(0, 1),
+        _stones:     ri(0, 1),
+    };
+});
+
+// Sliding window of recent events (mock simulates them)
+const recentEvents = [];
+
+function addEvent(ev) {
+    recentEvents.push({
+        ...ev,
+        gameDay,
+        timestamp: new Date().toISOString(),
+    });
+    while (recentEvents.length > 50) recentEvents.shift();
+}
+
+// Slowly advance field growth each tick
+let growthTick = 0;
+
+function buildFieldData(f) {
+    const gs  = f._growthState;
+    const mgs = f.maxGrowth;
+    const hStart = mgs - 1;
+    const hasCrop = f.fruitIdx >= 0;
+
+    return {
+        id:               f.id,
+        area:             f.area,
+        owned:            f.owned,
+        fruitTypeId:      hasCrop ? FRUITS[f.fruitIdx].id : '',
+        fruitName:        hasCrop ? FRUITS[f.fruitIdx].name : '',
+        growthState:      gs,
+        maxGrowthState:   mgs,
+        growthPercent:    hasCrop ? Math.min(100, Math.floor(gs / hStart * 100)) : 0,
+        isReadyToHarvest: hasCrop && gs >= hStart,
+        needsSowing:      !hasCrop && f.owned,
+        daysToHarvest:    hasCrop && gs < hStart ? hStart - gs : 0,
+        // Condition details
+        needsPlowing:       !f._plowed,
+        needsCultivating:   false,
+        needsLime:          !f._limed,
+        fertilizationLevel: f._fertilized,
+        weedLevel:          f._weed,
+        stoneLevel:         f._stones,
+    };
+}
+
+let gameDay  = 42;
+let balance  = 250000;
+let vehicleFuel = VEHICLES.map(v => ({
+    fuel:   rf(0.2, 1.0),
+    adblue: v.adblueCap != null ? rf(0.3, 1.0) : null,
+    hours:  rf(10, 800),
+    inUse:  false,
+}));
+let animalFood = {
+    cow: rf(0.3, 1.0), pig: rf(0.2, 1.0),
+    sheep: rf(0.4, 1.0), chicken: rf(0.3, 1.0),
+};
+
+function generateData() {
+    growthTick++;
+    // Advance one game day every ~12 ticks (1 min real time)
+    if (growthTick % 12 === 0) {
+        gameDay++;
+        balance += ri(-5000, 15000);
+        // Grow all fields by 1 stage; randomly harvest ready ones; randomly sow empty ones
+        for (const f of FIELDS) {
+            if (!f.owned) continue;
+
+            // Harvest ready fields (50 % chance per day)
+            if (f.fruitIdx >= 0 && f._growthState >= f.maxGrowth - 1 && Math.random() > 0.5) {
+                addEvent({
+                    type: 'harvest',
+                    fieldId: f.id,
+                    fruitName: FRUITS[f.fruitIdx].name,
+                    fruitTypeId: FRUITS[f.fruitIdx].id,
+                    area: f.area,
+                    wasReady: true,
+                    growthAtHarvest: 100,
+                });
+                f.fruitIdx = -1;
+                f._growthState = 0;
+                f._fertilized = Math.max(0, f._fertilized - 1);
+                if (Math.random() > 0.7) f._plowed = false;
+            }
+            // Sow empty fields (30 % chance per day)
+            else if (f.fruitIdx < 0 && Math.random() > 0.7) {
+                f.fruitIdx = ri(0, FRUITS.length - 1);
+                f._growthState = 0;
+                f._plowed = true;
+                f._fertilized = ri(1, 2);
+                addEvent({
+                    type: 'sowing',
+                    fieldId: f.id,
+                    fruitName: FRUITS[f.fruitIdx].name,
+                    fruitTypeId: FRUITS[f.fruitIdx].id,
+                    area: f.area,
+                });
+            }
+            // Grow normally
+            else if (f.fruitIdx >= 0 && f._growthState < f.maxGrowth) {
+                f._growthState++;
+            }
+        }
+    }
+
+    // Slowly drain fuel
+    vehicleFuel.forEach((v, i) => {
+        v.fuel    = Math.max(0, v.fuel    - rf(0.001, 0.008));
+        if (v.adblue != null) v.adblue = Math.max(0, v.adblue - rf(0.0005, 0.003));
+        v.inUse   = Math.random() < 0.15;
+    });
+    Object.keys(animalFood).forEach(k => {
+        animalFood[k] = Math.max(0, animalFood[k] - rf(0.005, 0.02));
+    });
+
+    const hour = Math.floor((Date.now() / 1000 / 60) % 24);
+
+    return {
+        exportedAt:  new Date().toISOString(),
+        gameDay,
+        gameTime:    `${hour}:${String(ri(0, 59)).padStart(2, '0')}`,
+        weather: {
+            title:       ['Slunečno', 'Oblačno', 'Přeháňky', 'Déšť'][ri(0, 3)],
+            temperature: ri(5, 32),
+            forecast: [
+                { day: gameDay + 1, title: ['Slunečno', 'Oblačno', 'Déšť'][ri(0, 2)] },
+                { day: gameDay + 2, title: ['Slunečno', 'Oblačno', 'Déšť'][ri(0, 2)] },
+            ],
+        },
+        farmBalance: Math.max(0, balance),
+        fields: FIELDS.map(buildFieldData),
+        storage: [
+            {
+                storageName: 'Hlavní silo',
+                items: [
+                    { name: 'Pšenice',    amount: ri(0,  200000), capacity: 200000 },
+                    { name: 'Ječmen',     amount: ri(0,  150000), capacity: 200000 },
+                    { name: 'Řepka',      amount: ri(0,  100000), capacity: 200000 },
+                    { name: 'Kukuřice',   amount: ri(0,  180000), capacity: 200000 },
+                ].filter(i => i.amount > 0),
+            },
+            {
+                storageName: 'Silo – Cukrovka',
+                items: [{ name: 'Cukrová řepa', amount: ri(0, 50000), capacity: 80000 }]
+                    .filter(i => i.amount > 0),
+            },
+        ],
+        prices: SELL_POINTS.map(sp => ({
+            sellPoint: sp,
+            items: FRUITS.filter(() => Math.random() > 0.4).map(f => ({
+                name: f.name, pricePerTon: ri(150, 850),
+            })),
+        })).filter(sp => sp.items.length > 0),
+        animals: [
+            { husbandryName: 'Kravín',  type: 'COW',     count: 14, foodPercent: Math.round(animalFood.cow * 100),     waterPercent: ri(40, 100), productivity: ri(70, 100) },
+            { husbandryName: 'Vepřín',  type: 'PIG',     count: 24, foodPercent: Math.round(animalFood.pig * 100),     waterPercent: ri(50, 100), productivity: ri(60, 100) },
+            { husbandryName: 'Ovčín',   type: 'SHEEP',   count: 10, foodPercent: Math.round(animalFood.sheep * 100),   waterPercent: ri(30, 100), productivity: ri(75, 100) },
+            { husbandryName: 'Kurník',  type: 'CHICKEN', count: 40, foodPercent: Math.round(animalFood.chicken * 100), waterPercent: ri(60, 100), productivity: ri(65, 100) },
+        ],
+        vehicles: VEHICLES.map((v, i) => {
+            const s = vehicleFuel[i];
+            const entry = {
+                name:         v.name,
+                typeName:     v.typeName,
+                isInUse:      s.inUse,
+                motorHours:   Math.round(s.hours * 10) / 10,
+                fuelPercent:  Math.round(s.fuel * 100),
+                fuelLiters:   Math.round(s.fuel * v.fuelCap),
+                fuelCapacity: v.fuelCap,
+            };
+            if (v.adblueCap != null) {
+                entry.adBluePercent  = Math.round(s.adblue * 100);
+                entry.adBlueLiters   = Math.round(s.adblue * v.adblueCap);
+                entry.adBlueCapacity = v.adblueCap;
+            }
+            return entry;
+        }),
+        events: recentEvents,
+    };
+}
+
+// Write immediately, then every 5s
+function tick() {
+    const data = generateData();
+    fs.writeFileSync(OUTPUT, JSON.stringify(data));
+    process.stdout.write(`\r[mock] Day ${data.gameDay} | ${new Date().toLocaleTimeString('cs-CZ')} | fuel[0]=${data.vehicles[0].fuelPercent}%    `);
+}
+
+// Ensure output directory exists
+const outDir = path.dirname(OUTPUT);
+if (!fs.existsSync(outDir)) {
+    console.error('Output directory does not exist:', outDir);
+    process.exit(1);
+}
+
+tick();
+const interval = setInterval(tick, 5000);
+console.log('\n[mock] Writing to:', OUTPUT);
+console.log('[mock] Ctrl+C to stop.\n');
+
+process.on('SIGINT', () => { clearInterval(interval); console.log('\n[mock] Stopped.'); process.exit(0); });

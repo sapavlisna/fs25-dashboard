@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Zisk polí – FS25</title>
+<script>
+    (function () {
+        try {
+            var q = (location.search.match(/[?&]theme=([\w-]+)/) || [])[1];
+            var t = q || localStorage.getItem('fs25.dash.v1.theme') || 'dark-green';
+            document.documentElement.setAttribute('data-theme', t);
+            if (q) { try { localStorage.setItem('fs25.dash.v1.theme', t); } catch (_) {} }
+        } catch (e) {
+            document.documentElement.setAttribute('data-theme', 'dark-green');
+        }
+    })();
+</script>
+<link rel="stylesheet" href="style.css">
+<script src="theme.js" defer></script>
+<script src="notifications.js" defer></script>
+<script src="bell.js" defer></script>
+<script src="crop-icons.js" defer></script>
+<script src="money.js" defer></script>
+<script src="app.js" defer></script>
+<script src="tabletools.js" defer></script>
+<script src="sortable.js" defer></script>
+<style>
+.profit-positive { color: var(--accent);  font-weight: 700; }
+.profit-negative { color: var(--red);     font-weight: 700; }
+.profit-neutral  { color: var(--muted); }
+
+.event-row { font-size: 12px; }
+.event-row .ev-day { color: var(--muted); width: 60px; display: inline-block; }
+.event-row .ev-type-sowing  { color: var(--accent2); }
+.event-row .ev-type-harvest { color: var(--accent); }
+
+.disclaimer {
+    background: color-mix(in srgb, var(--accent2) 12%, transparent);
+    border: 1px solid var(--accent2);
+    color: var(--accent2);
+    padding: 10px 14px;
+    border-radius: 10px;
+    font-size: 12px;
+}
+</style>
+</head>
+<body>
+
+<nav>
+    <span class="nav-brand">🌾 FS25</span>
+    <div class="nav-links">
+        <a href="/">Dashboard</a>
+        <a href="/calendar.html">Kalendář polí</a>
+        <a href="/profit.html" class="active">Zisk polí</a>
+        <a href="/calculator.html">Kalkulátor</a>
+        <a href="/history.html">Historie</a>
+    </div>
+    <div class="nav-status">
+        <span class="bell-slot" id="bell-slot"></span>
+        <span class="dot" id="ws-dot"></span>
+        <span id="ws-label">Připojování…</span>
+    </div>
+</nav>
+
+<main>
+
+    <!-- KPI hero row -->
+    <div class="kpi-row">
+        <div class="kpi-card">
+            <span class="kpi-label">Celkový zisk</span>
+            <span class="kpi-value" id="kpi-profit">—</span>
+            <span class="kpi-sub" id="kpi-profit-sub"></span>
+        </div>
+        <div class="kpi-card">
+            <span class="kpi-label">Celkové výnosy</span>
+            <span class="kpi-value c-green" id="kpi-revenue">—</span>
+            <span class="kpi-sub" id="kpi-revenue-sub"></span>
+        </div>
+        <div class="kpi-card">
+            <span class="kpi-label">Celkové náklady</span>
+            <span class="kpi-value c-red" id="kpi-cost">—</span>
+            <span class="kpi-sub" id="kpi-cost-sub"></span>
+        </div>
+        <div class="kpi-card">
+            <span class="kpi-label">Aktivita</span>
+            <span class="kpi-value" id="kpi-activity">—</span>
+            <span class="kpi-sub" id="kpi-activity-sub"></span>
+        </div>
+    </div>
+
+    <div class="disclaimer">
+        ⚠️ Hra neumožňuje přesné sledování nákladů a výnosů per pole. Hodnoty jsou
+        odhadované z plochy, fáze růstu při sklizni a aktuálních nejlepších cen.
+        Slouží k orientaci, ne k účetnictví.
+    </div>
+
+    <div class="content-grid">
+
+    <!-- Per-field profit table -->
+    <div class="section">
+        <div class="section-header">
+            💰 Zisk per pole
+            <span class="count" id="cnt-fields">0</span>
+        </div>
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Pole</th>
+                        <th>Poslední plodina</th>
+                        <th class="num">Setí</th>
+                        <th class="num">Sklizní</th>
+                        <th class="num">Náklady</th>
+                        <th class="num">Výnosy</th>
+                        <th class="num">Zisk</th>
+                        <th>Aktivita</th>
+                        <th style="width:32px"></th>
+                    </tr>
+                </thead>
+                <tbody id="profit-body">
+                    <tr><td colspan="9" class="empty">Žádná data – mod zatím nezachytil žádné setí/sklizeň.</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Recent events -->
+    <div class="section">
+        <div class="section-header">
+            📋 Poslední události
+            <span class="count" id="cnt-events">0</span>
+        </div>
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Den</th>
+                        <th>Typ</th>
+                        <th>Pole</th>
+                        <th>Plodina</th>
+                        <th class="num">Plocha</th>
+                        <th class="num">Náklad / Výnos</th>
+                        <th class="num">Výtěžek</th>
+                        <th style="width:32px"></th>
+                    </tr>
+                </thead>
+                <tbody id="events-body">
+                    <tr><td colspan="8" class="empty">Zatím žádné události.</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    </div><!-- /.content-grid -->
+
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+const fmt = n => Number(n).toLocaleString('cs-CZ');
+const fmtMoney = v => (window.FS25Money ? FS25Money.format(v) : String(v));
+const esc = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+const plural = (n, one, few, many) => (n === 1) ? one : (n >= 2 && n <= 4) ? few : many;
+
+async function loadProfit() {
+    const res = await fetch('/api/profit/fields');
+    const rows = await res.json();
+
+    $('cnt-fields').textContent = rows.length;
+
+    // KPI hero row
+    const totalProfit  = rows.reduce((s, r) => s + r.profit, 0);
+    const totalRevenue = rows.reduce((s, r) => s + r.totalRevenue, 0);
+    const totalCost    = rows.reduce((s, r) => s + r.totalCost, 0);
+    const totalSow     = rows.reduce((s, r) => s + r.sowings, 0);
+    const totalHarv    = rows.reduce((s, r) => s + r.harvests, 0);
+    const fieldsWithProfit = rows.filter(r => r.profit > 0).length;
+
+    const profitClass = totalProfit > 0 ? 'profit-positive' : totalProfit < 0 ? 'profit-negative' : 'profit-neutral';
+    $('kpi-profit').textContent  = fmtMoney(totalProfit);
+    $('kpi-profit').className    = 'kpi-value ' + profitClass;
+    const profitSub = $('kpi-profit-sub');
+    profitSub.classList.remove('delta-up', 'delta-down');
+    if (totalProfit > 0)      { profitSub.textContent = `↑ ${fieldsWithProfit} polí v plusu`; profitSub.classList.add('delta-up'); }
+    else if (totalProfit < 0) { profitSub.textContent = `↓ z ${rows.length} polí`;             profitSub.classList.add('delta-down'); }
+    else                        profitSub.textContent = rows.length ? `${rows.length} polí` : '';
+
+    $('kpi-revenue').textContent     = fmtMoney(totalRevenue);
+    $('kpi-revenue-sub').textContent = totalHarv ? `${totalHarv} ${plural(totalHarv, 'sklizeň', 'sklizně', 'sklizní')}` : '';
+
+    $('kpi-cost').textContent     = fmtMoney(totalCost);
+    $('kpi-cost-sub').textContent = totalSow ? `${totalSow} ${plural(totalSow, 'setba', 'setby', 'seteb')}` : '';
+
+    $('kpi-activity').textContent     = totalSow + totalHarv;
+    $('kpi-activity-sub').textContent = totalSow + totalHarv > 0
+        ? `${totalSow} setí · ${totalHarv} sklizní`
+        : 'zatím žádná';
+
+    // Per-field table
+    const body = $('profit-body');
+    if (!rows.length) {
+        body.innerHTML = '<tr><td colspan="9" class="empty">Žádná data – mod zatím nezachytil žádné setí/sklizeň.</td></tr>';
+        return;
+    }
+
+    const STATE_KEY = 'profitFields';
+    const getKey = r => r.fieldId;
+    const ordered = TableTools.applyOrder(rows, STATE_KEY, getKey);
+    const { visible, hidden } = TableTools.split(ordered, STATE_KEY, getKey);
+
+    const rowHTML = (r, canHide) => {
+        const cls  = r.profit > 0 ? 'profit-positive' : r.profit < 0 ? 'profit-negative' : 'profit-neutral';
+        const stat = r.harvests > 0 ? `<span class="c-green">${r.harvests} sklizní</span>` :
+                     r.sowings  > 0 ? `<span class="c-yellow">Roste</span>` : '<span class="c-muted">—</span>';
+        const fruitCell = r.lastFruitType
+            ? CropIcons.iconWithName(r.lastFruitType, esc(r.lastFruit))
+            : (esc(r.lastFruit) || '—');
+        const btn = canHide ? TableTools.hideBtn(STATE_KEY, r.fieldId) : TableTools.unhideBtn(STATE_KEY, r.fieldId);
+        return `<tr ${TableTools.dndAttrs(STATE_KEY, r.fieldId)}>
+            <td>#${r.fieldId}</td>
+            <td>${fruitCell}</td>
+            <td class="num">${r.sowings}</td>
+            <td class="num">${r.harvests}</td>
+            <td class="num c-red">${fmtMoney(r.totalCost)}</td>
+            <td class="num c-green">${fmtMoney(r.totalRevenue)}</td>
+            <td class="num ${cls}">${fmtMoney(r.profit)}</td>
+            <td>${stat}</td>
+            <td>${btn}</td>
+        </tr>`;
+    };
+
+    let html = visible.map(r => rowHTML(r, true)).join('');
+    if (hidden.length) {
+        html += TableTools.hiddenSubgroupRow(STATE_KEY, hidden.length, 9);
+        html += hidden.map(r => rowHTML(r, false).replace('<tr ', '<tr class="hidden-row" ')).join('');
+    }
+    body.innerHTML = html;
+}
+
+async function loadEvents() {
+    const res = await fetch('/api/events?limit=50');
+    const rows = await res.json();
+
+    $('cnt-events').textContent = rows.length;
+    const body = $('events-body');
+    if (!rows.length) {
+        body.innerHTML = '<tr><td colspan="8" class="empty">Zatím žádné události.</td></tr>';
+        return;
+    }
+
+    const STATE_KEY = 'profitEvents';
+    const getKey = r => `${r.game_day}|${r.field_id}|${r.type}`;
+    const ordered = TableTools.applyOrder(rows, STATE_KEY, getKey);
+    const { visible, hidden } = TableTools.split(ordered, STATE_KEY, getKey);
+
+    const rowHTML = (r, canHide) => {
+        const typeLabel = r.type === 'sowing'  ? '<span class="c-yellow">🌱 Setí</span>' :
+                          r.type === 'harvest' ? '<span class="c-green">🚜 Sklizeň</span>' :
+                          esc(r.type);
+        const moneyCol  = r.type === 'sowing'
+            ? `<span class="c-red">-${fmtMoney(r.cost_estimated || 0)}</span>`
+            : `<span class="c-green">+${fmtMoney(r.revenue_estimated || 0)}</span>`;
+        const yieldCol  = r.type === 'harvest'
+            ? `${fmt(r.yield_liters || 0)} l${r.was_ready ? '' : ' <span class="c-yellow" title="sklizeno před plnou zralostí">(brzy)</span>'}`
+            : '—';
+        const fruitCell = r.fruit_type
+            ? CropIcons.iconWithName(r.fruit_type, esc(r.fruit_name))
+            : (esc(r.fruit_name) || '—');
+        const k = getKey(r);
+        const btn = canHide ? TableTools.hideBtn(STATE_KEY, k) : TableTools.unhideBtn(STATE_KEY, k);
+        return `<tr ${TableTools.dndAttrs(STATE_KEY, k)}>
+            <td>D${r.game_day}</td>
+            <td>${typeLabel}</td>
+            <td>#${r.field_id}</td>
+            <td>${fruitCell}</td>
+            <td class="num">${r.area} ha</td>
+            <td class="num">${moneyCol}</td>
+            <td class="num">${yieldCol}</td>
+            <td>${btn}</td>
+        </tr>`;
+    };
+
+    let html = visible.map(r => rowHTML(r, true)).join('');
+    if (hidden.length) {
+        html += TableTools.hiddenSubgroupRow(STATE_KEY, hidden.length, 8);
+        html += hidden.map(r => rowHTML(r, false).replace('<tr ', '<tr class="hidden-row" ')).join('');
+    }
+    body.innerHTML = html;
+}
+
+async function loadAll() {
+    await Promise.all([loadProfit(), loadEvents()]);
+}
+
+window.addEventListener('DOMContentLoaded', () => {
+    FS25App.connect(loadAll);  // refresh on every WS update
+    loadAll();
+    if (window.TableTools) {
+        TableTools.onChange('profitFields', () => loadProfit());
+        TableTools.onChange('profitEvents', () => loadEvents());
+    }
+});
+</script>
+</body>
+</html>

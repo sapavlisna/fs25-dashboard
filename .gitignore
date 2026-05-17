@@ -1,0 +1,28 @@
+# Runtime data — history snapshots, dashboard_data copies
+data/
+*.jsonl
+
+# Node
+Server/node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+
+# Build artifacts (set by GitHub Actions release workflow)
+dist/
+*.zip
+!docs/*.zip
+
+# Personal local-override files (deploy paths, server config, etc.)
+*.local.bat
+*.local.json
+*.local.ps1
+.local/
+log.txt

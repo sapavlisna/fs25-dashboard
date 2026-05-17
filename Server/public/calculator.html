@@ -1,0 +1,615 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Kalkulátor polí – FS25</title>
+<script>
+    (function () {
+        try {
+            var q = (location.search.match(/[?&]theme=([\w-]+)/) || [])[1];
+            var t = q || localStorage.getItem('fs25.dash.v1.theme') || 'dark-green';
+            document.documentElement.setAttribute('data-theme', t);
+            if (q) { try { localStorage.setItem('fs25.dash.v1.theme', t); } catch (_) {} }
+        } catch (e) {
+            document.documentElement.setAttribute('data-theme', 'dark-green');
+        }
+    })();
+</script>
+<link rel="stylesheet" href="style.css">
+<script src="state.js" defer></script>
+<script src="theme.js" defer></script>
+<script src="notifications.js" defer></script>
+<script src="bell.js" defer></script>
+<script src="crop-icons.js" defer></script>
+<script src="app.js" defer></script>
+<script src="tabletools.js" defer></script>
+<script src="sortable.js" defer></script>
+<style>
+/* ─── Calculator-specific ─────────────────────────────────────────── */
+.calc-controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: center;
+    padding: 10px 14px;
+    margin-bottom: 12px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    font-size: 12px;
+}
+.calc-controls label { color: var(--muted); }
+.calc-controls select,
+.calc-controls input[type="number"] {
+    background: var(--bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 4px 8px;
+    font-size: 12px;
+}
+.calc-controls .group {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.mat-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 10px;
+    margin-bottom: 12px;
+}
+.mat-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 14px;
+    display: flex; flex-direction: column; gap: 4px;
+}
+.mat-card .mat-label { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .5px; }
+.mat-card .mat-need  { font-size: 20px; font-weight: 700; }
+.mat-card .mat-sub   { font-size: 11px; color: var(--muted); }
+.mat-card.short  { border-color: var(--red);     box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--red) 30%, transparent); }
+.mat-card.ok     { border-color: var(--accent);  }
+.mat-card .mat-bar { margin-top: 4px; }
+
+.calc-cell { font-variant-numeric: tabular-nums; }
+.calc-cell.dim { color: var(--muted); }
+.calc-need     { color: var(--red); font-weight: 600; }
+.calc-have     { color: var(--accent); }
+.calc-na       { color: var(--muted); }
+
+.crop-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.crop-chip {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 2px 8px; border-radius: 99px;
+    background: var(--bg); border: 1px solid var(--border);
+    font-size: 11px;
+}
+.crop-chip .short { color: var(--red); font-weight: 600; }
+
+.disclaimer {
+    background: color-mix(in srgb, var(--accent2) 12%, transparent);
+    border: 1px solid var(--accent2);
+    color: var(--accent2);
+    padding: 10px 14px;
+    border-radius: 10px;
+    font-size: 12px;
+    margin-bottom: 12px;
+}
+.tag-no   { display:inline-block; padding:1px 6px; border-radius:4px; background:var(--bg); color:var(--muted); font-size:11px; }
+.tag-need { display:inline-block; padding:1px 6px; border-radius:4px; background:color-mix(in srgb, var(--red) 18%, transparent); color:var(--red); font-size:11px; font-weight:600; }
+</style>
+</head>
+<body>
+
+<nav>
+    <span class="nav-brand">🌾 FS25</span>
+    <div class="nav-links">
+        <a href="/">Dashboard</a>
+        <a href="/calendar.html">Kalendář polí</a>
+        <a href="/profit.html">Zisk polí</a>
+        <a href="/calculator.html" class="active">Kalkulátor</a>
+        <a href="/history.html">Historie</a>
+    </div>
+    <div class="nav-status">
+        <span class="bell-slot" id="bell-slot"></span>
+        <span class="dot" id="ws-dot"></span>
+        <span id="ws-label">Připojování…</span>
+    </div>
+</nav>
+
+<main>
+
+    <!-- KPI hero row -->
+    <div class="kpi-row">
+        <div class="kpi-card">
+            <span class="kpi-label">Polí k zasetí</span>
+            <span class="kpi-value" id="kpi-sow">—</span>
+            <span class="kpi-sub" id="kpi-sow-sub"></span>
+        </div>
+        <div class="kpi-card">
+            <span class="kpi-label">Potřebují vápno</span>
+            <span class="kpi-value" id="kpi-lime">—</span>
+            <span class="kpi-sub" id="kpi-lime-sub"></span>
+        </div>
+        <div class="kpi-card">
+            <span class="kpi-label">Potřebují hnojení</span>
+            <span class="kpi-value" id="kpi-fert">—</span>
+            <span class="kpi-sub" id="kpi-fert-sub"></span>
+        </div>
+        <div class="kpi-card">
+            <span class="kpi-label">Plevelu</span>
+            <span class="kpi-value" id="kpi-weed">—</span>
+            <span class="kpi-sub" id="kpi-weed-sub"></span>
+        </div>
+    </div>
+
+    <div class="disclaimer">
+        ⚠️ Odhady vycházejí z typických spotřeb FS25 (L/ha) a aktuálního stavu polí z save souboru
+        (úroveň hnojiva, vápno, plevel). Reálná spotřeba se může lišit podle nastavení rozmetadla a šíře záběru.
+        S Precision Farming DLC by byly přesnější — toto je rychlý nákupní/plánovací nástroj.
+    </div>
+
+    <!-- Controls -->
+    <div class="calc-controls">
+        <span class="group">
+            <label>Hnojivo:</label>
+            <select id="ctl-fert-type">
+                <option value="SOLID_FERT">Mineral. pevné</option>
+                <option value="LIQUID_FERT">Mineral. kapalné</option>
+                <option value="MANURE">Hnůj</option>
+                <option value="SLURRY">Kejda</option>
+                <option value="DIGESTATE">Digestát</option>
+            </select>
+        </span>
+        <span class="group">
+            <label>Cíl:</label>
+            <select id="ctl-fert-target">
+                <option value="2">Plné (2× aplikace)</option>
+                <option value="1">Polovina (1× aplikace)</option>
+            </select>
+        </span>
+        <span class="group">
+            <label>Vápno aplikuj při:</label>
+            <select id="ctl-lime-mode">
+                <option value="needs">Pouze když potřebuje</option>
+                <option value="all">Všem ovládaným</option>
+                <option value="none">Vynechat</option>
+            </select>
+        </span>
+        <span class="group">
+            <label>Herbicid při plevelu od:</label>
+            <input type="number" id="ctl-weed-th" min="0" max="9" value="3" style="width:48px">
+            <span style="color:var(--muted)">/9</span>
+        </span>
+        <span class="group" style="margin-left:auto">
+            <label>
+                <input type="checkbox" id="ctl-owned-only" checked>
+                Pouze vlastněná pole
+            </label>
+        </span>
+    </div>
+
+    <!-- Material summary cards -->
+    <div class="mat-grid" id="mat-grid"></div>
+
+    <!-- Per-crop seed needs -->
+    <div class="section">
+        <div class="section-header">🌾 Osivo podle plodiny</div>
+        <div id="seed-list" class="crop-list" style="padding:0 14px 14px"></div>
+    </div>
+
+    <!-- Per-field table -->
+    <div class="section">
+        <div class="section-header">
+            🌱 Per pole <span class="count" id="cnt-fields">0</span>
+        </div>
+        <div class="table-wrap">
+            <table data-sort-key="calc" data-default-sort="3:desc">
+                <thead>
+                    <tr>
+                        <th class="num" title="Interní ID pole">#</th>
+                        <th class="num" title="Číslo zemědělské půdy">ZP</th>
+                        <th>Plodina</th>
+                        <th class="num">Plocha</th>
+                        <th>Osivo (L)</th>
+                        <th>Vápno (L)</th>
+                        <th>Hnojivo (L)</th>
+                        <th>Herbicid (L)</th>
+                        <th>Stav</th>
+                        <th style="width:32px"></th>
+                    </tr>
+                </thead>
+                <tbody id="calc-body"></tbody>
+            </table>
+        </div>
+    </div>
+
+</main>
+
+<script>
+// ─── Const / helpers ──────────────────────────────────────────────────────────
+
+const $   = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+const fmt = n => Number(n).toLocaleString('cs-CZ', { maximumFractionDigits: 0 });
+
+// Per-hectare seed amounts (L/ha) — FS25 typical values; for crops the loaded
+// map doesn't list we fall back to DEFAULT_SEED. These are deliberately rounded
+// — Precision Farming gives exact numbers but this is a planner, not a budget.
+const SEED_PER_HA = {
+    WHEAT: 90, BARLEY: 90, OAT: 95, RYE: 90, SPELT: 90,
+    CANOLA: 23, SUNFLOWER: 23,
+    MAIZE: 95, SOYBEAN: 95, SORGHUM: 30,
+    SUGARBEET: 7, POTATO: 2200, SUGARCANE: 90,
+    COTTON: 30, RICE: 67, GREENBEANS: 70, PEAS: 95, PARSNIP: 12, CARROT: 12,
+    GRASS: 17, CLOVER: 17, ALFALFA: 17, OILSEEDRADISH: 23,
+};
+const DEFAULT_SEED = 90;
+
+// Per-hectare materials (L/ha). Lime/fert numbers reflect FS25 default
+// sprayUsageScale — modded equipment can vary, but the dashboard is for
+// planning purchases, not exact dosing.
+const MAT = {
+    LIME:        { perHa: 1000,  label: 'Vápno',            short: 'Vápno' },
+    SOLID_FERT:  { perHa: 200,   label: 'Hnojivo (pevné)',  short: 'Hnojivo' },
+    LIQUID_FERT: { perHa: 200,   label: 'Hnojivo (kapalné)',short: 'Hnoj. kap.' },
+    MANURE:      { perHa: 30000, label: 'Hnůj',             short: 'Hnůj' },
+    SLURRY:      { perHa: 50000, label: 'Kejda',            short: 'Kejda' },
+    DIGESTATE:   { perHa: 50000, label: 'Digestát',         short: 'Digestát' },
+    HERBICIDE:   { perHa: 2,     label: 'Herbicid',         short: 'Herbicid' },
+};
+
+// Storage-name aliases per material (case-insensitive substring match against
+// storage item names). FS25 displays Czech in the UI here, English in fillType
+// IDs — we try both. Modmaps may register their own variants; users can extend.
+const STORAGE_ALIASES = {
+    LIME:        ['vápn', 'lime'],
+    SOLID_FERT:  ['hnojivo', 'fertilizer'],
+    LIQUID_FERT: ['kapaln', 'liquidfert'],
+    MANURE:      ['hnůj', 'hnuj', 'manure'],
+    SLURRY:      ['kejda', 'slurry'],
+    DIGESTATE:   ['digestát', 'digestat', 'digestate', 'fermentation'],
+    HERBICIDE:   ['herbicid', 'herbicide'],
+};
+
+// ─── Settings (persisted via DashState) ──────────────────────────────────────
+
+const PREFS_KEY = 'fs25.dash.v1.calculator';
+const defaultPrefs = {
+    fertType:    'SOLID_FERT',
+    fertTarget:  2,
+    limeMode:    'needs',
+    weedThresh:  3,
+    ownedOnly:   true,
+};
+function loadPrefs() {
+    try { return Object.assign({}, defaultPrefs, JSON.parse(localStorage.getItem(PREFS_KEY) || '{}')); }
+    catch (_) { return { ...defaultPrefs }; }
+}
+function savePrefs(p) {
+    try { localStorage.setItem(PREFS_KEY, JSON.stringify(p)); } catch (_) {}
+}
+let prefs = loadPrefs();
+
+// ─── Compute per-field requirements ──────────────────────────────────────────
+
+function seedForCrop(cropId) {
+    if (!cropId) return DEFAULT_SEED;
+    return SEED_PER_HA[cropId] ?? DEFAULT_SEED;
+}
+
+function fieldNeeds(f) {
+    const area = Number(f.area) || 0;
+    // Decide which crop's seed applies. Priority:
+    //   1. plannedFruit set in the in-game field-planner
+    //   2. current fruitTypeId (if just sown but reads as needsSowing in transition)
+    //   3. blank → user has not planned anything
+    const plannedCrop = (f.plannedFruit && f.plannedFruit !== '')
+        ? f.plannedFruit
+        : (f.fruitTypeId || '');
+    const needsSowingNow = !!f.needsSowing
+        || f.saveGroundType === 'CULTIVATED'
+        || f.saveGroundType === 'PLOWED';
+
+    const seed = (needsSowingNow && area > 0)
+        ? { crop: plannedCrop, liters: plannedCrop ? Math.round(seedForCrop(plannedCrop) * area) : null }
+        : null;
+
+    // Lime: server passes limeLevelRaw (save-XML truth, 0=needs); fall back to
+    // the mod-derived needsLime if the save read hasn't kicked in yet.
+    const limeNeeded = (f.limeLevelRaw != null)
+        ? (f.limeLevelRaw === 0)
+        : !!f.needsLime;
+    let limeLiters = 0;
+    if (prefs.limeMode === 'all') {
+        limeLiters = Math.round(MAT.LIME.perHa * area);
+    } else if (prefs.limeMode === 'needs' && limeNeeded) {
+        limeLiters = Math.round(MAT.LIME.perHa * area);
+    }
+
+    // Fertilizer: level 0 → 2 applications worth, level 1 → 1 application
+    const level = Number.isFinite(f.fertilizationLevel) ? f.fertilizationLevel : 0;
+    const apps = Math.max(0, Math.min(prefs.fertTarget, prefs.fertTarget - level));
+    const fertSpec = MAT[prefs.fertType];
+    const fertLiters = apps > 0 ? Math.round(fertSpec.perHa * apps * area) : 0;
+
+    // Herbicide: weedState from save XML (0-9). Fall back to weedLevel from mod.
+    const weed = Number.isFinite(f.weedState) ? f.weedState
+                : Number.isFinite(f.weedLevel) ? f.weedLevel * 3
+                : 0;
+    const herbLiters = (weed >= prefs.weedThresh)
+        ? Math.round(MAT.HERBICIDE.perHa * area)
+        : 0;
+
+    return { seed, limeLiters, fertLiters, fertApps: apps, herbLiters, weed };
+}
+
+// ─── Storage lookup ──────────────────────────────────────────────────────────
+
+function flattenStorage(storage) {
+    // storage[].items[] → flat array of { name, amount }
+    const out = [];
+    for (const grp of (storage || [])) {
+        for (const it of (grp.items || [])) {
+            out.push({ name: it.name || '', amount: it.amount || 0 });
+        }
+    }
+    return out;
+}
+
+function sumStorageByAliases(flat, aliases) {
+    let total = 0;
+    const lower = aliases.map(a => a.toLowerCase());
+    for (const it of flat) {
+        const nm = (it.name || '').toLowerCase();
+        if (lower.some(a => nm.includes(a))) total += it.amount;
+    }
+    return total;
+}
+
+function sumStorageByCrop(flat, cropId, cropName) {
+    let total = 0;
+    const needles = [];
+    if (cropId)   needles.push(cropId.toLowerCase());
+    if (cropName) needles.push(cropName.toLowerCase());
+    for (const it of flat) {
+        const nm = (it.name || '').toLowerCase();
+        if (needles.some(n => n && nm.includes(n))) total += it.amount;
+    }
+    return total;
+}
+
+// ─── Render ──────────────────────────────────────────────────────────────────
+
+function setKPI(d) {
+    const fields = (d.fields || []).filter(f => !prefs.ownedOnly || f.owned);
+    let sow = 0, lime = 0, fert = 0, weed = 0;
+    let sowArea = 0, limeArea = 0, fertArea = 0;
+    for (const f of fields) {
+        const n = fieldNeeds(f);
+        if (n.seed)         { sow++;  sowArea += +f.area || 0; }
+        if (n.limeLiters)   { lime++; limeArea += +f.area || 0; }
+        if (n.fertLiters)   { fert++; fertArea += +f.area || 0; }
+        if (n.herbLiters)   { weed++; }
+    }
+    $('kpi-sow').textContent      = sow;
+    $('kpi-sow-sub').textContent  = sow ? `${sowArea.toFixed(1)} ha` : '—';
+    $('kpi-lime').textContent     = lime;
+    $('kpi-lime-sub').textContent = lime ? `${limeArea.toFixed(1)} ha` : '—';
+    $('kpi-fert').textContent     = fert;
+    $('kpi-fert-sub').textContent = fert ? `${fertArea.toFixed(1)} ha` : '—';
+    $('kpi-weed').textContent     = weed;
+    $('kpi-weed-sub').textContent = weed ? `od ${prefs.weedThresh}/9` : '—';
+}
+
+function matCard(label, need, have, sub) {
+    const short = need > have;
+    const pct = need > 0 ? Math.min(100, Math.round(have / need * 100)) : 100;
+    const cls = need === 0 ? '' : short ? 'short' : 'ok';
+    const status = need === 0
+        ? '<span class="calc-na">není potřeba</span>'
+        : short
+            ? `<span class="calc-need">schází ${fmt(need - have)} L</span>`
+            : `<span class="calc-have">stačí (přebytek ${fmt(have - need)} L)</span>`;
+    const haveLine = need > 0 ? `máš ${fmt(have)} L · ` : '';
+    return `<div class="mat-card ${cls}">
+        <span class="mat-label">${esc(label)}</span>
+        <span class="mat-need">${fmt(need)} L</span>
+        <span class="mat-sub">${haveLine}${status}</span>
+        ${need > 0 ? `<div class="mat-bar">
+            <div class="bar-bg" style="height:6px;border-radius:3px;background:var(--border)">
+                <div style="height:6px;border-radius:3px;background:${short ? 'var(--red)' : 'var(--accent)'};width:${pct}%"></div>
+            </div>
+        </div>` : ''}
+        ${sub ? `<span class="mat-sub" style="margin-top:2px">${sub}</span>` : ''}
+    </div>`;
+}
+
+function renderMaterials(d) {
+    const fields = (d.fields || []).filter(f => !prefs.ownedOnly || f.owned);
+    const flat = flattenStorage(d.storage || []);
+
+    // Aggregate per material across all fields
+    let lime = 0, fert = 0, herb = 0;
+    const seedByCrop = new Map();  // cropId → liters
+    for (const f of fields) {
+        const n = fieldNeeds(f);
+        lime += n.limeLiters;
+        fert += n.fertLiters;
+        herb += n.herbLiters;
+        if (n.seed && n.seed.liters && n.seed.crop) {
+            seedByCrop.set(n.seed.crop, (seedByCrop.get(n.seed.crop) || 0) + n.seed.liters);
+        }
+    }
+
+    const fertSpec = MAT[prefs.fertType];
+    const fertHave = sumStorageByAliases(flat, STORAGE_ALIASES[prefs.fertType]);
+    const limeHave = sumStorageByAliases(flat, STORAGE_ALIASES.LIME);
+    const herbHave = sumStorageByAliases(flat, STORAGE_ALIASES.HERBICIDE);
+
+    // Total seed (any crop) — for the headline card only; per-crop breakdown
+    // lives in the seed-list section.
+    const seedTotal = Array.from(seedByCrop.values()).reduce((a, b) => a + b, 0);
+
+    $('mat-grid').innerHTML = [
+        matCard('Vápno',  lime, limeHave, `${MAT.LIME.perHa} L/ha`),
+        matCard(fertSpec.label, fert, fertHave,
+            `${fertSpec.perHa} L/ha × ${prefs.fertTarget === 2 ? '0–2 aplikace' : '0–1 aplikace'}`),
+        matCard('Herbicid', herb, herbHave, `od plevelu ${prefs.weedThresh}/9 · ${MAT.HERBICIDE.perHa} L/ha`),
+        matCard('Osivo (celkem)', seedTotal, 0, 'po plodinách níže'),
+    ].join('');
+
+    // Per-crop seed cards
+    if (seedByCrop.size === 0) {
+        $('seed-list').innerHTML = '<span class="calc-na">Žádná pole nečekají na zasetí.</span>';
+    } else {
+        // Sort by liters desc
+        const entries = Array.from(seedByCrop.entries()).sort((a, b) => b[1] - a[1]);
+        $('seed-list').innerHTML = entries.map(([crop, need]) => {
+            const name = (window.CropIcons && window.CropIcons.iconWithName)
+                ? window.CropIcons.iconWithName(crop, '')
+                : esc(crop);
+            const have = sumStorageByCrop(flat, crop, '');
+            const short = need - have;
+            const shortHtml = short > 0
+                ? `<span class="short">↓ ${fmt(short)} L</span>`
+                : `<span class="calc-have">✓ máš ${fmt(have)} L</span>`;
+            return `<span class="crop-chip">${name} <strong>${fmt(need)} L</strong> ${shortHtml}</span>`;
+        }).join('');
+    }
+}
+
+function fieldRow(f, canHide = true) {
+    const n = fieldNeeds(f);
+    const fruit = f.fruitTypeId
+        ? (window.CropIcons ? window.CropIcons.iconWithName(f.fruitTypeId, esc(f.fruitName || '')) : esc(f.fruitTypeId))
+        : '<span class="calc-na">—</span>';
+
+    // Seed cell
+    let seedCell;
+    if (!n.seed) {
+        seedCell = '<span class="calc-na">—</span>';
+    } else if (!n.seed.crop) {
+        seedCell = '<span class="tag-no" title="Nastav plodinu v herním plánovači polí">? plodina</span>';
+    } else if (!n.seed.liters) {
+        seedCell = '<span class="calc-na">—</span>';
+    } else {
+        const ic = window.CropIcons ? window.CropIcons.icon(n.seed.crop, 14) : '';
+        seedCell = `<span class="calc-need" title="${esc(n.seed.crop)}">${ic} ${fmt(n.seed.liters)}</span>`;
+    }
+
+    const limeCell = n.limeLiters ? `<span class="calc-need">${fmt(n.limeLiters)}</span>` : '<span class="calc-na">—</span>';
+    const fertCell = n.fertLiters
+        ? `<span class="calc-need" title="${n.fertApps}× aplikace, level=${f.fertilizationLevel ?? '?'}">${fmt(n.fertLiters)}</span>`
+        : '<span class="tag-no">plné</span>';
+    const herbCell = n.herbLiters
+        ? `<span class="calc-need" title="weedState ${n.weed}/9">${fmt(n.herbLiters)}</span>`
+        : '<span class="calc-na">—</span>';
+
+    // Status chips
+    const chips = [];
+    if (f.needsPlowing)              chips.push('<span class="tag-need" title="Plowing">Orat</span>');
+    if (f.saveGroundType === 'CULTIVATED') chips.push('<span class="tag-no">Zkultivováno</span>');
+    if (f.saveGroundType === 'HARVEST_READY' || f.isReadyToHarvest) chips.push('<span class="tag-no">Připraveno</span>');
+    if (n.weed >= prefs.weedThresh)  chips.push(`<span class="tag-need" title="weedState">Plevel ${n.weed}/9</span>`);
+
+    const farmlandCell = f.farmlandId != null ? f.farmlandId : '<span class="calc-na">—</span>';
+    const btn = canHide
+        ? TableTools.hideBtn('calcFields', f.id)
+        : TableTools.unhideBtn('calcFields', f.id);
+    const rowCls = canHide ? '' : ' class="hidden-row"';
+
+    return `<tr ${TableTools.dndAttrs('calcFields', f.id)}${rowCls}>
+        <td class="num">${f.id}</td>
+        <td class="num">${farmlandCell}</td>
+        <td>${fruit}</td>
+        <td class="num"${f.farmlandAreaHa != null && f.farmlandAreaHa !== f.area ? ` title="Pole: ${(+f.area || 0).toFixed(2)} ha · Parcela: ${(+f.farmlandAreaHa).toFixed(2)} ha"` : ''}>${(+f.area || 0).toFixed(2)} ha</td>
+        <td class="num calc-cell">${seedCell}</td>
+        <td class="num calc-cell">${limeCell}</td>
+        <td class="num calc-cell">${fertCell}</td>
+        <td class="num calc-cell">${herbCell}</td>
+        <td>${chips.join(' ') || '<span class="calc-na">—</span>'}</td>
+        <td>${btn}</td>
+    </tr>`;
+}
+
+function renderTable(d) {
+    const fields = (d.fields || []).filter(f => !prefs.ownedOnly || f.owned);
+    $('cnt-fields').textContent = fields.length;
+    const tb = $('calc-body');
+    if (!fields.length) {
+        tb.innerHTML = '<tr><td colspan="10" class="empty">Žádná pole.</td></tr>';
+        return;
+    }
+
+    const STATE_KEY = 'calcFields';
+    const getKey = f => f.id;
+    const customOrder = TableTools.getOrder(STATE_KEY);
+
+    let fieldsOrdered;
+    if (customOrder && customOrder.length) {
+        fieldsOrdered = TableTools.applyOrder(fields, STATE_KEY, getKey);
+    } else {
+        const enriched = fields.map(f => {
+            const n = fieldNeeds(f);
+            const total = (n.seed?.liters || 0) + n.limeLiters + n.fertLiters + n.herbLiters;
+            return { f, total };
+        });
+        enriched.sort((a, b) => (b.total - a.total) || ((+b.f.area || 0) - (+a.f.area || 0)));
+        fieldsOrdered = enriched.map(e => e.f);
+    }
+
+    const { visible, hidden } = TableTools.split(fieldsOrdered, STATE_KEY, getKey);
+    let html = visible.map(f => fieldRow(f, true)).join('');
+    if (hidden.length) {
+        html += TableTools.hiddenSubgroupRow(STATE_KEY, hidden.length, 10);
+        html += hidden.map(f => fieldRow(f, false)).join('');
+    }
+    tb.innerHTML = html;
+}
+
+function render(d) {
+    window.__lastData = d;
+    setKPI(d);
+    renderMaterials(d);
+    renderTable(d);
+}
+
+// ─── Controls wiring ─────────────────────────────────────────────────────────
+
+function applyPrefsToUI() {
+    $('ctl-fert-type').value   = prefs.fertType;
+    $('ctl-fert-target').value = String(prefs.fertTarget);
+    $('ctl-lime-mode').value   = prefs.limeMode;
+    $('ctl-weed-th').value     = prefs.weedThresh;
+    $('ctl-owned-only').checked = prefs.ownedOnly;
+}
+
+function reactToControls() {
+    prefs.fertType   = $('ctl-fert-type').value;
+    prefs.fertTarget = parseInt($('ctl-fert-target').value, 10) || 2;
+    prefs.limeMode   = $('ctl-lime-mode').value;
+    prefs.weedThresh = Math.max(0, Math.min(9, parseInt($('ctl-weed-th').value, 10) || 3));
+    prefs.ownedOnly  = $('ctl-owned-only').checked;
+    savePrefs(prefs);
+    if (window.__lastData) render(window.__lastData);
+}
+
+window.addEventListener('DOMContentLoaded', () => {
+    applyPrefsToUI();
+    for (const id of ['ctl-fert-type','ctl-fert-target','ctl-lime-mode','ctl-weed-th','ctl-owned-only']) {
+        $(id).addEventListener('change', reactToControls);
+        $(id).addEventListener('input', reactToControls);
+    }
+    FS25App.connect(render);
+    if (window.TableTools) {
+        TableTools.onChange('calcFields', () => { if (window.__lastData) renderTable(window.__lastData); });
+    }
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,13 @@
+{
+  "_help": "Copy this to config.local.json and uncomment / edit only the keys you want to override. Anything left as null uses the built-in default (standard FS25 path under Documents). Environment variables take precedence over this file.",
+
+  "port": 3000,
+  "host": "0.0.0.0",
+
+  "fs25DocsDir": null,
+  "dataFile":    null,
+  "logFile":     null,
+  "dataDir":     null,
+
+  "savegameRefreshMs": 30000
+}

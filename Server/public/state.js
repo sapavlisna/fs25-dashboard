@@ -1,0 +1,48 @@
+// state.js — typed wrapper around localStorage for dashboard preferences.
+// All keys live under the namespace `fs25.dash.v1.` so future migrations
+// can be done by walking the namespace.
+
+(function () {
+    const NS = 'fs25.dash.v1.';
+
+    function get(key, fallback) {
+        try {
+            const raw = localStorage.getItem(NS + key);
+            if (raw == null) return fallback;
+            return JSON.parse(raw);
+        } catch (_) {
+            return fallback;
+        }
+    }
+
+    function set(key, value) {
+        try { localStorage.setItem(NS + key, JSON.stringify(value)); } catch (_) {}
+    }
+
+    function setHas(key, item) {
+        const list = get(key, []);
+        return Array.isArray(list) && list.indexOf(item) >= 0;
+    }
+
+    function setToggle(key, item) {
+        const list = get(key, []);
+        const arr = Array.isArray(list) ? list.slice() : [];
+        const i = arr.indexOf(item);
+        if (i >= 0) arr.splice(i, 1); else arr.push(item);
+        set(key, arr);
+        return i < 0;  // returns "is now in set"
+    }
+
+    window.DashState = {
+        get, set, setHas, setToggle,
+        KEYS: {
+            theme:                  'theme',
+            hiddenVehicles:         'hiddenVehicles',          // array of vehicle.name (or stable id)
+            hiddenStorages:         'hiddenStorages',          // array of `${type}:${storageName}` keys
+            hiddenProductions:      'hiddenProductions',       // array of production name keys
+            showActiveVehiclesOnly: 'showActiveVehiclesOnly',  // bool
+            emptyAnimalsCollapsed:  'emptyAnimalsCollapsed',   // bool, default true
+            collapsedGroups:        'collapsedGroups',         // array of group keys (silo/sell)
+        },
+    };
+})();

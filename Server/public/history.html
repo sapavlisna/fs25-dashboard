@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Historie – FS25</title>
+<script>
+    (function () {
+        try {
+            var q = (location.search.match(/[?&]theme=([\w-]+)/) || [])[1];
+            var t = q || localStorage.getItem('fs25.dash.v1.theme') || 'dark-green';
+            document.documentElement.setAttribute('data-theme', t);
+            if (q) { try { localStorage.setItem('fs25.dash.v1.theme', t); } catch (_) {} }
+        } catch (e) {
+            document.documentElement.setAttribute('data-theme', 'dark-green');
+        }
+    })();
+</script>
+<link rel="stylesheet" href="style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<script src="theme.js" defer></script>
+<script src="notifications.js" defer></script>
+<script src="bell.js" defer></script>
+<script src="money.js" defer></script>
+<script src="app.js" defer></script>
+<script src="tabletools.js" defer></script>
+<style>
+.history-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+}
+@media (max-width: 900px) { .history-grid { grid-template-columns: 1fr; } }
+
+.chart-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+}
+.chart-header {
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 10px;
+    flex-wrap: wrap;
+}
+.chart-header h3 {
+    font-size: 12px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: .08em;
+    color: var(--muted); margin: 0;
+}
+.chart-header select {
+    background: var(--surface2); border: 1px solid var(--border);
+    color: var(--text); border-radius: 4px; padding: 3px 8px; font-size: 12px;
+}
+.chart-body { padding: 16px; position: relative; height: 280px; }
+.chart-empty {
+    display: flex; align-items: center; justify-content: center;
+    height: 100%; color: var(--muted); font-size: 13px;
+}
+
+/* Compact period selector — replaces stat-bar Výhled card */
+.period-bar {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 8px 14px;
+    display: flex; align-items: center; gap: 14px;
+    flex-wrap: wrap;
+}
+.period-bar > .label {
+    font-size: 10px; text-transform: uppercase; letter-spacing: .08em;
+    color: var(--muted); font-weight: 600;
+}
+.days-selector { display: flex; gap: 4px; }
+.days-btn {
+    background: var(--surface2); border: 1px solid var(--border);
+    color: var(--muted); border-radius: 6px; padding: 4px 12px;
+    font-size: 12px; cursor: pointer; transition: background .15s, color .15s;
+}
+.days-btn:hover { color: var(--text); }
+.days-btn.active {
+    background: var(--accent); border-color: var(--accent);
+    color: var(--bg); font-weight: 700;
+}
+</style>
+</head>
+<body>
+
+<nav>
+    <span class="nav-brand">🌾 FS25</span>
+    <div class="nav-links">
+        <a href="/">Dashboard</a>
+        <a href="/calendar.html">Kalendář polí</a>
+        <a href="/profit.html">Zisk polí</a>
+        <a href="/calculator.html">Kalkulátor</a>
+        <a href="/history.html" class="active">Historie</a>
+    </div>
+    <div class="nav-status">
+        <span class="bell-slot" id="bell-slot"></span>
+        <span class="dot" id="ws-dot"></span>
+        <span id="ws-label">Připojování…</span>
+    </div>
+</nav>
+
+<main>
+
+    <!-- KPI hero row -->
+    <div class="kpi-row">
+        <div class="kpi-card">
+            <span class="kpi-label">Záznamů v DB</span>
+            <span class="kpi-value" id="kpi-records">—</span>
+            <span class="kpi-sub">denních snapshotů</span>
+        </div>
+        <div class="kpi-card">
+            <span class="kpi-label">Nejstarší záznam</span>
+            <span class="kpi-value" id="kpi-oldest">—</span>
+            <span class="kpi-sub" id="kpi-oldest-sub"></span>
+        </div>
+        <div class="kpi-card">
+            <span class="kpi-label">Trend zůstatku</span>
+            <span class="kpi-value" id="kpi-trend">—</span>
+            <span class="kpi-sub" id="kpi-trend-sub"></span>
+        </div>
+        <div class="kpi-card">
+            <span class="kpi-label">Komodit v DB</span>
+            <span class="kpi-value" id="kpi-fills">—</span>
+            <span class="kpi-sub" id="kpi-fills-sub"></span>
+        </div>
+    </div>
+
+    <!-- Period selector -->
+    <div class="period-bar">
+        <span class="label">Časové okno:</span>
+        <div class="days-selector">
+            <button class="days-btn active" data-days="7"  onclick="setDays(7,this)">7 dní</button>
+            <button class="days-btn"        data-days="30" onclick="setDays(30,this)">30 dní</button>
+            <button class="days-btn"        data-days="90" onclick="setDays(90,this)">90 dní</button>
+        </div>
+    </div>
+
+    <div class="history-grid">
+
+        <!-- Balance chart -->
+        <div class="chart-card">
+            <div class="chart-header">
+                <h3>💰 Zůstatek farmy</h3>
+            </div>
+            <div class="chart-body">
+                <canvas id="chart-balance"></canvas>
+                <div class="chart-empty" id="empty-balance" style="display:none">Zatím málo dat (min. 2 záznamy)</div>
+            </div>
+        </div>
+
+        <!-- Price chart -->
+        <div class="chart-card">
+            <div class="chart-header">
+                <h3>📈 Cena komodity</h3>
+                <select id="sel-filltype" onchange="loadPriceChart()">
+                    <option value="">Načítám…</option>
+                </select>
+                <select id="sel-sellpoint" onchange="loadPriceChart()">
+                    <option value="">Všechna místa</option>
+                </select>
+            </div>
+            <div class="chart-body">
+                <canvas id="chart-price"></canvas>
+                <div class="chart-empty" id="empty-price" style="display:none">Zatím málo dat</div>
+            </div>
+        </div>
+
+    </div>
+</main>
+
+<script>
+// ─── Shared config ────────────────────────────────────────────────────────────
+
+let currentDays = 7;
+let balanceChart = null;
+let priceChart   = null;
+
+// Read theme colours at chart-build time so charts adapt to the active theme.
+function themeVar(name) {
+    return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+function chartDefaults() {
+    const grid  = themeVar('--border');
+    const ticks = themeVar('--muted');
+    return {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: { duration: 300 },
+        plugins: { legend: { display: false } },
+        scales: {
+            x: { grid: { color: grid }, ticks: { color: ticks, font: { size: 11 } } },
+            y: { grid: { color: grid }, ticks: { color: ticks, font: { size: 11 } } },
+        },
+    };
+}
+
+function setDays(d, btn) {
+    currentDays = d;
+    document.querySelectorAll('.days-btn').forEach(b => b.classList.toggle('active', b === btn));
+    loadAll();
+}
+
+// ─── Balance chart ────────────────────────────────────────────────────────────
+
+async function loadBalanceChart() {
+    const res  = await fetch(`/api/history/balance?days=${currentDays}`);
+    const rows = await res.json();
+
+    const canvas = document.getElementById('chart-balance');
+    const empty  = document.getElementById('empty-balance');
+
+    if (!rows.length || rows.length < 2) {
+        canvas.style.display = 'none';
+        empty.style.display  = '';
+        return;
+    }
+    canvas.style.display = '';
+    empty.style.display  = 'none';
+
+    const labels = rows.map(r => 'D' + r.game_day);
+    const data   = rows.map(r => r.balance);
+
+    if (balanceChart) balanceChart.destroy();
+    const accent2 = themeVar('--accent2') || '#e8a838';
+    const def = chartDefaults();
+    balanceChart = new Chart(canvas, {
+        type: 'line',
+        data: {
+            labels,
+            datasets: [{
+                data,
+                borderColor:     accent2,
+                backgroundColor: accent2 + '22',
+                fill: true,
+                tension: .3,
+                pointRadius: rows.length > 30 ? 0 : 3,
+                pointBackgroundColor: accent2,
+            }],
+        },
+        options: {
+            ...def,
+            scales: {
+                ...def.scales,
+                y: {
+                    ...def.scales.y,
+                    ticks: {
+                        ...def.scales.y.ticks,
+                        callback: v => FS25Money.format(v),
+                    },
+                },
+            },
+        },
+    });
+
+    // KPI hero row
+    document.getElementById('kpi-records').textContent = rows.length;
+    if (rows[0]) {
+        document.getElementById('kpi-oldest').textContent = 'D' + rows[0].game_day;
+        document.getElementById('kpi-oldest-sub').textContent = 'do D' + rows[rows.length - 1].game_day;
+    }
+
+    // Trend = first vs last balance in window
+    const first = rows[0].balance, last = rows[rows.length - 1].balance;
+    const delta = last - first;
+    const trendEl = document.getElementById('kpi-trend');
+    const trendSub = document.getElementById('kpi-trend-sub');
+    trendSub.classList.remove('delta-up', 'delta-down');
+    if (delta > 0) {
+        trendEl.textContent = '↑ ' + FS25Money.format(delta);
+        trendEl.className   = 'kpi-value c-green';
+        trendSub.textContent = `za ${currentDays} dní`;
+        trendSub.classList.add('delta-up');
+    } else if (delta < 0) {
+        trendEl.textContent = '↓ ' + FS25Money.format(Math.abs(delta));
+        trendEl.className   = 'kpi-value c-red';
+        trendSub.textContent = `za ${currentDays} dní`;
+        trendSub.classList.add('delta-down');
+    } else {
+        trendEl.textContent = '→ ' + FS25Money.format(0);
+        trendEl.className   = 'kpi-value';
+        trendSub.textContent = `za ${currentDays} dní`;
+    }
+}
+
+// ─── Price chart ──────────────────────────────────────────────────────────────
+
+async function loadFillTypes() {
+    const [ftRes, spRes] = await Promise.all([
+        fetch('/api/history/fill-types'),
+        fetch('/api/history/sell-points'),
+    ]);
+    const fillTypes  = await ftRes.json();
+    const sellPoints = await spRes.json();
+
+    const ftSel = document.getElementById('sel-filltype');
+    ftSel.innerHTML = fillTypes.map(r => `<option value="${esc(r.fill_type)}">${esc(r.fill_type)}</option>`).join('');
+
+    const spSel = document.getElementById('sel-sellpoint');
+    spSel.innerHTML = '<option value="">Všechna místa</option>' +
+        sellPoints.map(r => `<option value="${esc(r.sell_point)}">${esc(r.sell_point)}</option>`).join('');
+
+    document.getElementById('kpi-fills').textContent = fillTypes.length;
+    document.getElementById('kpi-fills-sub').textContent = sellPoints.length + ' výkupních míst';
+
+    if (fillTypes.length) loadPriceChart();
+}
+
+async function loadPriceChart() {
+    const fillType  = document.getElementById('sel-filltype').value;
+    const sellPoint = document.getElementById('sel-sellpoint').value;
+    if (!fillType) return;
+
+    const params = new URLSearchParams({ days: currentDays, fillType });
+    if (sellPoint) params.set('sellPoint', sellPoint);
+
+    const res  = await fetch('/api/history/prices?' + params);
+    const rows = await res.json();
+
+    const canvas = document.getElementById('chart-price');
+    const empty  = document.getElementById('empty-price');
+
+    if (!rows.length || rows.length < 2) {
+        canvas.style.display = 'none';
+        empty.style.display  = '';
+        return;
+    }
+    canvas.style.display = '';
+    empty.style.display  = 'none';
+
+    // Group by sell_point for multi-line chart
+    const byPoint = {};
+    for (const r of rows) {
+        (byPoint[r.sell_point] = byPoint[r.sell_point] || []).push(r);
+    }
+
+    const allDays = [...new Set(rows.map(r => r.game_day))].sort((a, b) => a - b);
+    // Palette: theme accents first, then fixed jewel tones for additional series.
+    const PALETTE = [
+        themeVar('--accent')  || '#7fb069',
+        themeVar('--accent2') || '#e8a838',
+        themeVar('--teal')    || '#4caf9a',
+        themeVar('--red')     || '#e05252',
+        '#a78bfa',
+        '#fb923c',
+    ];
+
+    const datasets = Object.entries(byPoint).map(([sp, pts], i) => {
+        const map = {};
+        pts.forEach(p => map[p.game_day] = p.price_ton);
+        return {
+            label: sp,
+            data: allDays.map(d => map[d] ?? null),
+            borderColor:     PALETTE[i % PALETTE.length],
+            backgroundColor: PALETTE[i % PALETTE.length] + '22',
+            tension: .3,
+            pointRadius: allDays.length > 30 ? 0 : 3,
+            fill: false,
+            spanGaps: true,
+        };
+    });
+
+    if (priceChart) priceChart.destroy();
+    const def = chartDefaults();
+    priceChart = new Chart(canvas, {
+        type: 'line',
+        data: { labels: allDays.map(d => 'D' + d), datasets },
+        options: {
+            ...def,
+            plugins: {
+                legend: {
+                    display: datasets.length > 1,
+                    labels: { color: themeVar('--muted'), font: { size: 11 } },
+                },
+            },
+            scales: {
+                ...def.scales,
+                y: {
+                    ...def.scales.y,
+                    ticks: {
+                        ...def.scales.y.ticks,
+                        callback: v => FS25Money.format(v),
+                    },
+                },
+            },
+        },
+    });
+}
+
+async function loadAll() {
+    await Promise.all([loadBalanceChart(), loadPriceChart()]);
+}
+
+function esc(s) { return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+// ─── Init (via shared app.js) ─────────────────────────────────────────────────
+
+window.addEventListener('DOMContentLoaded', () => {
+    FS25App.connect(() => {
+        // We use REST for history; WS is only for live notification + status
+        // Reload charts when server reconnects (in case it restarted)
+    });
+    loadFillTypes();
+    loadBalanceChart();
+});
+
+// Reload charts every 60s (history doesn't need real-time)
+setInterval(loadAll, 60000);
+</script>
+</body>
+</html>
