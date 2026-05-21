@@ -43,7 +43,7 @@
 }
 .gantt-row:hover { background: color-mix(in srgb, var(--accent) 5%, transparent); }
 .gantt-label {
-    width: 160px;
+    width: 240px;
     flex-shrink: 0;
     padding: 0 10px;
     font-size: 12px;
@@ -52,6 +52,47 @@
 .gantt-label .field-id  { color: var(--muted); font-size: 10px; margin-right: 4px; }
 .gantt-label .field-name { font-size: 11px; color: var(--muted); display: flex; align-items: center; }
 .gantt-label .field-name .fert { margin-left: auto; padding-right: 4px; }
+
+/* Needs grid — six fixed columns so chips always appear at the same x
+   position across rows (vertical scanability). Each cell either holds
+   exactly one chip or stays empty (transparent placeholder, same height). */
+.gantt-needs, .gantt-needs-header {
+    width: 420px;
+    flex-shrink: 0;
+    padding: 0 4px;
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 4px;
+    align-items: center;
+}
+.gantt-needs-header {
+    font-size: 10px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    padding-top: 6px; padding-bottom: 6px;
+}
+.gantt-needs-header > span { text-align: center; }
+.need-cell {
+    display: flex;
+    justify-content: center;
+    min-height: 18px;
+}
+.need-chip {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 600;
+    padding: 1px 6px;
+    border-radius: 4px;
+    line-height: 1.5;
+    white-space: nowrap;
+    background: color-mix(in srgb, var(--accent2) 22%, transparent);
+    color: var(--accent2);
+}
+.need-chip.bad {
+    background: rgba(224,82,82,.20);
+    color: var(--red);
+}
 .gantt-timeline {
     flex: 1;
     position: relative;
@@ -79,6 +120,31 @@
 .fert.fert-half { color: #facc15; }   /* yellow — half done */
 .fert.fert-none { color: #f87171; }   /* red — not fertilized */
 
+/* Hide button at the end of the row (after the timeline). Shown on row
+   hover only so the row stays clean. Click delegated by tabletools.js. */
+.cal-hide-slot {
+    flex-shrink: 0;
+    padding-right: 8px;
+    opacity: 0;
+    transition: opacity .15s;
+}
+.gantt-row:hover .cal-hide-slot { opacity: 1; }
+.cal-hidden-row .cal-hide-slot  { opacity: 1; }  /* always show + button when row is hidden */
+.cal-hidden-row { opacity: .55; }
+.cal-hidden-sep {
+    cursor: pointer;
+    user-select: none;
+    background: color-mix(in srgb, var(--surface) 70%, transparent);
+}
+.cal-hidden-sep .count {
+    background: var(--surface);
+    color: var(--muted);
+    border-radius: 10px;
+    padding: 1px 6px;
+    font-size: 10px;
+    margin-left: 6px;
+}
+
 /* Header row */
 .gantt-header {
     display: flex;
@@ -86,7 +152,7 @@
     font-size: 10px; color: var(--muted);
     font-weight: 700;
 }
-.gantt-header-label { width: 160px; flex-shrink: 0; padding: 6px 10px; }
+.gantt-header-label { width: 240px; flex-shrink: 0; padding: 6px 10px; }
 .gantt-header-days  { flex: 1; position: relative; height: 28px; }
 .gantt-day-tick {
     position: absolute; top: 0; height: 100%;
@@ -258,9 +324,46 @@ function fertBadge(level) {
     return ` <span class="fert ${cls}" title="${title}">${dots}</span>`;
 }
 
+// Needs section for the Gantt row — six fixed columns so chips always appear
+// at the same x position (vertical scanability: "ukaž mi pole co chtějí vápno"
+// = look down the 3rd column). Each cell holds exactly one chip or stays
+// empty. Suppressed when the game has the mechanic disabled (see
+// data.gameSettings) or when the field is unowned. Column order MUST match
+// the header titles below.
+const NEED_COLUMNS = ['Orat', 'Kultivovat', 'Vápno', 'Plevel', 'Kameny', 'Válet'];
+
+function needsCells(f, settings, fruitMeta) {
+    const empty = '<div class="need-cell"></div>';
+    if (!f.owned) {
+        return `<div class="gantt-needs">${empty.repeat(6)}</div>`;
+    }
+    const s = settings || {};
+    const fm = (fruitMeta && f.fruitTypeId) ? fruitMeta[f.fruitTypeId] : null;
+    const cell = (cond, label, title, cls = 'warn') => cond
+        ? `<div class="need-cell"><span class="need-chip ${cls}" title="${esc(title)}">${label}</span></div>`
+        : empty;
+
+    const c1 = cell(s.plowingRequiredEnabled !== false && f.needsPlowing, 'Orat', 'Potřebuje orbu');
+    const c2 = cell(f.needsCultivating, 'Kultivovat', 'Potřebuje kultivaci');
+    const c3 = cell(s.limeRequired !== false && f.needsLime, 'Vápno', 'Potřebuje vápno');
+    const c4 = cell(s.weedsEnabled !== false && f.weedLevel > 0, 'Plevel ' + f.weedLevel, `Plevel ${f.weedLevel}/3`, f.weedLevel >= 2 ? 'bad' : 'warn');
+    const c5 = cell(s.stonesEnabled !== false && f.stoneLevel > 0, 'Kameny ' + f.stoneLevel, `Kameny ${f.stoneLevel}/3`, f.stoneLevel >= 2 ? 'bad' : 'warn');
+    const c6 = cell(f.fruitTypeId && f.rollerLevel === 0 && !f.isCut && !f.isWithered && fm && fm.needsRolling,
+                    'Válet', 'Potřebuje uválet (zvyšuje výnos)');
+
+    return `<div class="gantt-needs">${c1}${c2}${c3}${c4}${c5}${c6}</div>`;
+}
+
 // ─── Render ───────────────────────────────────────────────────────────────────
 
-function renderKPI(fields) {
+// Shared hide state with main dashboard (TableTools key 'fields'). Hidden
+// fields are excluded from KPI math AND from the Gantt list — the user wants
+// the calendar to ignore them completely. Unhide via the "Skryté pole (N)"
+// subgroup at the bottom of the Gantt (or on the main dashboard).
+const isFieldHidden = f => TableTools.getHidden('fields').has(String(f.id));
+
+function renderKPI(allFields) {
+    const fields  = allFields.filter(f => !isFieldHidden(f));
     const owned   = fields.filter(f => f.owned);
     const ready   = owned.filter(f => f.isReadyToHarvest);
     const growing = owned.filter(f => f.fruitTypeId && !f.isReadyToHarvest);
@@ -287,22 +390,28 @@ function renderKPI(fields) {
     $('kpi-sow-sub').textContent = sow.length ? sowHa.toFixed(2) + ' ha k osetí' : 'Vše osázeno';
 }
 
-function renderGantt(fields) {
+function renderGantt(allFields) {
     const onlyOwned = $('filter-owned').value === 'owned';
     const viewDays  = parseInt($('range-days').value);
     $('range-label').textContent = viewDays + ' dní';
 
-    const list = onlyOwned ? fields.filter(f => f.owned) : fields;
-    $('cnt-fields').textContent = `${list.length} / ${fields.length}`;
+    // Apply the "owned only" filter first, THEN split into visible / hidden.
+    // Hidden fields are dropped from the main list and surfaced in a separate
+    // collapsible subgroup at the bottom (with unhide buttons).
+    const scope     = onlyOwned ? allFields.filter(f => f.owned) : allFields;
+    const list      = scope.filter(f => !isFieldHidden(f));
+    const hiddenList = scope.filter(isFieldHidden);
+    $('cnt-fields').textContent = `${list.length} / ${scope.length}`;
 
-    if (!list.length) {
+    if (!list.length && !hiddenList.length) {
         $('gantt-container').innerHTML = '<div class="empty" style="padding:32px">Žádná pole.</div>';
         return;
     }
 
     const startDay = gameDay;
     const endDay   = gameDay + viewDays;
-    const PX_PER_DAY = Math.max(20, Math.floor(($('gantt-wrap').clientWidth - 200) / viewDays));
+    // 240 (label) + 420 (needs grid) + ~40 (hide button + padding) = ~700
+    const PX_PER_DAY = Math.max(20, Math.floor(($('gantt-wrap').clientWidth - 720) / viewDays));
 
     // Header
     let headerDays = '';
@@ -316,20 +425,35 @@ function renderGantt(fields) {
     // Today marker x
     const todayX = 0;
 
+    const needsHeader = `<div class="gantt-needs-header">${NEED_COLUMNS.map(c => `<span>${c}</span>`).join('')}</div>`;
+
     let html = `
         <div class="gantt-header">
             <div class="gantt-header-label">Pole</div>
+            ${needsHeader}
             <div class="gantt-header-days" style="width:${viewDays * PX_PER_DAY}px">
                 ${headerDays}
                 <div class="gantt-today" style="left:${todayX}px"></div>
             </div>
         </div>`;
 
-    html += list.map(f => {
+    const settings  = (currentData && currentData.gameSettings) || {};
+    const fruitMeta = {};
+    for (const fr of (currentData && currentData.availableFruits) || []) {
+        fruitMeta[fr.name] = fr;
+    }
+
+    // Render a single Gantt row. `isHidden` switches the hide button to an
+    // unhide button and applies a muted/strikethrough style.
+    const renderRow = (f, isHidden) => {
         const fruitDisplay = f.fruitTypeId
             ? CropIcons.iconWithName(f.fruitTypeId, esc(f.fruitName), 14)
             : esc(f.needsSowing ? 'Bez plodiny' : '—');
         const fertInLabel = f.fruitTypeId ? fertBadge(f.fertilizationLevel) : '';
+        const needsHTML   = needsCells(f, settings, fruitMeta);
+        const toggleBtn   = isHidden
+            ? TableTools.unhideBtn('fields', f.id, 'Zobrazit pole')
+            : TableTools.hideBtn('fields', f.id, 'Skrýt pole');
         const rowLabel = `<div class="gantt-label">
             <span class="field-id">#${f.id}</span>${fruitDisplay}
             <div class="field-name"${f.farmlandAreaHa != null && f.farmlandAreaHa !== f.area ? ` title="Pole: ${f.area} ha · Parcela: ${f.farmlandAreaHa} ha"` : ''}>${f.area} ha${fertInLabel}</div>
@@ -344,11 +468,14 @@ function renderGantt(fields) {
             // Bar colours mirror the 4-state legend so users can map at a
             // glance. Crop identity is already conveyed by the icon + name
             // in the row label.
-            const color     = f.isReadyToHarvest ? 'var(--accent)' : 'var(--teal)';
-            const phase     = (f.maxGrowthState > 0) ? ` ${f.growthState}/${f.maxGrowthState}` : '';
-            const barLabel  = f.isReadyToHarvest
-                ? 'Sklízet!'
-                : `${esc(f.fruitName)}${phase} · ${f.growthPercent}%`;
+            const color     = f.isReadyToHarvest ? 'var(--accent)'
+                              : (f.isWithered ? 'var(--red)'
+                              : (f.isCut ? 'var(--muted)' : 'var(--teal)'));
+            const phase     = (f.maxGrowthState > 0 && f.growthState <= f.maxGrowthState) ? ` ${f.growthState}/${f.maxGrowthState}` : '';
+            const barLabel  = f.isReadyToHarvest ? 'Sklízet!'
+                            : f.isWithered      ? `${esc(f.fruitName)} · Zvadlé`
+                            : f.isCut           ? `${esc(f.fruitName)} · Sklizeno`
+                            :                     `${esc(f.fruitName)}${phase} · ${f.growthPercent}%`;
 
             if (barStart * PX_PER_DAY < viewDays * PX_PER_DAY) {
                 bars += `<div class="gantt-bar"
@@ -363,16 +490,43 @@ function renderGantt(fields) {
                 onclick="openModal(this)">Sít</div>`;
         }
 
-        return `<div class="gantt-row">
+        return `<div class="gantt-row${isHidden ? ' cal-hidden-row' : ''}">
             ${rowLabel}
+            ${needsHTML}
             <div class="gantt-timeline" style="width:${viewDays * PX_PER_DAY}px">
                 <div class="gantt-today" style="left:0"></div>
                 ${bars}
             </div>
+            <span class="cal-hide-slot">${toggleBtn}</span>
         </div>`;
-    }).join('');
+    };
+
+    html += list.map(f => renderRow(f, false)).join('');
+
+    if (hiddenList.length) {
+        html += `<div class="gantt-row cal-hidden-sep" onclick="toggleHiddenSection()">
+            <div class="gantt-label" style="color:var(--muted)">
+                <span class="group-toggle" id="cal-hidden-toggle">▶</span>
+                Skryté pole <span class="count">${hiddenList.length}</span>
+            </div>
+            <div class="gantt-needs"></div>
+            <div class="gantt-timeline" style="width:${viewDays * PX_PER_DAY}px"></div>
+        </div>`;
+        html += `<div id="cal-hidden-wrap" style="display:none">`;
+        html += hiddenList.map(f => renderRow(f, true)).join('');
+        html += `</div>`;
+    }
 
     $('gantt-container').innerHTML = html;
+}
+
+function toggleHiddenSection() {
+    const wrap = $('cal-hidden-wrap');
+    const tog  = $('cal-hidden-toggle');
+    if (!wrap || !tog) return;
+    const open = wrap.style.display !== 'none';
+    wrap.style.display = open ? 'none' : '';
+    tog.textContent    = open ? '▶'   : '▼';
 }
 
 // ─── Modal ────────────────────────────────────────────────────────────────────
@@ -387,26 +541,55 @@ function openModal(el) {
         const fruitDisplay = f.fruitTypeId
             ? CropIcons.iconWithName(f.fruitTypeId, esc(f.fruitName), 18)
             : '—';
+        const phaseDisplay = f.isWithered ? '<span class="c-red">Zvadlé</span>'
+                           : f.isCut      ? '<span class="c-muted">Sklizeno (strniště)</span>'
+                           : (f.maxGrowthState > 0) ? `${Math.min(f.growthState, f.maxGrowthState)} / ${f.maxGrowthState}`
+                           : '—';
+        const harvestEta = f.isReadyToHarvest ? '<span class="c-green">Připraveno!</span>'
+                         : f.isWithered      ? '<span class="c-red">—</span>'
+                         : f.isCut           ? '<span class="c-muted">Po sklizni</span>'
+                         :                     f.daysToHarvest + ' dní';
+        const harvestDayDisplay = f.isReadyToHarvest ? '<span class="c-green">Dnes</span>'
+                                : (f.isWithered || f.isCut) ? '—'
+                                :                     'Den ' + harvestDay;
         const rows = [
             ['Plodina',       fruitDisplay],
             ['Rozloha pole',  f.area + ' ha' + (f.farmlandAreaHa != null && f.farmlandAreaHa !== f.area ? ` <span class="c-muted">(parcela ${f.farmlandAreaHa} ha)</span>` : '')],
-            ['Fáze růstu',    `${f.growthState} / ${f.maxGrowthState}`],
+            ['Fáze růstu',    phaseDisplay],
             ['Růst %',        f.growthPercent + '%'],
-            ['Sklizeň za',    f.isReadyToHarvest ? '<span class="c-green">Připraveno!</span>' : f.daysToHarvest + ' dní'],
-            ['Odhadovaný den sklizně', f.isReadyToHarvest ? '<span class="c-green">Dnes</span>' : 'Den ' + harvestDay],
+            ['Sklizeň za',    harvestEta],
+            ['Odhadovaný den sklizně', harvestDayDisplay],
             ['Potřebuje setí', f.needsSowing ? '<span class="c-yellow">Ano</span>' : 'Ne'],
         ];
 
-        // Conditions block
+        // Conditions block — gated by gameSettings so we don't show "Vápno OK"
+        // when limeRequired is off etc.
+        const gs = (currentData && currentData.gameSettings) || {};
         const condBadges = [];
         const cb = (label, value, cls) => condBadges.push(`<div class="cond-badge ${cls}"><span>${label}</span><span class="v">${value}</span></div>`);
 
-        if (f.needsPlowing != null)        cb('Orat',       f.needsPlowing       ? 'ANO'       : 'OK',     f.needsPlowing       ? 'warn' : 'ok');
-        if (f.needsCultivating != null)    cb('Kultivovat', f.needsCultivating   ? 'ANO'       : 'OK',     f.needsCultivating   ? 'warn' : 'ok');
-        if (f.needsLime != null)           cb('Vápno',      f.needsLime          ? 'POTŘEBA'   : 'OK',     f.needsLime          ? 'warn' : 'ok');
-        if (f.fertilizationLevel != null)  cb('Hnojení',    ['Žádné','Polovina','Plné'][f.fertilizationLevel] || '?', f.fertilizationLevel >= 2 ? 'ok' : 'warn');
-        if (f.weedLevel != null)           cb('Plevel',     f.weedLevel === 0    ? 'OK'        : f.weedLevel + '/3',  f.weedLevel === 0 ? 'ok' : 'bad');
-        if (f.stoneLevel != null)          cb('Kameny',     f.stoneLevel === 0   ? 'OK'        : f.stoneLevel + '/3', f.stoneLevel === 0 ? 'ok' : 'bad');
+        if (gs.plowingRequiredEnabled !== false && f.needsPlowing != null)
+            cb('Orat',       f.needsPlowing       ? 'ANO'       : 'OK',     f.needsPlowing       ? 'warn' : 'ok');
+        if (f.needsCultivating != null)
+            cb('Kultivovat', f.needsCultivating   ? 'ANO'       : 'OK',     f.needsCultivating   ? 'warn' : 'ok');
+        if (gs.limeRequired !== false && f.needsLime != null)
+            cb('Vápno',      f.needsLime          ? 'POTŘEBA'   : 'OK',     f.needsLime          ? 'warn' : 'ok');
+        if (f.fertilizationLevel != null)
+            cb('Hnojení',    ['Žádné','Polovina','Plné'][f.fertilizationLevel] || '?', f.fertilizationLevel >= 2 ? 'ok' : 'warn');
+        if (gs.weedsEnabled !== false && f.weedLevel != null)
+            cb('Plevel',     f.weedLevel === 0    ? 'OK'        : f.weedLevel + '/3',  f.weedLevel === 0 ? 'ok' : 'bad');
+        if (gs.stonesEnabled !== false && f.stoneLevel != null)
+            cb('Kameny',     f.stoneLevel === 0   ? 'OK'        : f.stoneLevel + '/3', f.stoneLevel === 0 ? 'ok' : 'bad');
+
+        // Rolling — only relevant when the crop benefits from rolling and isn't
+        // already cut/withered. Skip the OK/válcováno status when the crop has
+        // needsRolling=false (corn/beet/rice/sugarcane) — would just be noise.
+        const modalFruitMeta = {};
+        for (const fr of (currentData && currentData.availableFruits) || []) modalFruitMeta[fr.name] = fr;
+        const mfm = modalFruitMeta[f.fruitTypeId];
+        if (f.fruitTypeId && mfm && mfm.needsRolling && !f.isCut && !f.isWithered) {
+            cb('Válet', f.rollerLevel > 0 ? 'OK' : 'POTŘEBA', f.rollerLevel > 0 ? 'ok' : 'warn');
+        }
 
         const condHTML = condBadges.length
             ? `<tr><td colspan="2" style="padding-top:14px"><div style="color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.06em">Stav pole</div><div class="cond-grid">${condBadges.join('')}</div></td></tr>`
@@ -437,13 +620,22 @@ $('range-days').addEventListener('input',    () => currentData && renderGantt(cu
 
 const esc = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 
+function rerenderFromCurrent() {
+    if (!currentData) return;
+    const fields = currentData.fields || [];
+    renderKPI(fields);
+    renderGantt(fields);
+}
+
 window.addEventListener('DOMContentLoaded', () => {
+    // Re-render when the user hides/unhides a field anywhere on the page.
+    // TableTools click handler updates localStorage + triggers this callback.
+    TableTools.onChange('fields', rerenderFromCurrent);
+
     FS25App.connect(data => {
         currentData = data;
         gameDay = data.gameDay || 0;
-        const fields = data.fields || [];
-        renderKPI(fields);
-        renderGantt(fields);
+        rerenderFromCurrent();
     });
 });
 </script>

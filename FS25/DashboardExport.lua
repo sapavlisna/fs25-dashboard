@@ -20,6 +20,13 @@ DashboardExport = {}
 
 DashboardExport.MOD_NAME       = g_currentModName or "FS25_Dashboard"
 DashboardExport.MOD_DIR        = g_currentModDirectory or ""
+-- MOD_VERSION is kept in sync with modDesc.xml by scripts/build-mod-generic.ps1.
+-- Do not edit by hand; bump via the build script.
+DashboardExport.MOD_VERSION    = "1.1.0.3"
+-- SCHEMA_VERSION tracks the dashboard_data.json shape — bump ONLY on breaking
+-- changes (renamed/removed fields). Server has MIN/MAX bounds and warns on
+-- mismatch. See src/Dashboard/docs/COMPATIBILITY.md.
+DashboardExport.SCHEMA_VERSION = 1
 DashboardExport.EXPORT_PERIOD  = 2000          -- ms between writes
 DashboardExport.OUTPUT_FILE    = (getUserProfileAppPath and (getUserProfileAppPath() .. "dashboard_data.json"))
                                   or "dashboard_data.json"
@@ -145,6 +152,13 @@ function DashboardExport:collectAvailableFruits()
                 name      = tostring(ft.name),
                 title     = ft.title and tostring(ft.title) or "",
                 fillTitle = fillTitle and tostring(fillTitle) or "",
+                -- Per-fruit field-mechanic flags — frontend uses these to decide
+                -- whether a field with this crop needs rolling/lime/cultivation.
+                -- FS25 default for needsRolling is true; some fruits (corn, beet,
+                -- rice, sugarcane) override it to false.
+                needsRolling          = ft.needsRolling ~= false,
+                consumesLime          = ft.consumesLime ~= false,
+                isCultivationAllowed  = ft.isCultivationAllowed ~= false,
             })
         end
     end
@@ -337,6 +351,75 @@ function DashboardExport:collectSaveMeta()
         out.name = info.savegameName or info.name or ""
         out.mapTitle = info.mapTitle or ""
         out.saveDateFormatted = info.saveDateFormatted or ""
+    end
+    return out
+end
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Game settings — difficulty toggles that decide which field mechanics matter.
+-- The dashboard uses these to suppress badges for actions the player has turned
+-- off (e.g. don't tell them to lime when limeRequired is false). All other
+-- field state stays in the payload — these flags only gate the UI.
+-- ─────────────────────────────────────────────────────────────────────────────
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Price forecast — per-fillType seasonal multiplier curve (12 months).
+-- FS25 stores it as `fillType.economy.factors[period]` (period 1..12 ≈
+-- EARLY_SPRING..LATE_WINTER, but the in-game calendar starts at MARCH which
+-- in CZ savegame layout is currentPeriod=1). The curve is static for the
+-- session, so we send it just once per WS tick; the frontend can use it to
+-- predict future prices: forecast_price = pricePerTon × factor[future_period].
+-- ─────────────────────────────────────────────────────────────────────────────
+
+function DashboardExport:collectPriceForecast()
+    local out = {
+        currentPeriod = 1,
+        daysPerPeriod = 1,
+        fillTypes     = {},
+    }
+    if g_currentMission and g_currentMission.environment then
+        out.currentPeriod = g_currentMission.environment.currentPeriod or 1
+        out.daysPerPeriod = g_currentMission.environment.daysPerPeriod or 1
+    end
+    if not g_fillTypeManager then return out end
+
+    for _, ft in pairs(g_fillTypeManager.fillTypes or {}) do
+        if type(ft) == "table" and ft.economy and ft.economy.factors
+           and ft.pricePerLiter and ft.pricePerLiter > 0 then
+            local factors = {}
+            for period = 1, 12 do
+                factors[period] = ft.economy.factors[period] or 1
+            end
+            -- pricePerTon = pricePerLiter / massPerLiter   (mass-per-liter * 1000 gives kg/m³)
+            local massPerLiter = ft.massPerLiter or 0.001
+            local pricePerTonBase = ft.pricePerLiter / massPerLiter
+            -- name = canonical filltype name (matches what collectPrices emits as item.name title)
+            table.insert(out.fillTypes, {
+                name        = (ft.title or ft.name or ""),  -- displayable name; matches prices[].items[].name
+                fillType    = ft.name or "",                -- enum key (e.g. WHEAT)
+                pricePerTon = math.floor(pricePerTonBase + 0.5),
+                factors     = factors,
+            })
+        end
+    end
+
+    table.sort(out.fillTypes, function(a, b) return (a.name or "") < (b.name or "") end)
+    return out
+end
+
+function DashboardExport:collectGameSettings()
+    local out = {
+        weedsEnabled           = true,
+        stonesEnabled          = true,
+        plowingRequiredEnabled = true,
+        limeRequired           = true,
+    }
+    if g_currentMission and g_currentMission.missionInfo then
+        local info = g_currentMission.missionInfo
+        if info.weedsEnabled           ~= nil then out.weedsEnabled           = info.weedsEnabled           end
+        if info.stonesEnabled          ~= nil then out.stonesEnabled          = info.stonesEnabled          end
+        if info.plowingRequiredEnabled ~= nil then out.plowingRequiredEnabled = info.plowingRequiredEnabled end
+        if info.limeRequired           ~= nil then out.limeRequired           = info.limeRequired           end
     end
     return out
 end
@@ -587,9 +670,15 @@ function DashboardExport:buildFieldRecord(farmlandId, field, ownerFarmId, curren
     local plannedIdx = field.plannedFruitTypeIndex or 0
 
     local fruitTypeId, fruitName = "", ""
-    local maxGrowth   = 6
+    -- Denominator for the "X/Y" growth-phase display: the state at which the
+    -- crop is harvest-ready. `numGrowthStates` also counts the cut/withered
+    -- sentinel states, so using it as max produces nonsense like "7/5" once
+    -- the field is harvested — see isCut/isWithered branches below.
+    local maxGrowth   = 0
     local growthPct   = 0
     local isReady     = false
+    local isCut       = false
+    local isWithered  = false
     local daysToHarvest = 0
 
     if fruitTypeIndex and fruitTypeIndex > 0 and g_fruitTypeManager then
@@ -597,12 +686,21 @@ function DashboardExport:buildFieldRecord(farmlandId, field, ownerFarmId, curren
         if ft ~= nil then
             fruitTypeId = ft.name or ""
             fruitName   = (ft.fillType and (ft.fillType.title or ft.fillType.name)) or ft.title or ft.name or ""
-            maxGrowth   = (ft.numGrowthStates or 7) - 1
+            maxGrowth   = ft.maxHarvestingGrowthState or ((ft.numGrowthStates or 7) - 1)
 
-            -- Use fruit-type's own ready-check (handles grass/meadow edge cases)
-            if ft.getIsHarvestReady and ft:getIsHarvestReady(growthState) then
+            -- Classify the raw density-map state. cutState / witheredState are
+            -- sentinel values outside the growing range and must not feed the
+            -- growth-percentage math (would yield >100%, capped to 99%).
+            local witheredCheck = ft.getIsWithered and ft:getIsWithered(growthState)
+            local isCutState    = (ft.cutStates and ft.cutStates[growthState]) or (growthState == ft.cutState and growthState > 0)
+
+            if witheredCheck then
+                isWithered = true
+            elseif ft.getIsHarvestReady and ft:getIsHarvestReady(growthState) then
                 isReady   = true
                 growthPct = 100
+            elseif isCutState then
+                isCut = true
             else
                 local startState = ft.minHarvestingGrowthState or 5
                 if startState > 0 then
@@ -639,6 +737,8 @@ function DashboardExport:buildFieldRecord(farmlandId, field, ownerFarmId, curren
         maxGrowthState   = maxGrowth,
         growthPercent    = growthPct,
         isReadyToHarvest = isReady,
+        isCut            = isCut,
+        isWithered       = isWithered,
         daysToHarvest    = daysToHarvest,
         needsSowing      = needsSowing,
         plannedFruit     = plannedFruit,
@@ -691,6 +791,8 @@ function DashboardExport:collectFields()
                     maxGrowthState     = 0,
                     growthPercent      = 0,
                     isReadyToHarvest   = false,
+                    isCut              = false,
+                    isWithered         = false,
                     daysToHarvest      = 0,
                     needsSowing        = false,
                     plannedFruit       = "",
@@ -931,6 +1033,15 @@ function DashboardExport:collectAnimals()
                 rec.count = total
                 if n > 0 then rec.productivity = math.floor(healthSum / n + 0.5) end
                 if #clusterList > 0 then rec.clusters = clusterList end
+
+                -- Reproduction summary: highest cluster %. The cluster closest
+                -- to 100 % is the one that will birth next, so max is the right
+                -- aggregate for an "is the herd close to a new animal?" badge.
+                local maxRepro = 0
+                for _, c in ipairs(clusterList) do
+                    if c.reproduction and c.reproduction > maxRepro then maxRepro = c.reproduction end
+                end
+                rec.reproductionPercent = maxRepro
             end
 
             -- Food (overall)
@@ -1346,6 +1457,8 @@ function DashboardExport:buildPayload()
     self:detectFieldEvents(fields)
 
     local payload = {
+        schemaVersion   = DashboardExport.SCHEMA_VERSION,
+        modVersion      = DashboardExport.MOD_VERSION,
         gameDay         = time.gameDay,
         gameMonth       = time.gameMonth,
         dayInMonth      = time.dayInMonth,
@@ -1355,6 +1468,8 @@ function DashboardExport:buildPayload()
         currency        = self:collectCurrency(),
         availableFruits = self:collectAvailableFruits(),
         saveMeta        = self:collectSaveMeta(),
+        gameSettings    = self:collectGameSettings(),
+        priceForecast   = self:collectPriceForecast(),
         weather         = self:collectWeather(),
         fields          = #fields > 0 and fields or emptyArray(),
         vehicles        = self:collectVehicles(),

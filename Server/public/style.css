@@ -457,6 +457,79 @@ th.sort-desc::after { content: ' \2193'; opacity: 1; color: var(--accent); }
 .bar-fill.full  { background: var(--teal); }
 .bar-pct   { font-size: 11px; color: var(--muted); width: 32px; text-align: right; flex-shrink: 0; }
 
+/* ─── Storage change flash ─────────────────────────────────────────────
+   Applied for ~10 s when an item's amount changes (timing is JS-side via
+   scheduled re-render that removes the class). Static colour, no animation
+   — keyframes had a subtle bug (!important inside @keyframes is ignored
+   per CSS spec, so red animation didn't always win against .st-row td's
+   own background). Applied to <td> (not <tr>) because .st-row td sets
+   its own background. */
+/* Table rows — must override .st-row td's own background (var(--surface2)) */
+tr.flash-up   > td,
+tr.flash-down > td { transition: background-color .3s ease-out; }
+tr.flash-up   > td { background-color: color-mix(in srgb, var(--accent) 35%, transparent) !important; }
+tr.flash-down > td { background-color: rgba(224, 82, 82, .35)                              !important; }
+/* Div-based rows (vehicles, animals) */
+.vehicle-row.flash-up,
+.animal-row.flash-up   { background-color: color-mix(in srgb, var(--accent) 35%, transparent) !important; transition: background-color .3s ease-out; }
+.vehicle-row.flash-down,
+.animal-row.flash-down { background-color: rgba(224, 82, 82, .35) !important; transition: background-color .3s ease-out; }
+
+/* Per-section toggle (right-aligned in section-header) to enable/disable
+   the change-flash effect. State persisted in DashState.flashEnabled keyed
+   by section name. iOS-style switch — native checkbox is visually hidden
+   (still keyboard/click-accessible inside the <label>), the `.switch-knob`
+   sibling renders the track + sliding knob via `:checked` cascade. The knob
+   element is injected at init by JS so the HTML stays simple. */
+.section-header .flash-toggle {
+    display: inline-flex; align-items: center; gap: 7px;
+    font-size: 10px; font-weight: 600;
+    text-transform: none; letter-spacing: 0;
+    color: var(--muted);
+    cursor: pointer; user-select: none;
+}
+.section-header .flash-toggle:hover { color: var(--text); }
+.section-header .flash-toggle input[type="checkbox"] {
+    appearance: none; -webkit-appearance: none; -moz-appearance: none;
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+    width: 0; height: 0;
+    margin: 0;
+}
+.section-header .flash-toggle .switch-knob {
+    width: 28px;
+    height: 16px;
+    background: var(--surface2);
+    border: 1px solid color-mix(in srgb, var(--text) 18%, transparent);
+    border-radius: 9px;
+    position: relative;
+    transition: background-color .2s, border-color .2s;
+    flex-shrink: 0;
+}
+.section-header .flash-toggle .switch-knob::before {
+    content: '';
+    position: absolute;
+    left: 1px; top: 1px;
+    width: 12px; height: 12px;
+    background: var(--muted);
+    border-radius: 50%;
+    transition: transform .2s ease-out, background-color .2s;
+    box-shadow: 0 1px 2px rgba(0,0,0,.25);
+}
+.section-header .flash-toggle input:checked + .switch-knob {
+    background-color: color-mix(in srgb, var(--accent) 35%, transparent);
+    border-color: var(--accent);
+}
+.section-header .flash-toggle input:checked + .switch-knob::before {
+    transform: translateX(12px);
+    background: var(--accent);
+}
+.section-header .flash-toggle input:focus-visible + .switch-knob {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+}
+
 /* ─── Productions table (slightly tighter) ───────────────────────────── */
 #sec-productions table { table-layout: fixed; }
 #sec-productions thead th { white-space: normal; padding: 6px 6px; }

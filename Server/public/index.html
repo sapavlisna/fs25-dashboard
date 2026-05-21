@@ -88,6 +88,10 @@
             <span style="margin-left:auto;font-size:11px;font-weight:400">
                 <a href="/calendar.html" style="color:var(--accent)">→ Kalendář</a>
             </span>
+            <label class="flash-toggle" title="Zvýraznit změny růstu pole (zeleně = vyrostlo, červeně = sklizeno)">
+                <input type="checkbox" data-flash-toggle="fields" checked>
+                <span>Flash změn</span>
+            </label>
         </div>
         <div class="table-wrap">
             <table data-sort-key="fields" data-default-sort="0:asc">
@@ -116,6 +120,10 @@
                 <input type="checkbox" id="veh-active-only">
                 <span>Pouze aktivní</span>
             </label>
+            <label class="flash-toggle" title="Zvýraznit změny paliva (zeleně = natankováno, červeně = spotřeba)">
+                <input type="checkbox" data-flash-toggle="vehicles" checked>
+                <span>Flash změn</span>
+            </label>
         </div>
         <div id="vehicles-body"></div>
         <div id="vehicles-hidden-wrap" style="display:none">
@@ -128,7 +136,12 @@
 
     <!-- Animals -->
     <div class="section" id="sec-animals" draggable="true" data-tt-dnd="sections" data-tt-key="animals">
-        <div class="section-header">🐄 Zvířata <span class="count" id="cnt-animals">0</span></div>
+        <div class="section-header">🐄 Zvířata <span class="count" id="cnt-animals">0</span>
+            <label class="flash-toggle" style="margin-left:auto" title="Zvýraznit změny počtu zvířat (zeleně = přírůstek, červeně = úbytek)">
+                <input type="checkbox" data-flash-toggle="animals" checked>
+                <span>Flash změn</span>
+            </label>
+        </div>
         <div id="animals-body"></div>
         <div id="animals-empty-wrap" style="display:none">
             <div class="subgroup-header" id="anim-empty-toggle">
@@ -140,7 +153,12 @@
 
     <!-- Storage -->
     <div class="section" id="sec-storage" draggable="true" data-tt-dnd="sections" data-tt-key="storage">
-        <div class="section-header">🏚 Sklady <span class="count" id="cnt-storage">0</span></div>
+        <div class="section-header">🏚 Sklady <span class="count" id="cnt-storage">0</span>
+            <label class="flash-toggle" style="margin-left:auto" title="Zvýraznit změny hodnot (zeleně = přibylo, červeně = ubylo)">
+                <input type="checkbox" data-flash-toggle="storage" checked>
+                <span>Flash změn</span>
+            </label>
+        </div>
         <div class="table-wrap">
             <table data-sort-key="storage" data-default-sort="1:desc">
                 <thead>
@@ -168,7 +186,12 @@
 
     <!-- Productions -->
     <div class="section" id="sec-productions" draggable="true" data-tt-dnd="sections" data-tt-key="productions">
-        <div class="section-header">🏭 Výrobny <span class="count" id="cnt-productions">0</span></div>
+        <div class="section-header">🏭 Výrobny <span class="count" id="cnt-productions">0</span>
+            <label class="flash-toggle" style="margin-left:auto" title="Zvýraznit změny zaplnění výrobny (zeleně = přibylo, červeně = ubylo)">
+                <input type="checkbox" data-flash-toggle="productions" checked>
+                <span>Flash změn</span>
+            </label>
+        </div>
         <div class="table-wrap">
             <table>
                 <thead>
@@ -197,7 +220,11 @@
     <!-- Prices -->
     <div class="section" id="sec-prices" draggable="true" data-tt-dnd="sections" data-tt-key="prices">
         <div class="section-header">💰 Výkupní ceny (<span class="cur-unit">€</span> / t)
-            <button id="btn-hide-zero-prices" class="section-btn" title="Skrýt všechny komodity, které momentálně nemáš na skladě" style="margin-left:auto">Skrýt vše bez skladu</button>
+            <button id="btn-hide-zero-prices" class="section-btn" style="margin-left:auto" title="Skrýt všechny komodity, které momentálně nemáš na skladě">Skrýt vše bez skladu</button>
+            <label class="flash-toggle" title="Zvýraznit změny ceny (zeleně = vyrostla, červeně = klesla)">
+                <input type="checkbox" data-flash-toggle="prices" checked>
+                <span>Flash změn</span>
+            </label>
         </div>
         <div class="table-wrap">
             <table>
@@ -367,6 +394,7 @@ function render(d) {
     renderKPI(d);
     $('s-updated').textContent = new Date().toLocaleTimeString('cs-CZ');
 
+    noteAllChanges(d);                       // diff per-section BEFORE rendering
     renderVehicles(d.vehicles || []);
     renderAnimals(d.animals   || []);
     renderFields(d.fields     || []);
@@ -376,6 +404,126 @@ function render(d) {
     relayoutMasonry();
 }
 
+// ─── Change-flash framework (10 s green/red row tint) ─────────────────────────
+// Generic per-section diff tracker. Each section registers rows by passing a
+// section name (= toggle key) plus key/value extractors. The framework diffs
+// values vs the previous WS tick and records flashes. Renderers query
+// `getFlashCls(section, rowKey)` to apply the CSS class. Multiple "levels"
+// within one section (e.g. storage has header AND item flashes) use rowKey
+// prefixes like `header::…` / `item::…` so they share one toggle.
+
+const flashPrev = new Map();          // `${section}::${rowKey}` → last value
+const flashes   = new Map();          // same key → { dir, expiresAt }
+let   flashCleanupTimer = null;
+window.__flashes = flashes;            // exposed for DevTools debugging
+
+function noteFlashRows(section, items, getKey, getValue) {
+    const now = Date.now();
+    for (const item of items) {
+        const v = getValue(item);
+        if (v == null) continue;
+        const k = `${section}::${getKey(item)}`;
+        const prev = flashPrev.get(k);
+        if (prev != null && prev !== v) {
+            flashes.set(k, { dir: v > prev ? 'up' : 'down', expiresAt: now + 10000 });
+        }
+        flashPrev.set(k, v);
+    }
+    for (const [k, f] of flashes) if (f.expiresAt < now) flashes.delete(k);
+    scheduleFlashCleanup();
+}
+
+function getFlashCls(section, rowKey) {
+    if (!isFlashEnabled(section)) return '';
+    const f = flashes.get(`${section}::${rowKey}`);
+    if (!f || f.expiresAt <= Date.now()) return '';
+    return f.dir === 'up' ? ' flash-up' : ' flash-down';
+}
+
+function scheduleFlashCleanup() {
+    if (flashCleanupTimer) { clearTimeout(flashCleanupTimer); flashCleanupTimer = null; }
+    let next = Infinity;
+    for (const f of flashes.values()) next = Math.min(next, f.expiresAt);
+    if (next === Infinity) return;
+    flashCleanupTimer = setTimeout(() => {
+        flashCleanupTimer = null;
+        if (!window.__lastData) return;
+        const d = window.__lastData;
+        renderVehicles(d.vehicles || []);
+        renderAnimals(d.animals   || []);
+        renderStorage(d.storage   || []);
+        renderProductions(d.productions || []);
+        renderPrices(d.prices     || []);
+        renderFields(d.fields     || []);
+    }, Math.max(50, next - Date.now() + 50));
+}
+
+// Per-section flash toggle — read from DashState.flashEnabled, default true.
+function isFlashEnabled(section) {
+    const map = DashState.get(DashState.KEYS.flashEnabled, {}) || {};
+    return map[section] !== false;
+}
+function setFlashEnabled(section, on) {
+    const map = DashState.get(DashState.KEYS.flashEnabled, {}) || {};
+    map[section] = !!on;
+    DashState.set(DashState.KEYS.flashEnabled, map);
+}
+
+// Aggregate diff feeders called from render(). All sections share the same
+// section name as the UI toggle key. Storage and productions use `header::`
+// and `item::` row-key prefixes so one toggle controls both granularities.
+function noteAllChanges(d) {
+    // Vehicles — fuelLiters per name (skip wheelbarrows w/ no fuel tank)
+    noteFlashRows('vehicles', d.vehicles || [],
+        v => v.name,
+        v => (v.fuelCapacity > 0 ? v.fuelLiters : null));
+    // Animals — count per husbandry
+    noteFlashRows('animals', d.animals || [],
+        a => a.husbandryName,
+        a => a.count);
+    // Storage — both per-item amounts AND per-silo aggregate total
+    const storageHeaderRows = [];
+    const storageItemRows = [];
+    for (const st of (d.storage || [])) {
+        const siloKey = `${st.type || 'silo'}:${st.storageName}`;
+        let total = 0;
+        for (const item of (st.items || [])) {
+            const amt = item.amount || 0;
+            storageItemRows.push({ k: `item::${siloKey}::${item.name}`, v: amt });
+            total += amt;
+        }
+        storageHeaderRows.push({ k: `header::${siloKey}`, v: total });
+    }
+    noteFlashRows('storage', storageHeaderRows, x => x.k, x => x.v);
+    noteFlashRows('storage', storageItemRows,   x => x.k, x => x.v);
+    // Productions — header (aggregate items) + per-item amount
+    const prodHeaderRows = [];
+    const prodItemRows = [];
+    for (const p of (d.productions || [])) {
+        let total = 0;
+        for (const item of (p.items || [])) {
+            const amt = item.amount || 0;
+            prodItemRows.push({ k: `item::${p.name}::${item.name}`, v: amt });
+            total += amt;
+        }
+        prodHeaderRows.push({ k: `header::${p.name}`, v: total });
+    }
+    noteFlashRows('productions', prodHeaderRows, x => x.k, x => x.v);
+    noteFlashRows('productions', prodItemRows,   x => x.k, x => x.v);
+    // Prices — per (sellPoint, item) pricePerTon
+    const priceRows = [];
+    for (const sp of (d.prices || [])) {
+        for (const item of (sp.items || [])) {
+            priceRows.push({ k: `${sp.sellPoint}::${item.name}`, v: item.pricePerTon });
+        }
+    }
+    noteFlashRows('prices', priceRows, x => x.k, x => x.v);
+    // Fields — growthState per id (changes when crop advances or is harvested)
+    noteFlashRows('fields', (d.fields || []).filter(f => f.owned),
+        f => f.id,
+        f => f.growthState);
+}
+
 function vehicleCardHTML(v, opts) {
     const fp = v.fuelPercent ?? 0;
     const adblue = v.adBlueCapacity
@@ -383,7 +531,8 @@ function vehicleCardHTML(v, opts) {
         : '';
     const dotCls = v.isInUse ? 'dot-active' : 'dot-idle';
     const fuelTitle = `${fmt(v.fuelLiters)} / ${fmt(v.fuelCapacity)} l`;
-    return `<div class="vehicle-row ${v.isInUse ? 'in-use' : ''}" ${TableTools.dndAttrs('vehicles', v.name)} title="Přetáhni do/ze sekce ‚Skryté vozidla‘ pro skrytí">
+    const flashCls = getFlashCls('vehicles', v.name);
+    return `<div class="vehicle-row ${v.isInUse ? 'in-use' : ''}${flashCls}" ${TableTools.dndAttrs('vehicles', v.name)} title="Přetáhni do/ze sekce ‚Skryté vozidla‘ pro skrytí">
         <span class="${dotCls}"></span>
         <span class="vc-name">${esc(v.name)}</span>
         <span class="vc-type">${esc(v.typeName)} · ${v.motorHours ?? 0} mh${adblue}</span>
@@ -465,11 +614,20 @@ function animalCardHTML(a, opts) {
     const hideBtn = canHide
         ? TableTools.hideBtn('animals', a.husbandryName, 'Skrýt chov')
         : TableTools.unhideBtn('animals', a.husbandryName, 'Zobrazit chov');
-    return `<div class="animal-row ${isAlert ? 'alert' : ''}" ${TableTools.dndAttrs('animals', a.husbandryName)} data-animal-name="${esc(a.husbandryName)}" title="Klikni pro detail">
+    // Reproduction badge — max % across clusters. Tinted green ≥90 % so the
+    // user can spot a herd about to birth at a glance. Empty pens (count==0)
+    // and husbandries that don't expose reproduction get no badge.
+    const reproPct = a.reproductionPercent;
+    const reproBadge = (a.count > 0 && reproPct != null)
+        ? ` · <span class="${reproPct >= 90 ? 'c-green' : ''}" title="Reprodukce — nejvyšší % napříč plemeny (100 % = nové mládě)">🐣 ${reproPct}%</span>`
+        : '';
+
+    const flashCls = getFlashCls('animals', a.husbandryName);
+    return `<div class="animal-row ${isAlert ? 'alert' : ''}${flashCls}" ${TableTools.dndAttrs('animals', a.husbandryName)} data-animal-name="${esc(a.husbandryName)}" title="Klikni pro detail">
         <span class="ac-icon">${icon}</span>
         <div class="ac-meta">
             <div class="ac-name">${esc(a.husbandryName)} ${badge}</div>
-            <div class="ac-sub">${a.count} ks · prod. ${a.productivity ?? 0} %</div>
+            <div class="ac-sub">${a.count} ks · zdr. ${a.productivity ?? 0} %${reproBadge}</div>
         </div>
         <div class="ac-bars">${barsHTML}</div>
         <span style="margin-left:4px">${hideBtn}</span>
@@ -507,7 +665,7 @@ function openAnimalModal(name) {
         <div class="amodal-meta">
             <div><span class="amodal-lbl">Druh:</span> ${esc(csAnimalName(data.type))} (${esc(data.type || '—')})</div>
             <div><span class="amodal-lbl">Počet:</span> ${data.count} / ${data.maxCount ?? '—'} ks</div>
-            <div><span class="amodal-lbl">Produktivita:</span> ${data.productivity ?? 0} %</div>
+            <div><span class="amodal-lbl">Zdraví stáda:</span> ${data.productivity ?? 0} %</div>
         </div>`;
 
     const fillRow = (label, lvl, cap, pct, suffix='L') => {
@@ -542,7 +700,7 @@ function openAnimalModal(name) {
                     <td class="num">${c.count}</td>
                     <td class="num">${c.age} m</td>
                     <td class="num">${c.health} %</td>
-                    <td class="num">${c.reproduction} %</td>
+                    <td class="num ${c.reproduction >= 90 ? 'c-green' : ''}">${c.reproduction} %</td>
                     <td class="num">${fmtMoney(c.sellPrice || 0)}</td>
                 </tr>`).join('')}
             </tbody>
@@ -749,7 +907,8 @@ function renderFields(fields) {
             ? `<span title="Zemědělská půda ${f.farmlandId} (z map UI)">${f.farmlandId}</span>`
             : '<span class="c-muted" title="Mod nezná farmland binding pro toto pole">—</span>';
         const btn = canHide ? TableTools.hideBtn(STATE_KEY, f.id) : TableTools.unhideBtn(STATE_KEY, f.id);
-        return `<tr ${TableTools.dndAttrs(STATE_KEY, f.id)}>
+        const flashCls = getFlashCls('fields', f.id);
+        return `<tr class="${flashCls.trim()}" ${TableTools.dndAttrs(STATE_KEY, f.id)}>
             <td class="num">${f.id}</td>
             <td class="num">${farmlandCell}</td>
             <td>${fruitCell}${fieldConditionBadge(f)}</td>
@@ -800,12 +959,14 @@ function storageRowsHTML(st, opts) {
     const hideBtn = opts.canHide
         ? `<button class="vc-hide" title="Skrýt sklad" data-hide-storage="${esc(key)}" style="float:right">✕</button>`
         : `<button class="vc-hide" title="Zobrazit sklad" data-show-storage="${esc(key)}" style="float:right">+</button>`;
-    const header = `<tr class="st-row collapsible" ${TableTools.dndAttrs('storages', key)} data-group="${esc(key)}"><td colspan="4">${hideBtn}<span class="group-toggle">${indicator}</span> ${donut} ${esc(st.storageName)} ${summary} ${pctTxt}</td></tr>`;
+    const hdrFlashCls = getFlashCls('storage', `header::${key}`);
+    const header = `<tr class="st-row collapsible${hdrFlashCls}" ${TableTools.dndAttrs('storages', key)} data-group="${esc(key)}"><td colspan="4">${hideBtn}<span class="group-toggle">${indicator}</span> ${donut} ${esc(st.storageName)} ${summary} ${pctTxt}</td></tr>`;
     const rows = items.map(item => {
         const ipct = item.capacity > 0 ? Math.round(item.amount / item.capacity * 100) : 0;
         const cls = ipct >= 95 ? 'full' : ipct >= 70 ? 'warn' : '';
         const hidden = collapsed ? ' hidden-row' : '';
-        return `<tr class="group-item${hidden}" data-group="${esc(key)}">
+        const flashCls = getFlashCls('storage', `item::${key}::${item.name}`);
+        return `<tr class="group-item${hidden}${flashCls}" data-group="${esc(key)}">
             <td>${esc(item.name)}</td>
             <td class="num">${fmt(item.amount)}</td>
             <td class="num">${item.capacity > 0 ? fmt(item.capacity) : '—'}</td>
@@ -876,12 +1037,14 @@ function productionRowsHTML(p, opts) {
     const hideBtn = opts.canHide
         ? `<button class="vc-hide" title="Skrýt výrobnu" data-hide-prod="${esc(key)}" style="float:right">✕</button>`
         : `<button class="vc-hide" title="Zobrazit výrobnu" data-show-prod="${esc(key)}" style="float:right">+</button>`;
-    const header = `<tr class="st-row collapsible" ${TableTools.dndAttrs('productions', key)} data-group="${esc(key)}"><td colspan="4">${hideBtn}<span class="group-toggle">${indicator}</span> ${donut} ${esc(p.name)} ${summary} ${pctTxt}</td></tr>`;
+    const hdrFlashCls = getFlashCls('productions', `header::${p.name}`);
+    const header = `<tr class="st-row collapsible${hdrFlashCls}" ${TableTools.dndAttrs('productions', key)} data-group="${esc(key)}"><td colspan="4">${hideBtn}<span class="group-toggle">${indicator}</span> ${donut} ${esc(p.name)} ${summary} ${pctTxt}</td></tr>`;
     const hiddenCls = collapsed ? ' hidden-row' : '';
     const stockRows = items.map(item => {
         const ipct = item.capacity > 0 ? Math.round(item.amount / item.capacity * 100) : 0;
         const cls = ipct >= 95 ? 'full' : ipct >= 70 ? 'warn' : '';
-        return `<tr class="group-item${hiddenCls}" data-group="${esc(key)}">
+        const itemFlashCls = getFlashCls('productions', `item::${p.name}::${item.name}`);
+        return `<tr class="group-item${hiddenCls}${itemFlashCls}" data-group="${esc(key)}">
             <td>📦 ${esc(item.name)}</td>
             <td class="num">${fmt(item.amount)}</td>
             <td class="num">${item.capacity > 0 ? fmt(item.capacity) : '—'}</td>
@@ -997,7 +1160,8 @@ function renderPrices(prices) {
             const itemBtn = canHideItem
                 ? TableTools.hideBtn(ITEM_KEY, item.name, 'Skrýt komoditu')
                 : TableTools.unhideBtn(ITEM_KEY, item.name, 'Zobrazit komoditu');
-            return `<tr class="group-item${hCls}" data-group="${esc(key)}"><td>${esc(item.name)}${stockTxt}</td><td class="num ${cls}">${fmtMoney(item.pricePerTon)}</td><td>${itemBtn}</td></tr>`;
+            const priceFlashCls = getFlashCls('prices', `${sp.sellPoint}::${item.name}`);
+            return `<tr class="group-item${hCls}${priceFlashCls}" data-group="${esc(key)}"><td>${esc(item.name)}${stockTxt}</td><td class="num ${cls}">${fmtMoney(item.pricePerTon)}</td><td>${itemBtn}</td></tr>`;
         };
 
         let rows = visibleItems.map(it => itemRow(it, true)).join('');
@@ -1129,6 +1293,33 @@ window.addEventListener('DOMContentLoaded', () => {
 
     const btnHideZero = document.getElementById('btn-hide-zero-prices');
     if (btnHideZero) btnHideZero.addEventListener('click', hideAllZeroStockPrices);
+
+    // Flash toggles — restore persisted state and wire change handlers. Re-render
+    // the affected section immediately so the user sees the toggle take effect.
+    const FLASH_RERENDER = {
+        storage:     d => renderStorage(d.storage || []),
+        vehicles:    d => renderVehicles(d.vehicles || []),
+        animals:     d => renderAnimals(d.animals || []),
+        productions: d => renderProductions(d.productions || []),
+        prices:      d => renderPrices(d.prices || []),
+        fields:      d => renderFields(d.fields || []),
+    };
+    document.querySelectorAll('input[data-flash-toggle]').forEach(input => {
+        const section = input.dataset.flashToggle;
+        input.checked = isFlashEnabled(section);
+        // Inject the visual switch knob (CSS styles a .switch-knob sibling).
+        if (!input.nextElementSibling || !input.nextElementSibling.classList.contains('switch-knob')) {
+            const knob = document.createElement('span');
+            knob.className = 'switch-knob';
+            input.after(knob);
+        }
+        input.addEventListener('change', () => {
+            setFlashEnabled(section, input.checked);
+            if (window.__lastData && FLASH_RERENDER[section]) {
+                FLASH_RERENDER[section](window.__lastData);
+            }
+        });
+    });
 
     applySectionOrder();
 

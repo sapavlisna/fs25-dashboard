@@ -112,6 +112,14 @@ let animalFood = {
     cow: rf(0.3, 1.0), pig: rf(0.2, 1.0),
     sheep: rf(0.4, 1.0), chicken: rf(0.3, 1.0),
 };
+// Stateful animal counts — drift ±1 occasionally to trigger flash testing
+let animalCounts = { cow: 14, pig: 24, sheep: 10, chicken: 40 };
+// Stateful production items — drift each tick to trigger flash testing
+let productionState = [
+    { name: 'Pekárna',    cap: 20000, items: { 'Mouka': 5200, 'Voda': 8500, 'Chléb': 1100 } },
+    { name: 'Pila',       cap: 30000, items: { 'Klády': 14800, 'Řezivo': 2300 } },
+    { name: 'Krmivárna',  cap: 25000, items: { 'Pšenice': 8200, 'Ječmen': 6100, 'Krmivo': 1600 } },
+];
 
 function generateData() {
     growthTick++;
@@ -169,6 +177,19 @@ function generateData() {
     Object.keys(animalFood).forEach(k => {
         animalFood[k] = Math.max(0, animalFood[k] - rf(0.005, 0.02));
     });
+    // Animal counts — small drift (~15 % chance per tick per herd) to fire flashes
+    Object.keys(animalCounts).forEach(k => {
+        if (Math.random() < 0.15) {
+            animalCounts[k] = Math.max(0, animalCounts[k] + (Math.random() < 0.5 ? -1 : 1));
+        }
+    });
+    // Production items — drift each tick (small +- delta)
+    for (const p of productionState) {
+        for (const name of Object.keys(p.items)) {
+            const delta = ri(-300, 800);
+            p.items[name] = Math.max(0, Math.min(p.cap, p.items[name] + delta));
+        }
+    }
 
     const hour = Math.floor((Date.now() / 1000 / 60) % 24);
 
@@ -209,11 +230,16 @@ function generateData() {
             })),
         })).filter(sp => sp.items.length > 0),
         animals: [
-            { husbandryName: 'Kravín',  type: 'COW',     count: 14, foodPercent: Math.round(animalFood.cow * 100),     waterPercent: ri(40, 100), productivity: ri(70, 100) },
-            { husbandryName: 'Vepřín',  type: 'PIG',     count: 24, foodPercent: Math.round(animalFood.pig * 100),     waterPercent: ri(50, 100), productivity: ri(60, 100) },
-            { husbandryName: 'Ovčín',   type: 'SHEEP',   count: 10, foodPercent: Math.round(animalFood.sheep * 100),   waterPercent: ri(30, 100), productivity: ri(75, 100) },
-            { husbandryName: 'Kurník',  type: 'CHICKEN', count: 40, foodPercent: Math.round(animalFood.chicken * 100), waterPercent: ri(60, 100), productivity: ri(65, 100) },
+            { husbandryName: 'Kravín',  type: 'COW',     count: animalCounts.cow,     foodPercent: Math.round(animalFood.cow * 100),     waterPercent: ri(40, 100), productivity: ri(70, 100) },
+            { husbandryName: 'Vepřín',  type: 'PIG',     count: animalCounts.pig,     foodPercent: Math.round(animalFood.pig * 100),     waterPercent: ri(50, 100), productivity: ri(60, 100) },
+            { husbandryName: 'Ovčín',   type: 'SHEEP',   count: animalCounts.sheep,   foodPercent: Math.round(animalFood.sheep * 100),   waterPercent: ri(30, 100), productivity: ri(75, 100) },
+            { husbandryName: 'Kurník',  type: 'CHICKEN', count: animalCounts.chicken, foodPercent: Math.round(animalFood.chicken * 100), waterPercent: ri(60, 100), productivity: ri(65, 100) },
         ],
+        productions: productionState.map(p => ({
+            name:  p.name,
+            items: Object.entries(p.items).map(([name, amount]) => ({ name, amount, capacity: p.cap })),
+            productions: [{ name: 'Recept #1', status: 'active', cyclesPerHour: ri(10, 80) }],
+        })),
         vehicles: VEHICLES.map((v, i) => {
             const s = vehicleFuel[i];
             const entry = {

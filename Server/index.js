@@ -7,8 +7,35 @@ const fs    = require('fs');
 const db       = require('./db');
 const savegame = require('./savegame');
 const config   = require('./config');
+const pkg      = require('./package.json');
 
 const { PORT, HOST, DATA_FILE, PUBLIC_DIR } = config;
+
+// ─── Schema compatibility ────────────────────────────────────────────────────
+// The mod stamps `schemaVersion` on every payload. Bump these bounds when the
+// JSON shape changes in a way the server cares about. See COMPATIBILITY.md.
+const SERVER_VERSION    = pkg.version;
+const MIN_MOD_SCHEMA    = 1;
+const MAX_MOD_SCHEMA    = 1;
+
+const seenMod = { schemaVersion: null, modVersion: null, warnedAt: 0 };
+
+function trackModVersion(data) {
+    if (!data || typeof data !== 'object') return;
+    const schema = data.schemaVersion;
+    const modVer = data.modVersion;
+    if (schema !== seenMod.schemaVersion || modVer !== seenMod.modVersion) {
+        seenMod.schemaVersion = schema ?? null;
+        seenMod.modVersion    = modVer ?? null;
+        if (schema == null) {
+            console.warn(`[Schema] Mod sent no schemaVersion — assuming legacy (<1). Server expects ${MIN_MOD_SCHEMA}..${MAX_MOD_SCHEMA}. Update the Lua mod.`);
+        } else if (schema < MIN_MOD_SCHEMA || schema > MAX_MOD_SCHEMA) {
+            console.warn(`[Schema] Mod schemaVersion=${schema} outside supported range ${MIN_MOD_SCHEMA}..${MAX_MOD_SCHEMA} (mod ${modVer ?? '?'}). See COMPATIBILITY.md.`);
+        } else {
+            console.log(`[Schema] Mod ${modVer ?? '?'} schemaVersion=${schema} OK (server ${SERVER_VERSION}).`);
+        }
+    }
+}
 
 // ─── Express ─────────────────────────────────────────────────────────────────
 
@@ -48,6 +75,14 @@ app.get('/api/profit/fields', (_req, res) => {
 
 app.get('/api/events', (req, res) => {
     res.json(db.getRecentEvents(req.query.limit || 50));
+});
+
+app.get('/api/version', (_req, res) => {
+    res.json({
+        server: SERVER_VERSION,
+        schema: { min: MIN_MOD_SCHEMA, max: MAX_MOD_SCHEMA },
+        mod:    { schemaVersion: seenMod.schemaVersion, modVersion: seenMod.modVersion },
+    });
 });
 
 app.get('/api/savegame', (_req, res) => {
@@ -117,6 +152,7 @@ function enrich(data) {
 function broadcast(rawString) {
     let data;
     try { data = JSON.parse(rawString); } catch (_) { data = null; }
+    if (data) trackModVersion(data);
     const enriched = data ? enrich(data) : null;
     const msg = enriched ? JSON.stringify(enriched) : rawString;
     wss.clients.forEach(client => {
@@ -164,7 +200,8 @@ watcher.on('error', e => console.error('[Watch] Error:', e));
 
 server.listen(PORT, HOST, () => {
     console.log('\n╔══════════════════════════════════════╗');
-    console.log('║       FS25 Dashboard Server          ║');
+    console.log(`║   FS25 Dashboard Server  v${SERVER_VERSION.padEnd(10)} ║`);
+    console.log(`║   Expects mod schema ${String(MIN_MOD_SCHEMA).padEnd(2)}..${String(MAX_MOD_SCHEMA).padEnd(11)} ║`);
     console.log('╠══════════════════════════════════════╣');
     console.log(`║  Dashboard:  http://localhost:${PORT}    ║`);
     console.log(`║  Bound:      ${HOST.padEnd(24)} ║`);

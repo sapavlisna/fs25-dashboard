@@ -1,208 +1,184 @@
 # FS25 Dashboard
 
-**English** · [Čeština](README.cs.md)
+**Čeština** · [English](README.en.md)
 
-Real-time web dashboard for **Farming Simulator 25** — see your farm's fields, vehicles, animals, silos, market prices and balance live in your browser while you play.
+Real-time webový dashboard pro **Farming Simulator 25** — pole, vozidla, zvířata, sila, ceny a zůstatek farmy živě v prohlížeči vedle hry.
 
 ![status](https://img.shields.io/badge/status-beta-yellow) ![FS25](https://img.shields.io/badge/FS25-1.x-green) ![license](https://img.shields.io/badge/license-MIT-blue)
 
-> 📸 **Screenshots / GIF placeholder** — add `docs/screenshot-main.png`, `docs/screenshot-history.png`, `docs/demo.gif` before the first release.
+![FS25 Dashboard — hlavní obrazovka](docs/screenshot-main.png)
 
 ---
 
-## ⚠️ Heads-up — personal hobby project
+## ⚠️ Pozor — osobní hobby projekt
 
-This is a side project I built for my own use and decided to open-source. It is not a commercial or professionally-maintained product.
+Tohle je můj soukromý projekt, který jsem si dělal pro sebe a ze kterého jsem se rozhodl udělat veřejnou verzi. Není to komerční ani profesionálně vyvíjený produkt.
 
-- **Developed against vanilla maps.** Works well there. Community maps (Hof Bergmann, etc.) are mostly tested but bugs specific to a particular map pack may not get fixed.
-- **No backwards-compatibility guarantee** across FS25 patches. If GIANTS breaks an API, the fix may take a while — or never come.
-- **Multiplayer**: works in single-player and on the hosting player's side (listen server). Dedicated server is not supported and not on my roadmap.
-- **Issues and PRs welcome**, but I can't promise a fast (or any) response. If you need something urgently, **fork it** and adapt it — that's why it's MIT.
+- **Vyvíjeno proti vanilla mapám.** Funguje to dobře na základních mapách. Na community mapách (Hof Bergmann atd.) je to převážně otestované, ale chyby specifické pro konkrétní map-pack se nemusí dočkat opravy.
+- **Není garantovaná zpětná kompatibilita** mezi verzemi FS25. Když přijde patch a něco se v API rozbije, oprava může chvíli trvat — nebo se nemusí stát vůbec.
+- **Multiplayer**: funguje v singleplayer a u hostujícího hráče (listen server). Dedikovaný server zatím nepodporuji a v dohledné době ani nebudu.
+- **Issues a PR vítané**, ale neslibuji rychlou (ani žádnou) odpověď. Pokud něco potřebuješ urgentně, **forkni si to** a uprav podle sebe — proto je to MIT licence.
 
-If something doesn't work, feel free to open an issue but take it with a pinch of salt. If you need a stable product, this isn't it.
-
----
-
-## What it shows
-
-- 🚜 **Vehicles** — fuel/AdBlue %, motor hours, in-use status. Drag & drop to hide ones you don't care about.
-- 🐄 **Animals** — food/water/straw levels, milk/manure storage, productivity. Alerts when something needs attention.
-- 🌾 **Fields** — ownership, current crop, growth %, days to harvest, fertilization/lime/plow state. Pulled from `fields.xml` so it matches the in-game UI.
-- 🏭 **Silos & productions** — fill levels per commodity, active recipes, output stock.
-- 💰 **Market prices** — current sell-point prices per ton, sortable, with hide-zero-stock filter.
-- 📅 **Calendar** — what's planted on which field, sortable by harvest date.
-- 📈 **History** — balance trend over 7/30/90 days, commodity price history per sell-point.
-- 💵 **Profit per field** — revenue, cost, profit aggregated from event history.
-- 🔔 **Browser notifications** — low fuel, low food, harvest ready, field empty too long.
-
-Works with **AdditionalCurrencies** — when the in-game converter is on, the dashboard mirrors the same currency and symbol.
+Pokud ti něco nefunguje, klidně otevři issue, ale ber to s rezervou. Pokud chceš stabilní produkt, tohle není ono.
 
 ---
 
-## Requirements
+## Co to ukazuje
 
-- Farming Simulator 25 (any version)
-- Windows (the server ships as a Windows .exe)
-- A modern browser (Chrome / Edge / Firefox)
-- ~60 MB disk space
+- 🚜 **Vozidla** — palivo / AdBlue %, motohodiny, aktivita. Drag & drop na skrytí těch, co tě nezajímají.
+- 🐄 **Zvířata** — krmivo / voda / sláma, sklad mléka / hnoje, produktivita. Upozornění, když něco dochází.
+- 🌾 **Pole** — vlastnictví, plodina, % růstu, dny do sklizně, hnojení / vápno / orba. Stav se čte z `fields.xml` — sedí s in-game UI.
+- 🏭 **Sila & výrobny** — co máš na skladě, jaké recepty běží, stav výstupu.
+- 💰 **Výkupní ceny** — aktuální ceny za tunu, sortovatelné, filtr na to, co máš na skladě.
+- 📅 **Kalendář polí** — co je zaseté na kterém poli, seřazeno podle data sklizně, s indikátory fáze růstu a hnojení.
+- 📈 **Historie** — vývoj zůstatku za 7 / 30 / 90 dní, historie cen plodin podle výkupního místa.
+- 💵 **Zisk podle pole** — auto-tracking eventů (osetí, sklizeň) → tržby, náklady, zisk.
+- 🔔 **Browser notifikace** — málo paliva, málo krmiva, pole připravené ke sklizni, dlouho prázdné pole.
 
-Node.js is **not** required — the server is a bundled single-file executable
-that includes its own runtime. If you want to run from source or build the
-exe yourself, see *Development* below.
+Funguje s **AdditionalCurrencies** — když máš zapnutý in-game převodník měny, dashboard zrcadlí stejnou měnu a symbol.
 
 ---
 
-## Install
+## Co je potřeba
 
-### 1. Install the in-game mod
+- Farming Simulator 25 (jakákoli verze)
+- Windows (server je Windows .exe)
+- Moderní prohlížeč (Chrome / Edge / Firefox)
+- ~60 MB volného místa
 
-Download `FS25_Dashboard.zip` from [Releases](../../releases) and drop it into:
+Node.js **není potřeba** — server je single-file binárka se zabaleným runtimem. Pokud chceš spouštět ze zdrojáku nebo si exe sestavit sám, viz *Development* níže.
+
+---
+
+## Instalace
+
+### 1. In-game mod
+
+Stáhni `FS25_Dashboard.zip` z [Releases](../../releases) a hoď ho do:
 
 ```
 Documents/My Games/FarmingSimulator2025/mods/
 ```
 
-Enable it in the FS25 mod menu when loading your save.
+V FS25 mod menu zapni při načítání save.
 
-### 2. Run the server
+### 2. Server
 
-Download `FS25_Dashboard_Server.zip` from [Releases](../../releases) and
-extract anywhere (any folder works — the server doesn't care where it lives).
+Stáhni `FS25_Dashboard_Server.zip` z [Releases](../../releases) a rozbal kamkoli.
 
-Double-click `FS25_Dashboard_Server.exe`. A console window opens showing the
-server log. Then open in your browser:
+Dvojklik na `FS25_Dashboard_Server.exe`. Otevře se konzolové okno s logem. Pak v prohlížeči:
 
 ```
 http://localhost:3000
 ```
 
-Leave the console open while you play. The server reads
-`Documents/My Games/FarmingSimulator2025/dashboard_data.json` (which the mod
-writes every 2 seconds) and pushes updates to the browser over WebSocket.
+Konzoli nech otevřenou, dokud hraješ. Server čte `Documents/My Games/FarmingSimulator2025/dashboard_data.json` (mod ho přepisuje každé 2 s) a pushuje změny do prohlížeče přes WebSocket.
 
-Stopping the server: close the console window (or press Ctrl+C in it).
+Zastavení serveru: zavři okno konzole (nebo Ctrl+C).
 
 ---
 
-## How it works
+## Jak to funguje
 
 ```
-FS25 Game (Lua mod)
+FS25 hra (Lua mod)
     │
-    │ writes dashboard_data.json every 2 s when state changes
+    │ zapisuje dashboard_data.json každé 2 s při změně stavu
     ▼
 Node.js Server  (Express + WebSocket + chokidar file watcher)
     │
-    │ enriches payload with XML metadata from your savegame
-    │ (fields.xml, farms.xml, farmland.xml) — XML is the
-    │ source of truth for persistent field state
+    │ obohacuje payload o XML metadata ze save folderu
+    │ (fields.xml, farms.xml, farmland.xml) — XML je zdroj
+    │ pravdy pro persistentní stav polí
     │
-    │ appends daily snapshots to data/*.jsonl (balance, prices,
-    │ field events) for the history & profit pages
+    │ appendoduje denní snapshoty do data/*.jsonl (balance,
+    │ ceny, field eventy) pro stránky historie + zisk
     │
     ▼
-Web Browser
-    └─ receives live updates over WebSocket (no page reload)
-    └─ REST endpoints serve historical data
+Prohlížeč
+    └─ dostává živé updaty přes WebSocket (žádný reload)
+    └─ REST endpointy pro historická data
 ```
 
-The mod has no external dependencies and writes plain JSON. The server is vanilla JS (no bundler, no framework) — easy to fork and modify.
+Mod nemá žádné externí závislosti, zapisuje plain JSON. Server je vanilla JS (bez bundleru, bez frameworku) — snadno se forkne a upraví.
 
 ---
 
 ## FAQ
 
-**Q: Port 3000 is already in use, or I want to change paths.**
-Copy `Server/config.example.json` to `Server/config.local.json` and edit. Or
-use environment variables before starting:
+**Otázka: Port 3000 je obsazený / chci změnit cesty.**
+Zkopíruj `config.example.json` na `config.local.json` (vedle .exe) a uprav. Nebo nastav env proměnné:
 
 ```powershell
 $env:DASHBOARD_PORT="4000"
-$env:FS25_DOCS_DIR="D:\Games\FS25-Docs"   # if your Documents folder is redirected
-npm start
+$env:FS25_DOCS_DIR="D:\Games\FS25-Docs"   # když máš Documents přesměrované
+.\FS25_Dashboard_Server.exe
 ```
 
-Available keys (env / json):
+Dostupné klíče (env / json):
 - `DASHBOARD_PORT` / `port` — default `3000`
-- `DASHBOARD_HOST` / `host` — default `0.0.0.0` (all interfaces)
-- `FS25_DOCS_DIR` / `fs25DocsDir` — root of `My Games\FarmingSimulator2025`
-- `DASHBOARD_DATA_FILE` / `dataFile` — full path to `dashboard_data.json`
-- `FS25_LOG_FILE` / `logFile` — full path to FS25's `log.txt`
-- `DASHBOARD_DATA_DIR` / `dataDir` — where to store `*.jsonl` history
+- `DASHBOARD_HOST` / `host` — default `0.0.0.0` (všechna rozhraní)
+- `FS25_DOCS_DIR` / `fs25DocsDir` — root `My Games\FarmingSimulator2025`
+- `DASHBOARD_DATA_FILE` / `dataFile` — full path k `dashboard_data.json`
+- `FS25_LOG_FILE` / `logFile` — full path k FS25 `log.txt`
+- `DASHBOARD_DATA_DIR` / `dataDir` — kam ukládat historii JSONL
 
-**Q: Does it work in multiplayer?**
-Single-player and listen-server hosts: yes. Pure clients on a dedicated server: not currently — the mod reads game state from the host's `g_currentMission`.
+**Otázka: Funguje to v multiplayeru?**
+Singleplayer a hosting (listen server): ano. Klient na dedikovaném serveru: zatím ne — mod čte stav hry z host-side `g_currentMission`.
 
-**Q: Where is the savegame folder?**
-`Documents/My Games/FarmingSimulator2025/savegame<N>/`. The server auto-detects the most recent save; you can override via `SAVE_DIR` env var.
+**Otázka: Kde je save folder?**
+`Documents/My Games/FarmingSimulator2025/savegame<N>/`. Server auto-detekuje nejnovější save.
 
-**Q: Can I run the dashboard on a different machine / phone?**
-Yes — find your PC's local IP (e.g. `192.168.1.20`) and open `http://192.168.1.20:3000` on the other device. Both have to be on the same network.
+**Otázka: Můžu si dashboard otevřít na jiném PC / mobilu?**
+Ano — najdi IP svého PC (např. `192.168.1.20`) a na druhém zařízení otevři `http://192.168.1.20:3000`. Musí být na stejné síti.
 
-**Q: Does this work with other mods (Seasons Geo, Courseplay, etc.)?**
-Most things work. Maps that change field/farmland behavior may show inconsistencies. Open an issue with a save folder snippet if you hit something.
+**Otázka: Funguje to s jinými mody (Seasons Geo, Courseplay, ...)?**
+Většina věcí jo. Mapy, které mění chování polí / farmlandu, můžou vykazovat nesrovnalosti. Otevři issue, ale ber prosím v úvahu disclaimer výše.
 
-**Q: Will it slow down my game?**
-The mod writes a JSON file every 2 s only if state changed. Negligible CPU. The dashboard itself runs out-of-process.
+**Otázka: Zpomalí mi to hru?**
+Mod zapisuje JSON jednou za 2 s, jen když se něco změnilo. Zanedbatelné CPU. Dashboard běží mimo proces hry.
 
 ---
 
-## Customizing notifications
+## Vlastní notifikace
 
-Click the 🔔 in the top bar. You can set thresholds for low fuel, low food, empty fields, and the cooldown between repeated alerts. State is saved to `localStorage`.
+Klikni na 🔔 v horní liště. Můžeš nastavit prahy pro málo paliva, málo krmiva, prázdná pole a cooldown mezi opakovanými upozorněními. Stav se ukládá do `localStorage`.
 
 ---
 
 ## Development
 
-Clone, then:
+Klon repa, pak:
 
 ```bash
 cd Server
 npm install
-npm run mock    # generates a fake dashboard_data.json — develop UI without FS25
-npm start       # in another terminal, serves the dashboard
+npm run mock    # generuje fake dashboard_data.json — UI dev bez FS25
+npm start       # v druhém terminálu, servíruje dashboard
 ```
 
-To build the single-file Windows executable locally:
+Sestavení Windows .exe lokálně:
 
 ```bash
 cd Server
 npm install
-npm run build   # produces dist/FS25_Dashboard_Server.exe (~50 MB)
+npm run build   # produkuje dist/FS25_Dashboard_Server.exe (~50 MB)
 ```
 
-The mod lives in `FS25/`. Run `deploy.bat` to build a ZIP and copy it to the
-FS25 mods folder.
-
-Project structure:
-
-```
-FS25/                  ← Lua mod (DashboardExport.lua + modDesc.xml)
-Server/
-├── index.js           ← Express + WebSocket entrypoint
-├── db.js              ← append-only JSONL history
-├── savegame.js        ← XML parser for fields/farms/farmland
-├── public/            ← static frontend (vanilla JS, no build)
-└── scripts/
-    ├── mock-data.js
-    └── validate-json.js
-```
+Mod je v `FS25/`. Spusť `deploy.bat` — postaví ZIP a zkopíruje do FS25 mods folderu.
 
 ---
 
-## Contributing
+## Přispívání
 
-Issues and PRs welcome. For bug reports include:
-- FS25 version
-- Other active mods
-- A snippet of `dashboard_data.json` showing the issue
-- Browser console errors if the issue is visual
+Issues a PR vítané (viz disclaimer výše). U bug reportu prosím:
+- Verzi FS25
+- Ostatní aktivní mody
+- Kus `dashboard_data.json` ukazující problém
+- Browser konzole errory, pokud je problém vizuální
 
 ---
 
-## License
+## Licence
 
-MIT — see [LICENSE](LICENSE).
-
-The Lua mod and the Node.js server are released together but are independently licensed under MIT. You can fork, modify, redistribute, and use commercially.
+MIT — viz [LICENSE](LICENSE).

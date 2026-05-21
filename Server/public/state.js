@@ -43,6 +43,7 @@
             showActiveVehiclesOnly: 'showActiveVehiclesOnly',  // bool
             emptyAnimalsCollapsed:  'emptyAnimalsCollapsed',   // bool, default true
             collapsedGroups:        'collapsedGroups',         // array of group keys (silo/sell)
+            flashEnabled:           'flashEnabled',            // map<sectionKey, bool> — change-flash on/off per section
         },
     };
 })();

@@ -77,8 +77,18 @@
             target: 'sec-fields',
         });
 
-        // Vehicles — low fuel
-        const lowFuel = vehicles.filter(v => (v.fuelPercent ?? 100) < FUEL_LOW);
+        // Vehicles — low fuel. Skip vehicles the user has hidden (drag-and-drop
+        // hide zone on the Dashboard) and ones with no fuel tank (wheelbarrows,
+        // rest-station placeables — they report fuelCapacity=0, which would
+        // otherwise pin fuelPercent at 0 and trip the threshold spuriously).
+        const ds = window.DashState;
+        const hiddenVehicles = ds
+            ? new Set((ds.get(ds.KEYS.hiddenVehicles, []) || []).map(String))
+            : new Set();
+        const lowFuel = vehicles.filter(v =>
+            (v.fuelCapacity || 0) > 0 &&
+            !hiddenVehicles.has(String(v.name)) &&
+            (v.fuelPercent ?? 100) < FUEL_LOW);
         if (lowFuel.length) out.push({
             key: 'veh-fuel', icon: '🚜', severity: 'urgent',
             title: `${lowFuel.length} ${plural(lowFuel.length, 'vozidlo s nízkým palivem', 'vozidla s nízkým palivem', 'vozidel s nízkým palivem')}`,

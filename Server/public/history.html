@@ -156,7 +156,7 @@
         <div class="chart-card">
             <div class="chart-header">
                 <h3>📈 Cena komodity</h3>
-                <select id="sel-filltype" onchange="loadPriceChart()">
+                <select id="sel-filltype" onchange="onFillTypeChange()">
                     <option value="">Načítám…</option>
                 </select>
                 <select id="sel-sellpoint" onchange="loadPriceChart()">
@@ -169,6 +169,17 @@
             </div>
         </div>
 
+        <!-- Seasonal forecast — full-width row -->
+        <div class="chart-card" style="grid-column: 1 / -1">
+            <div class="chart-header">
+                <h3>🔮 Sezónní křivka ceny <span id="forecast-summary" style="font-weight:400;color:var(--muted);font-size:11px;text-transform:none;letter-spacing:0;margin-left:auto"></span></h3>
+            </div>
+            <div class="chart-body" style="height: 200px">
+                <canvas id="chart-forecast"></canvas>
+                <div class="chart-empty" id="empty-forecast" style="display:none">Čekám na data z módu (FS25 musí běžet)…</div>
+            </div>
+        </div>
+
     </div>
 </main>
 
@@ -176,8 +187,14 @@
 // ─── Shared config ────────────────────────────────────────────────────────────
 
 let currentDays = 7;
-let balanceChart = null;
-let priceChart   = null;
+let balanceChart  = null;
+let priceChart    = null;
+let forecastChart = null;
+let latestForecast = null;   // payload .priceForecast from latest WS message
+
+// Czech month names — FS25 calendar starts at MARCH (period 1).
+const MONTHS_CZ = ['Březen','Duben','Květen','Červen','Červenec','Srpen',
+                   'Září','Říjen','Listopad','Prosinec','Leden','Únor'];
 
 // Read theme colours at chart-build time so charts adapt to the active theme.
 function themeVar(name) {
@@ -288,25 +305,191 @@ async function loadBalanceChart() {
 
 // ─── Price chart ──────────────────────────────────────────────────────────────
 
+// Cached lists from the history API + most-recent live snapshot from the
+// WebSocket. Dropdown content depends on both — the historical lists set the
+// universe of choices, and live data decides which commodities are "owned"
+// (on hand → can sell) and which sell points are currently buying.
+let cachedFillTypes  = [];
+let cachedSellPoints = [];
+let latestPrices     = null;
+let latestStorage    = null;
+
 async function loadFillTypes() {
     const [ftRes, spRes] = await Promise.all([
         fetch('/api/history/fill-types'),
         fetch('/api/history/sell-points'),
     ]);
-    const fillTypes  = await ftRes.json();
-    const sellPoints = await spRes.json();
+    cachedFillTypes  = await ftRes.json();
+    cachedSellPoints = await spRes.json();
 
+    rebuildFillTypeDropdown();
+    rebuildSellPointDropdown();
+
+    document.getElementById('kpi-fills').textContent = cachedFillTypes.length;
+    document.getElementById('kpi-fills-sub').textContent = cachedSellPoints.length + ' výkupních míst';
+
+    if (cachedFillTypes.length) loadPriceChart();
+}
+
+// Owned-first commodity dropdown. Owned set is derived from live storage —
+// items with amount > 0 are commodities the player can sell right now. Two
+// <optgroup>s give a visible separator. Empty optgroups are omitted.
+function rebuildFillTypeDropdown() {
     const ftSel = document.getElementById('sel-filltype');
-    ftSel.innerHTML = fillTypes.map(r => `<option value="${esc(r.fill_type)}">${esc(r.fill_type)}</option>`).join('');
+    const prev  = ftSel.value;
+    const ownedSet = new Set();
+    if (latestStorage) {
+        for (const s of latestStorage) {
+            for (const item of (s.items || [])) {
+                if ((item.amount || 0) > 0) ownedSet.add(item.name);
+            }
+        }
+    }
+    const owned = cachedFillTypes.filter(r => ownedSet.has(r.fill_type));
+    const rest  = cachedFillTypes.filter(r => !ownedSet.has(r.fill_type));
+    const optHtml = arr =>
+        arr.map(r => `<option value="${esc(r.fill_type)}">${esc(r.fill_type)}</option>`).join('');
 
+    let html = '';
+    if (owned.length) html += `<optgroup label="📦 Mám na skladě (lze prodat)">${optHtml(owned)}</optgroup>`;
+    if (rest.length)  html += `<optgroup label="${owned.length ? 'Ostatní' : 'Komodity'}">${optHtml(rest)}</optgroup>`;
+    ftSel.innerHTML = html;
+
+    if (prev && [...ftSel.options].some(o => o.value === prev)) {
+        ftSel.value = prev;
+    }
+}
+
+// Sell-point dropdown — filtered to places currently buying the selected
+// commodity (from live `data.prices`). If no commodity selected yet, show
+// all. If live prices not yet known, show all (degraded but functional).
+function rebuildSellPointDropdown() {
     const spSel = document.getElementById('sel-sellpoint');
+    const prev  = spSel.value;
+    const currentFt = document.getElementById('sel-filltype').value;
+
+    let filtered = cachedSellPoints;
+    if (currentFt && latestPrices) {
+        const buying = new Set();
+        for (const sp of latestPrices) {
+            if ((sp.items || []).some(it => it.name === currentFt)) buying.add(sp.sellPoint);
+        }
+        filtered = cachedSellPoints.filter(r => buying.has(r.sell_point));
+    }
+
     spSel.innerHTML = '<option value="">Všechna místa</option>' +
-        sellPoints.map(r => `<option value="${esc(r.sell_point)}">${esc(r.sell_point)}</option>`).join('');
+        filtered.map(r => `<option value="${esc(r.sell_point)}">${esc(r.sell_point)}</option>`).join('');
 
-    document.getElementById('kpi-fills').textContent = fillTypes.length;
-    document.getElementById('kpi-fills-sub').textContent = sellPoints.length + ' výkupních míst';
+    if (prev && [...spSel.options].some(o => o.value === prev)) {
+        spSel.value = prev;
+    } else {
+        spSel.value = '';   // previous selection no longer applicable
+    }
+}
 
-    if (fillTypes.length) loadPriceChart();
+function onFillTypeChange() {
+    rebuildSellPointDropdown();
+    loadPriceChart();
+    renderForecastChart();
+}
+
+// ─── Seasonal forecast chart ──────────────────────────────────────────────────
+// Bars represent the 12 months of the FS25 year. Height = base price ×
+// seasonal factor. Current month gets a thick outline; the top-3 months
+// (price-wise) are green ("nejlepší prodej"); the bottom 3 red ("ztráta").
+// Forecast assumes a neutral station — actual sale price varies per
+// sellpoint by the station's own multiplier on top of the seasonal curve.
+function renderForecastChart() {
+    const canvas = document.getElementById('chart-forecast');
+    const empty  = document.getElementById('empty-forecast');
+    const summary = document.getElementById('forecast-summary');
+    const selected = document.getElementById('sel-filltype').value;
+
+    if (!latestForecast || !selected) {
+        canvas.style.display = 'none';
+        empty.style.display  = '';
+        summary.textContent  = '';
+        return;
+    }
+    const entry = (latestForecast.fillTypes || []).find(x => x.name === selected);
+    if (!entry) {
+        canvas.style.display = 'none';
+        empty.style.display  = '';
+        empty.textContent    = 'Mód pro tuto komoditu neposílá sezónní křivku.';
+        summary.textContent  = '';
+        return;
+    }
+    canvas.style.display = '';
+    empty.style.display  = 'none';
+
+    const factors = entry.factors || [];
+    const base    = entry.pricePerTon || 0;
+    const prices  = factors.map(f => Math.round(base * f));
+
+    // Top/bottom 3 ranks for colour coding
+    const sortedByPrice = prices.map((p, i) => ({ p, i })).sort((a, b) => b.p - a.p);
+    const topSet    = new Set(sortedByPrice.slice(0, 3).map(x => x.i));
+    const bottomSet = new Set(sortedByPrice.slice(-3).map(x => x.i));
+    const curPeriod0 = ((latestForecast.currentPeriod || 1) - 1) % 12;   // 0-based
+
+    const green  = themeVar('--accent')  || '#7fb069';
+    const red    = themeVar('--red')     || '#e05252';
+    const muted  = themeVar('--muted')   || '#888';
+    const accent = themeVar('--accent2') || '#e8a838';
+
+    const bgColors = prices.map((_, i) => topSet.has(i) ? green + 'cc'
+                                      : bottomSet.has(i) ? red + 'cc'
+                                      : muted + '66');
+    const borderColors = prices.map((_, i) => i === curPeriod0 ? accent : 'transparent');
+    const borderWidths = prices.map((_, i) => i === curPeriod0 ? 3 : 0);
+
+    if (forecastChart) forecastChart.destroy();
+    const def = chartDefaults();
+    forecastChart = new Chart(canvas, {
+        type: 'bar',
+        data: {
+            labels: MONTHS_CZ.map((m, i) => i === curPeriod0 ? `▸ ${m}` : m),
+            datasets: [{
+                data: prices,
+                backgroundColor: bgColors,
+                borderColor:     borderColors,
+                borderWidth:     borderWidths,
+            }],
+        },
+        options: {
+            ...def,
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    callbacks: {
+                        label: ctx => {
+                            const f = factors[ctx.dataIndex] || 1;
+                            return `${FS25Money.format(ctx.raw)} / t  (×${f.toFixed(2)})`;
+                        },
+                    },
+                },
+            },
+            scales: {
+                ...def.scales,
+                y: { ...def.scales.y,
+                    ticks: { ...def.scales.y.ticks, callback: v => FS25Money.format(v) } },
+            },
+        },
+    });
+
+    // Headline summary above the chart
+    const cur     = prices[curPeriod0];
+    const best    = sortedByPrice[0];
+    const worst   = sortedByPrice[sortedByPrice.length - 1];
+    const bestMonth  = MONTHS_CZ[best.i];
+    const worstMonth = MONTHS_CZ[worst.i];
+    const monthsToBest = ((best.i - curPeriod0 + 12) % 12);
+    const eta = monthsToBest === 0 ? 'nyní'
+              : monthsToBest * (latestForecast.daysPerPeriod || 1) + ' herních dní';
+    summary.innerHTML =
+        `nyní <b>${FS25Money.format(cur)}</b> · `
+      + `nejlépe v <b style="color:${green}">${bestMonth}</b> ${FS25Money.format(best.p)} (za ${eta}) · `
+      + `nejhůř <span style="color:${red}">${worstMonth}</span> ${FS25Money.format(worst.p)}`;
 }
 
 async function loadPriceChart() {
@@ -399,9 +582,18 @@ function esc(s) { return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt
 // ─── Init (via shared app.js) ─────────────────────────────────────────────────
 
 window.addEventListener('DOMContentLoaded', () => {
-    FS25App.connect(() => {
-        // We use REST for history; WS is only for live notification + status
-        // Reload charts when server reconnects (in case it restarted)
+    FS25App.connect(data => {
+        // Live snapshot feeds the dropdown filters + forecast:
+        //   • prices        → which sell points currently buy the chosen commodity
+        //   • storage       → which commodities the player owns (=> show first)
+        //   • priceForecast → seasonal 12-month price curve per fillType
+        if (!data) return;
+        latestPrices   = data.prices        || null;
+        latestStorage  = data.storage       || null;
+        latestForecast = data.priceForecast || null;
+        rebuildFillTypeDropdown();
+        rebuildSellPointDropdown();
+        renderForecastChart();
     });
     loadFillTypes();
     loadBalanceChart();

@@ -31,6 +31,10 @@ const inRange = (v, lo, hi, name) => {
 };
 
 // Top-level
+if (d.schemaVersion == null)             warn('schemaVersion missing – mod predates 1.1.0.0');
+else need(typeof d.schemaVersion === 'number', 'schemaVersion must be a number');
+if (d.modVersion == null)                warn('modVersion missing – mod predates 1.1.0.0');
+else need(typeof d.modVersion === 'string',    'modVersion must be a string');
 need(typeof d.exportedAt === 'string',   'exportedAt must be a string');
 need(typeof d.gameDay    === 'number',   'gameDay must be a number');
 need(typeof d.farmBalance === 'number',  'farmBalance must be a number');
