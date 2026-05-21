@@ -14,6 +14,12 @@ on:
 permissions:
   contents: write
 
+# Node 20 is being deprecated for GitHub Actions JS runtime (forced to Node 24
+# on 2026-06-02). Opt in now via FORCE_JAVASCRIPT_ACTIONS_TO_NODE24 — applies
+# to actions/checkout, actions/setup-node, action-gh-release etc.
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -32,10 +38,14 @@ jobs:
           zip -r "../FS25_Dashboard.zip" . -x "*.bat" "*.bat.example"
 
       # ─── Single-file server build via pkg ────────────────────────────────
+      # Build runtime = Node 24 (host for npm + pkg). The .exe still bakes in
+      # node20 via package.json pkg --targets, because @yao-pkg/pkg ships
+      # prebuilt binaries for that target and the runtime in the .exe is
+      # independent of the host build.
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '24'
           cache: npm
           cache-dependency-path: Server/package-lock.json
 
