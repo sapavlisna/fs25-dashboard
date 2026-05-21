@@ -3,6 +3,15 @@
 All notable changes to this project will be documented here.
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [1.1.1] — 2026-05-21
+
+### Changed
+- CI: GitHub Actions runner bumped to Node 24 (was 20) ahead of the
+  2026-06-02 Node 20 deprecation. `pkg` target stays at `node20-win-x64`
+  since `@yao-pkg/pkg` doesn't ship a Node 24 cross-binary yet — the
+  baked-in runtime inside the .exe is independent of the host build.
+  Server payload and behaviour are identical to v1.1.0.
+
 ## [1.1.0] — 2026-05-21
 
 ### Added
