@@ -8,9 +8,10 @@
         { id: 'dark-blue',     label: 'Tmavě modrá' },
         { id: 'light',         label: 'Světlá' },
         { id: 'high-contrast', label: 'Vysoký kontrast' },
+        { id: 'fs25-native',   label: 'FS25 Native' },
     ];
     const STORAGE_KEY = 'fs25.dash.v1.theme';
-    const ICONS = { 'dark-green': '🌿', 'dark-blue': '🌙', 'light': '☀️', 'high-contrast': '◐' };
+    const ICONS = { 'dark-green': '🌿', 'dark-blue': '🌙', 'light': '☀️', 'high-contrast': '◐', 'fs25-native': '🚜' };
 
     function currentId() {
         return document.documentElement.getAttribute('data-theme') || 'dark-green';

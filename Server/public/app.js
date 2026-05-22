@@ -9,6 +9,7 @@
         { id: 'dark-blue',     label: 'Tmavě modrá',      icon: '🌙' },
         { id: 'light',         label: 'Světlá',           icon: '☀️' },
         { id: 'high-contrast', label: 'Vysoký kontrast',  icon: '◐' },
+        { id: 'fs25-native',   label: 'FS25 Native',      icon: '🚜' },
     ];
     const THEME_KEY = 'fs25.dash.v1.theme';
 

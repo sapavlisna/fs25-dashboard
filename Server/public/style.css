@@ -3,7 +3,7 @@
  * in each HTML file's <head> reads localStorage["fs25.dash.v1.theme"]
  * and sets the attribute before first paint to avoid a flash.
  *
- * Available themes: dark-green (default), dark-blue, light, high-contrast.
+ * Available themes: dark-green (default), dark-blue, light, high-contrast, fs25-native.
  * `:root` (no attribute) is a safety fallback — same values as dark-green.
  */
 
@@ -73,6 +73,26 @@
     --red:       #ff5555;
     --orange:    #ff9900;
     --teal:      #66e0c4;
+}
+
+/* FS25-native (echoes the in-game HUD: GIANTS green + steel HUD + wheat gold) */
+:root[data-theme="fs25-native"] {
+    --bg:        #0a0d0a;
+    --surface:   #141811;
+    --surface2:  #1d2419;
+    --border:    #2f3b2a;
+    --accent:    #a0c213;       /* GIANTS FS25 brand green */
+    --accent2:   #d4a836;       /* wheat gold */
+    --accent3:   #8b6f47;       /* aged steel-brown */
+    --text:      #f0f2e8;
+    --muted:     #92a08a;       /* lifted from #8a9580 for AA contrast on surface2 */
+    --red:       #d04545;
+    --orange:    #e08838;
+    --teal:      #4caf9a;
+}
+
+:root[data-theme="fs25-native"] body {
+    font-family: 'Nunito Sans', 'Segoe UI', system-ui, sans-serif;
 }
 
 /* ─── Reset ─────────────────────────────────────────────────────────── */
@@ -1360,6 +1380,7 @@ tr.flash-down > td { background-color: rgba(224, 82, 82, .35)                   
 .help-theme-swatch--dark-blue     { background: linear-gradient(135deg, #0e1422 0%, #162236 50%, #5a8fad 100%); }
 .help-theme-swatch--light         { background: linear-gradient(135deg, #f4f6f1 0%, #ffffff 50%, #3a8a22 100%); }
 .help-theme-swatch--high-contrast { background: linear-gradient(135deg, #000 0%, #181818 50%, #ffd400 100%); }
+.help-theme-swatch--fs25-native   { background: linear-gradient(135deg, #0a0d0a 0%, #141811 50%, #a0c213 100%); }
 
 /* FAQ definition list */
 .help-faq dt {

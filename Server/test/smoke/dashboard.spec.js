@@ -101,4 +101,20 @@ test.describe('Dashboard pages', () => {
 
         expect(errors, errors.join('\n')).toEqual([]);
     });
+
+    // Pre-paint script reads ?theme=<id> from the URL and writes it to both
+    // localStorage and the <html data-theme="..."> attribute before stylesheet
+    // parsing. We verify each registered theme applies cleanly with no console
+    // errors on the main dashboard.
+    for (const theme of ['dark-green', 'dark-blue', 'light', 'high-contrast', 'fs25-native']) {
+        test(`theme switch — ${theme}`, async ({ page }) => {
+            const errors = watchForErrors(page);
+            await page.goto(`/?theme=${theme}`);
+
+            await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
+            await expect(page.locator('#kpi-balance')).not.toHaveText('—', { timeout: 10_000 });
+
+            expect(errors, errors.join('\n')).toEqual([]);
+        });
+    }
 });
