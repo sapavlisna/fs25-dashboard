@@ -38,7 +38,6 @@
         <a href="/"           class="active">Dashboard</a>
         <a href="/calendar.html">Kalendář polí</a>
         <a href="/profit.html">Zisk polí</a>
-        <a href="/calculator.html">Kalkulátor</a>
         <a href="/history.html">Historie</a>
     </div>
     <div class="nav-status">
@@ -54,18 +53,24 @@
 
     <!-- KPI hero row -->
     <div class="kpi-row">
-        <div class="kpi-card">
-            <span class="kpi-label">Zůstatek</span>
-            <span class="kpi-value" id="kpi-balance">—</span>
-            <span class="kpi-sub" id="kpi-balance-sub"></span>
+        <div class="kpi-card kpi-balance-card">
+            <div class="kpi-balance-current">
+                <span class="kpi-label">Zůstatek</span>
+                <span class="kpi-value" id="kpi-balance">—</span>
+                <span class="kpi-sub" id="kpi-balance-sub"></span>
+            </div>
+            <div class="kpi-balance-history" id="kpi-balance-history"></div>
         </div>
-        <div class="kpi-card">
-            <span class="kpi-label">Počasí</span>
-            <span class="kpi-value">
-                <span class="kpi-icon" id="kpi-weather-icon"></span>
-                <span id="kpi-weather-temp">—</span>
-            </span>
-            <span class="kpi-sub" id="kpi-weather-sub"></span>
+        <div class="kpi-card kpi-weather-card">
+            <div class="kpi-weather-current">
+                <span class="kpi-label">Počasí</span>
+                <span class="kpi-value">
+                    <span class="kpi-icon" id="kpi-weather-icon"></span>
+                    <span id="kpi-weather-temp">—</span>
+                </span>
+                <span class="kpi-sub" id="kpi-weather-sub"></span>
+            </div>
+            <div class="kpi-weather-forecast" id="kpi-weather-forecast"></div>
         </div>
         <div class="kpi-card">
             <span class="kpi-label">Den</span>
@@ -88,9 +93,8 @@
             <span style="margin-left:auto;font-size:11px;font-weight:400">
                 <a href="/calendar.html" style="color:var(--accent)">→ Kalendář</a>
             </span>
-            <label class="flash-toggle" title="Zvýraznit změny růstu pole (zeleně = vyrostlo, červeně = sklizeno)">
+            <label class="flash-toggle" title="Flash změn — zvýrazní změny růstu pole (zeleně = vyrostlo, červeně = sklizeno)">
                 <input type="checkbox" data-flash-toggle="fields" checked>
-                <span>Flash změn</span>
             </label>
         </div>
         <div class="table-wrap">
@@ -116,13 +120,8 @@
     <div class="section" id="sec-vehicles" draggable="true" data-tt-dnd="sections" data-tt-key="vehicles">
         <div class="section-header">
             🚜 Vozidla <span class="count" id="cnt-vehicles">0</span>
-            <label class="section-toggle" style="margin-left:auto">
-                <input type="checkbox" id="veh-active-only">
-                <span>Pouze aktivní</span>
-            </label>
-            <label class="flash-toggle" title="Zvýraznit změny paliva (zeleně = natankováno, červeně = spotřeba)">
+            <label class="flash-toggle" style="margin-left:auto" title="Flash změn — zvýrazní změny paliva (zeleně = natankováno, červeně = spotřeba)">
                 <input type="checkbox" data-flash-toggle="vehicles" checked>
-                <span>Flash změn</span>
             </label>
         </div>
         <div id="vehicles-body"></div>
@@ -137,9 +136,8 @@
     <!-- Animals -->
     <div class="section" id="sec-animals" draggable="true" data-tt-dnd="sections" data-tt-key="animals">
         <div class="section-header">🐄 Zvířata <span class="count" id="cnt-animals">0</span>
-            <label class="flash-toggle" style="margin-left:auto" title="Zvýraznit změny počtu zvířat (zeleně = přírůstek, červeně = úbytek)">
+            <label class="flash-toggle" style="margin-left:auto" title="Flash změn — zvýrazní změny počtu zvířat (zeleně = přírůstek, červeně = úbytek)">
                 <input type="checkbox" data-flash-toggle="animals" checked>
-                <span>Flash změn</span>
             </label>
         </div>
         <div id="animals-body"></div>
@@ -154,9 +152,8 @@
     <!-- Storage -->
     <div class="section" id="sec-storage" draggable="true" data-tt-dnd="sections" data-tt-key="storage">
         <div class="section-header">🏚 Sklady <span class="count" id="cnt-storage">0</span>
-            <label class="flash-toggle" style="margin-left:auto" title="Zvýraznit změny hodnot (zeleně = přibylo, červeně = ubylo)">
+            <label class="flash-toggle" style="margin-left:auto" title="Flash změn — zvýrazní změny hodnot (zeleně = přibylo, červeně = ubylo)">
                 <input type="checkbox" data-flash-toggle="storage" checked>
-                <span>Flash změn</span>
             </label>
         </div>
         <div class="table-wrap">
@@ -187,9 +184,8 @@
     <!-- Productions -->
     <div class="section" id="sec-productions" draggable="true" data-tt-dnd="sections" data-tt-key="productions">
         <div class="section-header">🏭 Výrobny <span class="count" id="cnt-productions">0</span>
-            <label class="flash-toggle" style="margin-left:auto" title="Zvýraznit změny zaplnění výrobny (zeleně = přibylo, červeně = ubylo)">
+            <label class="flash-toggle" style="margin-left:auto" title="Flash změn — zvýrazní změny zaplnění výrobny (zeleně = přibylo, červeně = ubylo)">
                 <input type="checkbox" data-flash-toggle="productions" checked>
-                <span>Flash změn</span>
             </label>
         </div>
         <div class="table-wrap">
@@ -221,9 +217,8 @@
     <div class="section" id="sec-prices" draggable="true" data-tt-dnd="sections" data-tt-key="prices">
         <div class="section-header">💰 Výkupní ceny (<span class="cur-unit">€</span> / t)
             <button id="btn-hide-zero-prices" class="section-btn" style="margin-left:auto" title="Skrýt všechny komodity, které momentálně nemáš na skladě">Skrýt vše bez skladu</button>
-            <label class="flash-toggle" title="Zvýraznit změny ceny (zeleně = vyrostla, červeně = klesla)">
+            <label class="flash-toggle" title="Flash změn — zvýrazní změny ceny (zeleně = vyrostla, červeně = klesla)">
                 <input type="checkbox" data-flash-toggle="prices" checked>
-                <span>Flash změn</span>
             </label>
         </div>
         <div class="table-wrap">
@@ -345,6 +340,51 @@ function monthLabel(month) {
     return MONTH_CS[month] || '';
 }
 
+// Balance history — fetched once per game-day from /api/history/balance and
+// cached so the small "last-3-days" strip on the Zůstatek KPI doesn't refetch
+// every WS tick.
+const balanceHistoryCache = { gameDay: null, byDay: new Map() };
+
+async function refreshBalanceHistory(currentDay) {
+    if (!currentDay || balanceHistoryCache.gameDay === currentDay) return;
+    try {
+        // Fetch 5 days of raw rows — there may be many records per day; keep
+        // the FIRST one per day (= start-of-day balance, before same-day deltas).
+        const res = await fetch('/api/history/balance?days=5');
+        const rows = await res.json();
+        const byDay = new Map();
+        for (const r of rows) {
+            if (!byDay.has(r.game_day)) byDay.set(r.game_day, r.balance);
+        }
+        balanceHistoryCache.gameDay = currentDay;
+        balanceHistoryCache.byDay = byDay;
+        renderBalanceHistory(currentDay);
+    } catch (_) { /* no history yet — strip stays hidden */ }
+}
+
+function renderBalanceHistory(currentDay) {
+    const el = $('kpi-balance-history');
+    if (!el || !currentDay) return;
+    const sortedDays = [...balanceHistoryCache.byDay.keys()].sort((a, b) => a - b);
+    // 3 most-recent days strictly before today (newest first in display)
+    const prior = sortedDays.filter(d => d < currentDay).slice(-3).reverse();
+    if (!prior.length) { el.innerHTML = ''; return; }
+
+    el.innerHTML = prior.map(day => {
+        const bal     = balanceHistoryCache.byDay.get(day);
+        const prevBal = balanceHistoryCache.byDay.get(day - 1);
+        const delta   = (prevBal != null) ? (bal - prevBal) : null;
+        const arrow   = delta == null ? '·' : delta > 0 ? '↑' : delta < 0 ? '↓' : '→';
+        const cls     = delta == null ? '' : delta > 0 ? 'delta-up' : delta < 0 ? 'delta-down' : '';
+        const deltaTxt = (delta != null && delta !== 0) ? fmtMoney(Math.abs(delta)) : '';
+        return `<div class="history-day ${cls}" title="Den ${day} · ${fmtMoney(bal)}">
+            <span class="history-when">D-${currentDay - day}</span>
+            <span class="history-arrow">${arrow}</span>
+            <span class="history-delta">${deltaTxt}</span>
+        </div>`;
+    }).join('');
+}
+
 function renderKPI(d) {
     // Currency context is updated centrally by app.js (FS25Money.setCurrency).
     // Refresh static "currency symbol" placeholders so column headers etc. match.
@@ -366,6 +406,9 @@ function renderKPI(d) {
         deltaEl.textContent = '';
     }
 
+    // 3-day history strip on the balance card (fetched once per game-day)
+    refreshBalanceHistory(d.gameDay);
+
     // Weather
     const w = d.weather || {};
     const wLabel = (w.typeId != null && w.typeId >= 0) ? (WEATHER_CS[w.typeId] ?? `typ_${w.typeId}`) : (w.title || '');
@@ -377,6 +420,29 @@ function renderKPI(d) {
         wSub += (wSub ? ' · ' : '') + `${w.temperatureMin}–${w.temperatureMax} °C`;
     }
     $('kpi-weather-sub').textContent = wSub;
+
+    // Multi-day forecast — stacked rows in a vertical strip next to the
+    // current-weather block, separated by a divider (.kpi-weather-card uses
+    // flex-direction: row). Each row: D+N · icon · min–max°. Full label
+    // shown on hover via title.
+    const fcEl = $('kpi-weather-forecast');
+    const forecast = Array.isArray(w.forecast) ? w.forecast : [];
+    if (forecast.length) {
+        fcEl.innerHTML = forecast.map(f => {
+            const icon = (f.typeId != null && f.typeId >= 0) ? (WEATHER_ICON[f.typeId] ?? '·') : '·';
+            const lbl  = (f.typeId != null && f.typeId >= 0) ? (WEATHER_CS[f.typeId] ?? '') : (f.title || '');
+            const tmin = f.temperatureMin, tmax = f.temperatureMax;
+            const tip  = lbl + (tmin != null && tmax != null ? ` · ${tmin}–${tmax} °C` : '');
+            const temp = (tmin != null && tmax != null) ? `${tmin}–${tmax}°` : '';
+            return `<div class="forecast-day" title="${esc(tip)}">
+                <span class="forecast-when">D+${f.daysAhead ?? '?'}</span>
+                <span class="forecast-icon">${icon}</span>
+                ${temp ? `<span class="forecast-temp">${temp}</span>` : ''}
+            </div>`;
+        }).join('');
+    } else {
+        fcEl.innerHTML = '';
+    }
 
     // Day
     $('kpi-day').textContent  = d.gameDay ?? '—';
@@ -425,7 +491,15 @@ function noteFlashRows(section, items, getKey, getValue) {
         const k = `${section}::${getKey(item)}`;
         const prev = flashPrev.get(k);
         if (prev != null && prev !== v) {
-            flashes.set(k, { dir: v > prev ? 'up' : 'down', expiresAt: now + 10000 });
+            // Only START a new flash when no active one — otherwise the row
+            // would stay tinted forever for values that change every tick
+            // (production placeables filling a silo by 1 l per WS tick, etc.).
+            // The active flash fades naturally; the next flash can fire after
+            // expiry on the next detected change.
+            const existing = flashes.get(k);
+            if (!existing || existing.expiresAt <= now) {
+                flashes.set(k, { dir: v > prev ? 'up' : 'down', expiresAt: now + 10000 });
+            }
         }
         flashPrev.set(k, v);
     }
@@ -469,6 +543,18 @@ function setFlashEnabled(section, on) {
     DashState.set(DashState.KEYS.flashEnabled, map);
 }
 
+// Two physical storages can share `${type}:${storageName}` (Hof Bergmann has
+// two "Sklad balíků u kravína (farma)" placeables). For flash tracking we
+// need keys that distinguish them — append a hash of the sorted item names
+// so an empty storage and one with bales never collide. Hide/collapse state
+// (TableTools, data-group) intentionally keeps the original base key so the
+// existing user-set state stays valid.
+function storageFlashKey(st) {
+    const base = `${st.type || 'silo'}:${st.storageName}`;
+    const sig  = (st.items || []).map(i => i.name).sort().join('|');
+    return sig ? `${base}#${sig}` : base;
+}
+
 // Aggregate diff feeders called from render(). All sections share the same
 // section name as the UI toggle key. Storage and productions use `header::`
 // and `item::` row-key prefixes so one toggle controls both granularities.
@@ -485,14 +571,14 @@ function noteAllChanges(d) {
     const storageHeaderRows = [];
     const storageItemRows = [];
     for (const st of (d.storage || [])) {
-        const siloKey = `${st.type || 'silo'}:${st.storageName}`;
+        const fKey = storageFlashKey(st);
         let total = 0;
         for (const item of (st.items || [])) {
             const amt = item.amount || 0;
-            storageItemRows.push({ k: `item::${siloKey}::${item.name}`, v: amt });
+            storageItemRows.push({ k: `item::${fKey}::${item.name}`, v: amt });
             total += amt;
         }
-        storageHeaderRows.push({ k: `header::${siloKey}`, v: total });
+        storageHeaderRows.push({ k: `header::${fKey}`, v: total });
     }
     noteFlashRows('storage', storageHeaderRows, x => x.k, x => x.v);
     noteFlashRows('storage', storageItemRows,   x => x.k, x => x.v);
@@ -547,21 +633,18 @@ function renderVehicles(vehicles) {
     $('cnt-vehicles').textContent = vehicles.length;
 
     const hidden = new Set(DashState.get(DashState.KEYS.hiddenVehicles, []));
-    const activeOnly = DashState.get(DashState.KEYS.showActiveVehiclesOnly, false);
-    $('veh-active-only').checked = activeOnly;
 
     const ordered = TableTools.applyOrder(vehicles, 'vehicles', v => v.name);
     const visible = [];
     const hiddenList = [];
     for (const v of ordered) {
-        if (hidden.has(v.name))      hiddenList.push(v);
-        else if (activeOnly && !v.isInUse) hiddenList.push(v);
-        else visible.push(v);
+        if (hidden.has(v.name)) hiddenList.push(v);
+        else                    visible.push(v);
     }
 
     const body = $('vehicles-body');
     if (!visible.length) {
-        body.innerHTML = '<div class="empty">Žádná aktivní vozidla.</div>';
+        body.innerHTML = '<div class="empty">Žádná vozidla.</div>';
     } else {
         body.innerHTML = visible.map(v => vehicleCardHTML(v, { canHide: true })).join('');
     }
@@ -839,14 +922,6 @@ document.addEventListener('click', e => {
     }
 });
 
-// Active-only filter toggle
-document.addEventListener('change', e => {
-    if (e.target && e.target.id === 'veh-active-only') {
-        DashState.set(DashState.KEYS.showActiveVehiclesOnly, e.target.checked);
-        if (window.__lastData) renderVehicles(window.__lastData.vehicles || []);
-    }
-});
-
 // FS25 ground-type → Czech label + tag class. Save file is more granular
 // (HARVEST_READY vs HARVEST_READY_OTHER vs RIDGE_SOWN) than what the mod
 // derives from growth-percent alone.
@@ -860,10 +935,44 @@ const GROUND_TYPE_LABELS = {
     GRASS:                { label: 'Tráva',         cls: 'tag-growing' },
 };
 
+// Inline "Akce" chips for a field row — mirrors the calendar's needs grid
+// but renders as a wrapping flex strip so it fits in the narrow main-dashboard
+// table cell. Reads gameSettings + availableFruits from window.__lastData so
+// the rowHTML signature doesn't change.
+function fieldNeedsChips(f) {
+    if (!f.owned) return '';
+    const d = window.__lastData || {};
+    const s = d.gameSettings || {};
+    const fruitMeta = {};
+    for (const fr of d.availableFruits || []) fruitMeta[fr.name] = fr;
+    const fm = f.fruitTypeId ? fruitMeta[f.fruitTypeId] : null;
+
+    // Same derive logic as calendar — stubble/withered → cult + sow needed.
+    const effCult = f.needsCultivating || f.isCut || f.isWithered;
+    const effSow  = f.needsSowing      || f.isCut || f.isWithered;
+
+    const parts = [];
+    const chip  = (label, title, cls = 'warn') =>
+        parts.push(`<span class="need-chip ${cls}" title="${esc(title)}">${label}</span>`);
+
+    if (s.plowingRequiredEnabled !== false && f.needsPlowing) chip('Orat',       'Potřebuje orbu');
+    if (effCult)                                              chip('Kultivovat', 'Potřebuje kultivaci');
+    if (effSow)                                               chip('Sít',        'Pole čeká na zasetí');
+    if (s.limeRequired !== false && f.needsLime)              chip('Vápno',      'Potřebuje vápno');
+    if (s.weedsEnabled !== false && f.weedLevel > 0)          chip('Plevel ' + f.weedLevel, `Plevel ${f.weedLevel}/3`, f.weedLevel >= 2 ? 'bad' : 'warn');
+    if (s.stonesEnabled !== false && f.stoneLevel > 0)        chip('Kameny ' + f.stoneLevel, `Kameny ${f.stoneLevel}/3`, f.stoneLevel >= 2 ? 'bad' : 'warn');
+    if (f.fruitTypeId && f.rollerLevel === 0 && !f.isCut && !f.isWithered && fm && fm.needsRolling)
+        chip('Válet', 'Potřebuje uválet (zvyšuje výnos)');
+
+    return parts.length ? `<div class="field-needs-inline">${parts.join('')}</div>` : '';
+}
+
 function fieldStateTag(f) {
     const gt = f.saveGroundType && GROUND_TYPE_LABELS[f.saveGroundType];
     if (gt) return `<span class="tag ${gt.cls}" title="groundType: ${esc(f.saveGroundType)}">${gt.label}</span>`;
     if (f.isReadyToHarvest) return '<span class="tag tag-ready">Připraveno</span>';
+    if (f.isWithered)       return '<span class="tag tag-empty" title="Pole je zvadlé — zkultivovat a zasít">Zvadlé</span>';
+    if (f.isCut)            return '<span class="tag tag-sow" title="Strniště — zkultivovat a zasít">Strniště</span>';
     if (f.fruitTypeId)      return '<span class="tag tag-growing">Roste</span>';
     if (f.needsSowing)      return '<span class="tag tag-sow">Sít</span>';
     return '<span class="tag tag-empty">Prázdné</span>';
@@ -913,7 +1022,7 @@ function renderFields(fields) {
             <td class="num">${farmlandCell}</td>
             <td>${fruitCell}${fieldConditionBadge(f)}</td>
             <td class="num"${f.farmlandAreaHa != null && f.farmlandAreaHa !== f.area ? ` title="Pole: ${f.area} ha · Parcela (Zemědělská půda): ${f.farmlandAreaHa} ha"` : ''}>${f.area} ha</td>
-            <td>${stateTag}</td>
+            <td>${stateTag}${fieldNeedsChips(f)}</td>
             <td style="min-width:120px">${growthCell}</td>
             <td class="num">${days}</td>
             <td>${btn}</td>
@@ -959,13 +1068,16 @@ function storageRowsHTML(st, opts) {
     const hideBtn = opts.canHide
         ? `<button class="vc-hide" title="Skrýt sklad" data-hide-storage="${esc(key)}" style="float:right">✕</button>`
         : `<button class="vc-hide" title="Zobrazit sklad" data-show-storage="${esc(key)}" style="float:right">+</button>`;
-    const hdrFlashCls = getFlashCls('storage', `header::${key}`);
+    // Flash uses a different (dedup) key so two storages with identical
+    // `${type}:${name}` don't share flash state. Hide/collapse keep `key`.
+    const fKey = storageFlashKey(st);
+    const hdrFlashCls = getFlashCls('storage', `header::${fKey}`);
     const header = `<tr class="st-row collapsible${hdrFlashCls}" ${TableTools.dndAttrs('storages', key)} data-group="${esc(key)}"><td colspan="4">${hideBtn}<span class="group-toggle">${indicator}</span> ${donut} ${esc(st.storageName)} ${summary} ${pctTxt}</td></tr>`;
     const rows = items.map(item => {
         const ipct = item.capacity > 0 ? Math.round(item.amount / item.capacity * 100) : 0;
         const cls = ipct >= 95 ? 'full' : ipct >= 70 ? 'warn' : '';
         const hidden = collapsed ? ' hidden-row' : '';
-        const flashCls = getFlashCls('storage', `item::${key}::${item.name}`);
+        const flashCls = getFlashCls('storage', `item::${fKey}::${item.name}`);
         return `<tr class="group-item${hidden}${flashCls}" data-group="${esc(key)}">
             <td>${esc(item.name)}</td>
             <td class="num">${fmt(item.amount)}</td>
@@ -1246,10 +1358,23 @@ function relayoutMasonry() {
         _doRelayout();
     });
 }
+// Apply per-section visibility from DashState.hiddenSections. Called on
+// initial render and after user toggles a section in Settings. Sections
+// with display:none are excluded from masonry layout below.
+function applyHiddenSections() {
+    const hidden = new Set(DashState.get(DashState.KEYS.hiddenSections, []) || []);
+    document.querySelectorAll('#masonry .section').forEach(s => {
+        s.style.display = hidden.has(s.id) ? 'none' : '';
+    });
+    relayoutMasonry();
+}
+window.applyHiddenSections = applyHiddenSections;
+
 function _doRelayout() {
     const container = document.getElementById('masonry');
     if (!container) return;
-    const sections = [...container.children].filter(c => c.classList && c.classList.contains('section'));
+    const sections = [...container.children].filter(c =>
+        c.classList && c.classList.contains('section') && c.style.display !== 'none');
     if (!sections.length) return;
 
     const containerW = container.clientWidth;
@@ -1322,6 +1447,7 @@ window.addEventListener('DOMContentLoaded', () => {
     });
 
     applySectionOrder();
+    applyHiddenSections();   // hide sections the user toggled off in Settings → Sekce
 
     relayoutMasonry();
 

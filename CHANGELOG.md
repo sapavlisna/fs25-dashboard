@@ -1,7 +1,36 @@
 # Changelog
 
 All notable changes to this project will be documented here.
-This project follows [Semantic Versioning](https://semver.org/).
+
+## Versioning
+
+`MAJOR.MINOR.PATCH.BUILD` (FS25 4-digit convention; semver semantics on the first three).
+
+- **MAJOR** — breaking payload contract (`schemaVersion` bumps) or full UI rewrite.
+- **MINOR** — new feature, backward-compatible (new payload field, new page).
+- **PATCH** — bug fix or refactor; mod & server still talk to each other.
+- **BUILD** — internal `/fs25-build` test counter; **never** released alone, reset to 0 on PATCH/MINOR/MAJOR bump.
+
+Mod and server share **one release version**. Each release ships both ZIPs even when only one component functionally changed — the release notes call out which one is the meaningful update so users can selectively download. `schemaVersion` in the JSON payload is independent and only bumps on incompatible payload shape changes.
+
+## [1.1.2.0] — 2026-05-22
+
+### Added
+- Weather KPI shows a 3-day forecast next to the current state, split by a
+  vertical divider (icon + min/max temp per upcoming day).
+- Balance KPI shows the last 3 game days' deltas in the same split layout.
+- Per-section change-flash toggle is now an iOS-style switch with
+  tooltip-only label (no "Flash změn" text crowding the headers).
+
+### Changed
+- **Versioning aligned on FS25 4-digit convention.** `modDesc.xml` is the
+  source of truth (`MAJOR.MINOR.PATCH.BUILD`); git tags follow it literally
+  (`v1.1.2.0`). `package.json` keeps 3-digit semver (npm requirement) but
+  mirrors the first three components. See README for build/release flow.
+
+### Removed
+- Calculator page and its navbar link (use it manually? probably not).
+- "Pouze aktivní" toggle in the Vehicles section (drag-to-hide covers it).
 
 ## [1.1.1] — 2026-05-21
 

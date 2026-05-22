@@ -40,10 +40,10 @@
             hiddenVehicles:         'hiddenVehicles',          // array of vehicle.name (or stable id)
             hiddenStorages:         'hiddenStorages',          // array of `${type}:${storageName}` keys
             hiddenProductions:      'hiddenProductions',       // array of production name keys
-            showActiveVehiclesOnly: 'showActiveVehiclesOnly',  // bool
             emptyAnimalsCollapsed:  'emptyAnimalsCollapsed',   // bool, default true
             collapsedGroups:        'collapsedGroups',         // array of group keys (silo/sell)
             flashEnabled:           'flashEnabled',            // map<sectionKey, bool> — change-flash on/off per section
+            hiddenSections:         'hiddenSections',          // array of section element ids (e.g. ['sec-storage']) — hidden on main dashboard
         },
     };
 })();

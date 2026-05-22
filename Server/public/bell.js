@@ -18,6 +18,23 @@
     const FUEL_LOW   = 15;
     const STORAGE_HI = 95;
 
+    // ─── Dismiss state ─────────────────────────────────────────────────
+    // Session-only fingerprints "${key}::${detail}" that the user has hidden.
+    // The underlying condition is NOT resolved — the alert is just hidden
+    // from the bell list/badge until either the page reloads or the alert's
+    // detail content changes (e.g. a different vehicle starts running low).
+    const dismissed = new Set();
+    let lastData = null;
+
+    // Fingerprint = alert key + canonical set of affected items (sorted, names
+    // only). Avoids re-firing on every-tick value changes (e.g. fuel % ticking
+    // down) but DOES re-fire when the set of affected items changes (a new
+    // vehicle joins the low-fuel list).
+    function fingerprint(a) {
+        const items = Array.isArray(a.items) ? [...a.items].sort().join('|') : a.detail;
+        return `${a.key}::${items}`;
+    }
+
     // ─── Alert generation ──────────────────────────────────────────────
     // Returns array of { key, icon, title, detail, target, severity }.
 
@@ -34,6 +51,7 @@
             key: 'anim-food', icon: '🐄', severity: 'warning',
             title: `${lowFood.length} ${plural(lowFood.length, 'chov potřebuje krmivo', 'chovy potřebují krmivo', 'chovů potřebuje krmivo')}`,
             detail: lowFood.map(a => a.husbandryName).join(' · '),
+            items:  lowFood.map(a => a.husbandryName),
             target: 'sec-animals',
         });
 
@@ -43,6 +61,7 @@
             key: 'anim-water', icon: '💧', severity: 'warning',
             title: `${lowWater.length} ${plural(lowWater.length, 'chov potřebuje vodu', 'chovy potřebují vodu', 'chovů potřebuje vodu')}`,
             detail: lowWater.map(a => a.husbandryName).join(' · '),
+            items:  lowWater.map(a => a.husbandryName),
             target: 'sec-animals',
         });
 
@@ -52,6 +71,7 @@
             key: 'anim-straw', icon: '🛏', severity: 'warning',
             title: `${lowStraw.length} ${plural(lowStraw.length, 'chov potřebuje podestýlku', 'chovy potřebují podestýlku', 'chovů potřebuje podestýlku')}`,
             detail: lowStraw.map(a => a.husbandryName).join(' · '),
+            items:  lowStraw.map(a => a.husbandryName),
             target: 'sec-animals',
         });
 
@@ -65,6 +85,7 @@
             key: 'anim-output', icon: '📦', severity: 'info',
             title: `${outputsFull.length} ${plural(outputsFull.length, 'chov má plný výstup', 'chovy mají plný výstup', 'chovů má plný výstup')}`,
             detail: outputsFull.map(a => a.husbandryName).join(' · '),
+            items:  outputsFull.map(a => a.husbandryName),
             target: 'sec-animals',
         });
 
@@ -74,6 +95,7 @@
             key: 'field-ready', icon: '🌾', severity: 'info',
             title: `${ready.length} ${plural(ready.length, 'pole připravené ke sklizni', 'pole připravená ke sklizni', 'polí připravených ke sklizni')}`,
             detail: ready.map(f => `#${f.id} ${f.fruitName || ''}`.trim()).join(' · '),
+            items:  ready.map(f => `#${f.id}`),
             target: 'sec-fields',
         });
 
@@ -93,6 +115,7 @@
             key: 'veh-fuel', icon: '🚜', severity: 'urgent',
             title: `${lowFuel.length} ${plural(lowFuel.length, 'vozidlo s nízkým palivem', 'vozidla s nízkým palivem', 'vozidel s nízkým palivem')}`,
             detail: lowFuel.map(v => `${v.name} (${v.fuelPercent}%)`).join(' · '),
+            items:  lowFuel.map(v => v.name),
             target: 'sec-vehicles',
         });
 
@@ -110,6 +133,7 @@
             key: 'storage-full', icon: '🏚', severity: 'info',
             title: `${fullSilos.length} ${plural(fullSilos.length, 'sklad téměř plný', 'sklady téměř plné', 'skladů téměř plných')}`,
             detail: fullSilos.join(' · '),
+            items:  fullSilos,
             target: 'sec-storage',
         });
 
@@ -145,6 +169,9 @@
                 </header>
                 <ul class="bell-list" id="bell-list"></ul>
                 <footer class="bell-empty" id="bell-empty">Žádná upozornění.</footer>
+                <footer class="bell-panel-actions" id="bell-actions" hidden>
+                    <button class="bell-dismiss-all" id="bell-dismiss-all" title="Skrýt všechna upozornění (vrátí se až se změní stav)">Skrýt vše</button>
+                </footer>
             </div>
         `;
 
@@ -155,6 +182,7 @@
 
         bellEl.addEventListener('click', togglePanel);
         document.getElementById('bell-close').addEventListener('click', closePanel);
+        document.getElementById('bell-dismiss-all').addEventListener('click', dismissAll);
 
         // Close on click outside or Esc
         document.addEventListener('click', e => {
@@ -167,10 +195,16 @@
         });
 
         // Click on alert row → scroll to target section + pulse.
-        // Targets live on the main Dashboard; if we're on a side page and the
-        // section doesn't exist here, jump to "/#<target>" and let the
-        // Dashboard's deep-link handler (below) finish the scroll.
+        // Click on the ✕ on a row → dismiss just that alert (badge count
+        // drops, panel rerenders without it; underlying condition stays).
         listEl.addEventListener('click', e => {
+            const dismissBtn = e.target.closest('[data-dismiss-fp]');
+            if (dismissBtn) {
+                e.stopPropagation();
+                dismissed.add(dismissBtn.dataset.dismissFp);
+                update(lastData);
+                return;
+            }
             const li = e.target.closest('li[data-target]');
             if (!li) return;
             const targetId = li.dataset.target;
@@ -230,7 +264,12 @@
     function update(data) {
         mount();
         if (!mounted) return;
-        const alerts = genAlerts(data || {});
+        lastData = data || {};
+        // All generated alerts before filtering — used so dismissAll can hide
+        // everything currently present. Then the visible list filters out
+        // entries the user dismissed individually or via "Skrýt vše".
+        const allAlerts = genAlerts(lastData);
+        const alerts = allAlerts.filter(a => !dismissed.has(fingerprint(a)));
         const n = alerts.length;
 
         // Badge
@@ -246,17 +285,26 @@
         }
 
         // Panel content
-        listEl.innerHTML = alerts.map(a => `
+        listEl.innerHTML = alerts.map(a => {
+            const fp = fingerprint(a);
+            return `
             <li class="bell-item bell-${a.severity}" data-target="${a.target}">
                 <span class="bell-item-icon">${a.icon}</span>
                 <div class="bell-item-text">
                     <div class="bell-item-title">${escapeHtml(a.title)}</div>
                     <div class="bell-item-detail">${escapeHtml(a.detail)}</div>
                 </div>
-                <span class="bell-item-arrow">→</span>
-            </li>
-        `).join('');
+                <button class="bell-item-dismiss" data-dismiss-fp="${escapeAttr(fp)}" title="Skrýt toto upozornění">×</button>
+            </li>`;
+        }).join('');
         document.getElementById('bell-empty').hidden = n > 0;
+        document.getElementById('bell-actions').hidden = n === 0;
+    }
+
+    function dismissAll() {
+        if (!lastData) return;
+        for (const a of genAlerts(lastData)) dismissed.add(fingerprint(a));
+        update(lastData);
     }
 
     function escapeHtml(s) {
@@ -264,6 +312,7 @@
             .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
             .replace(/"/g, '&quot;');
     }
+    function escapeAttr(s) { return escapeHtml(s); }
 
     window.FS25Bell = { update };
 })();

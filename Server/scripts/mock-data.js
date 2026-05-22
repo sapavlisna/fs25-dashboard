@@ -198,11 +198,15 @@ function generateData() {
         gameDay,
         gameTime:    `${hour}:${String(ri(0, 59)).padStart(2, '0')}`,
         weather: {
-            title:       ['Slunečno', 'Oblačno', 'Přeháňky', 'Déšť'][ri(0, 3)],
+            typeId:      ri(0, 6),
+            title:       ['Jasno', 'Slunečno', 'Polojasno', 'Oblačno', 'Déšť', 'Sněžení', 'Bouřka'][ri(0, 6)],
             temperature: ri(5, 32),
+            temperatureMin: ri(0, 18),
+            temperatureMax: ri(20, 35),
             forecast: [
-                { day: gameDay + 1, title: ['Slunečno', 'Oblačno', 'Déšť'][ri(0, 2)] },
-                { day: gameDay + 2, title: ['Slunečno', 'Oblačno', 'Déšť'][ri(0, 2)] },
+                { day: gameDay + 1, daysAhead: 1, typeId: ri(0, 6), title: '', temperatureMin: ri(0, 18), temperatureMax: ri(20, 35) },
+                { day: gameDay + 2, daysAhead: 2, typeId: ri(0, 6), title: '', temperatureMin: ri(0, 18), temperatureMax: ri(20, 35) },
+                { day: gameDay + 3, daysAhead: 3, typeId: ri(0, 6), title: '', temperatureMin: ri(0, 18), temperatureMax: ri(20, 35) },
             ],
         },
         farmBalance: Math.max(0, balance),

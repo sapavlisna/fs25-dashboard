@@ -26,6 +26,3 @@ dist/
 *.local.ps1
 .local/
 log.txt
-
-# Internal test/build config (not for public release)
-.fs25-test.json

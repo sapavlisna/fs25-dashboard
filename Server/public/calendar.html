@@ -57,11 +57,11 @@
    position across rows (vertical scanability). Each cell either holds
    exactly one chip or stays empty (transparent placeholder, same height). */
 .gantt-needs, .gantt-needs-header {
-    width: 420px;
+    width: 490px;
     flex-shrink: 0;
     padding: 0 4px;
     display: grid;
-    grid-template-columns: repeat(6, 1fr);
+    grid-template-columns: repeat(7, 1fr);
     gap: 4px;
     align-items: center;
 }
@@ -78,21 +78,7 @@
     justify-content: center;
     min-height: 18px;
 }
-.need-chip {
-    display: inline-block;
-    font-size: 10px;
-    font-weight: 600;
-    padding: 1px 6px;
-    border-radius: 4px;
-    line-height: 1.5;
-    white-space: nowrap;
-    background: color-mix(in srgb, var(--accent2) 22%, transparent);
-    color: var(--accent2);
-}
-.need-chip.bad {
-    background: rgba(224,82,82,.20);
-    color: var(--red);
-}
+/* .need-chip and .need-chip.bad are shared with index.html — see style.css. */
 .gantt-timeline {
     flex: 1;
     position: relative;
@@ -220,7 +206,6 @@
         <a href="/">Dashboard</a>
         <a href="/calendar.html" class="active">Kalendář polí</a>
         <a href="/profit.html">Zisk polí</a>
-        <a href="/calculator.html">Kalkulátor</a>
         <a href="/history.html">Historie</a>
     </div>
     <div class="nav-status">
@@ -330,12 +315,12 @@ function fertBadge(level) {
 // empty. Suppressed when the game has the mechanic disabled (see
 // data.gameSettings) or when the field is unowned. Column order MUST match
 // the header titles below.
-const NEED_COLUMNS = ['Orat', 'Kultivovat', 'Vápno', 'Plevel', 'Kameny', 'Válet'];
+const NEED_COLUMNS = ['Orat', 'Kultivovat', 'Sít', 'Vápno', 'Plevel', 'Kameny', 'Válet'];
 
 function needsCells(f, settings, fruitMeta) {
     const empty = '<div class="need-cell"></div>';
     if (!f.owned) {
-        return `<div class="gantt-needs">${empty.repeat(6)}</div>`;
+        return `<div class="gantt-needs">${empty.repeat(NEED_COLUMNS.length)}</div>`;
     }
     const s = settings || {};
     const fm = (fruitMeta && f.fruitTypeId) ? fruitMeta[f.fruitTypeId] : null;
@@ -343,15 +328,23 @@ function needsCells(f, settings, fruitMeta) {
         ? `<div class="need-cell"><span class="need-chip ${cls}" title="${esc(title)}">${label}</span></div>`
         : empty;
 
+    // FS25 doesn't surface needsCultivating/needsSowing for stubble fields
+    // (the previous fruit's record stays in the density map until cultivation
+    // or plow clears it). Derive both: stubble (isCut) or withered crop
+    // always needs cultivation, and the field is on the path to sowing.
+    const effNeedsCultivating = f.needsCultivating || f.isCut || f.isWithered;
+    const effNeedsSowing      = f.needsSowing      || f.isCut || f.isWithered;
+
     const c1 = cell(s.plowingRequiredEnabled !== false && f.needsPlowing, 'Orat', 'Potřebuje orbu');
-    const c2 = cell(f.needsCultivating, 'Kultivovat', 'Potřebuje kultivaci');
-    const c3 = cell(s.limeRequired !== false && f.needsLime, 'Vápno', 'Potřebuje vápno');
-    const c4 = cell(s.weedsEnabled !== false && f.weedLevel > 0, 'Plevel ' + f.weedLevel, `Plevel ${f.weedLevel}/3`, f.weedLevel >= 2 ? 'bad' : 'warn');
-    const c5 = cell(s.stonesEnabled !== false && f.stoneLevel > 0, 'Kameny ' + f.stoneLevel, `Kameny ${f.stoneLevel}/3`, f.stoneLevel >= 2 ? 'bad' : 'warn');
-    const c6 = cell(f.fruitTypeId && f.rollerLevel === 0 && !f.isCut && !f.isWithered && fm && fm.needsRolling,
+    const c2 = cell(effNeedsCultivating, 'Kultivovat', 'Potřebuje kultivaci');
+    const c3 = cell(effNeedsSowing, 'Sít', 'Pole čeká na zasetí');
+    const c4 = cell(s.limeRequired !== false && f.needsLime, 'Vápno', 'Potřebuje vápno');
+    const c5 = cell(s.weedsEnabled !== false && f.weedLevel > 0, 'Plevel ' + f.weedLevel, `Plevel ${f.weedLevel}/3`, f.weedLevel >= 2 ? 'bad' : 'warn');
+    const c6 = cell(s.stonesEnabled !== false && f.stoneLevel > 0, 'Kameny ' + f.stoneLevel, `Kameny ${f.stoneLevel}/3`, f.stoneLevel >= 2 ? 'bad' : 'warn');
+    const c7 = cell(f.fruitTypeId && f.rollerLevel === 0 && !f.isCut && !f.isWithered && fm && fm.needsRolling,
                     'Válet', 'Potřebuje uválet (zvyšuje výnos)');
 
-    return `<div class="gantt-needs">${c1}${c2}${c3}${c4}${c5}${c6}</div>`;
+    return `<div class="gantt-needs">${c1}${c2}${c3}${c4}${c5}${c6}${c7}</div>`;
 }
 
 // ─── Render ───────────────────────────────────────────────────────────────────
@@ -410,8 +403,8 @@ function renderGantt(allFields) {
 
     const startDay = gameDay;
     const endDay   = gameDay + viewDays;
-    // 240 (label) + 420 (needs grid) + ~40 (hide button + padding) = ~700
-    const PX_PER_DAY = Math.max(20, Math.floor(($('gantt-wrap').clientWidth - 720) / viewDays));
+    // 240 (label) + 490 (needs grid) + ~40 (hide button + padding) = ~770
+    const PX_PER_DAY = Math.max(20, Math.floor(($('gantt-wrap').clientWidth - 790) / viewDays));
 
     // Header
     let headerDays = '';
@@ -568,10 +561,17 @@ function openModal(el) {
         const condBadges = [];
         const cb = (label, value, cls) => condBadges.push(`<div class="cond-badge ${cls}"><span>${label}</span><span class="v">${value}</span></div>`);
 
+        // Same derive logic as the row chips — stubble / withered always needs
+        // cultivation and is on the path to sowing.
+        const mEffCult  = f.needsCultivating || f.isCut || f.isWithered;
+        const mEffSow   = f.needsSowing      || f.isCut || f.isWithered;
+
         if (gs.plowingRequiredEnabled !== false && f.needsPlowing != null)
             cb('Orat',       f.needsPlowing       ? 'ANO'       : 'OK',     f.needsPlowing       ? 'warn' : 'ok');
-        if (f.needsCultivating != null)
-            cb('Kultivovat', f.needsCultivating   ? 'ANO'       : 'OK',     f.needsCultivating   ? 'warn' : 'ok');
+        if (f.needsCultivating != null || f.isCut || f.isWithered)
+            cb('Kultivovat', mEffCult             ? 'ANO'       : 'OK',     mEffCult             ? 'warn' : 'ok');
+        if (f.owned)
+            cb('Sít',        mEffSow              ? 'ANO'       : 'NE',     mEffSow              ? 'warn' : 'ok');
         if (gs.limeRequired !== false && f.needsLime != null)
             cb('Vápno',      f.needsLime          ? 'POTŘEBA'   : 'OK',     f.needsLime          ? 'warn' : 'ok');
         if (f.fertilizationLevel != null)

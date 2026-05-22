@@ -22,7 +22,7 @@ DashboardExport.MOD_NAME       = g_currentModName or "FS25_Dashboard"
 DashboardExport.MOD_DIR        = g_currentModDirectory or ""
 -- MOD_VERSION is kept in sync with modDesc.xml by scripts/build-mod-generic.ps1.
 -- Do not edit by hand; bump via the build script.
-DashboardExport.MOD_VERSION    = "1.1.0.3"
+DashboardExport.MOD_VERSION    = "1.1.2.0"
 -- SCHEMA_VERSION tracks the dashboard_data.json shape — bump ONLY on breaking
 -- changes (renamed/removed fields). Server has MIN/MAX bounds and warns on
 -- mismatch. See src/Dashboard/docs/COMPATIBILITY.md.
@@ -216,11 +216,15 @@ local WEATHER_CS = {
 }
 
 function DashboardExport:collectWeather()
-    local out = { typeId = -1, title = "", temperature = 0, temperatureMin = 0, temperatureMax = 0 }
+    local out = {
+        typeId = -1, title = "", temperature = 0, temperatureMin = 0, temperatureMax = 0,
+        forecast = emptyArray(),
+    }
     if not (g_currentMission and g_currentMission.environment and g_currentMission.environment.weather) then
         return out
     end
-    local weather = g_currentMission.environment.weather
+    local env     = g_currentMission.environment
+    local weather = env.weather
 
     local typeId = safeCall(function() return weather:getCurrentWeatherType() end)
     if typeId ~= nil then
@@ -239,6 +243,56 @@ function DashboardExport:collectWeather()
         if type(maxC) == "number" then out.temperatureMax = round2(maxC) end
     end
 
+    -- Multi-day forecast — preferred path is `weather.forecast.items` (FS25's
+    -- internal WeatherForecast keeps a queue of upcoming weather points with
+    -- day, dayTime, type, min/max temperature). Fallback to iterating
+    -- `weather:getNextWeatherType(dayTime, day)` for the next 3 days when the
+    -- richer structure isn't accessible.
+    local currentDay = env.currentDay or 1
+    local forecast   = {}
+    local seenDays   = {}
+
+    if weather.forecast and type(weather.forecast.items) == "table" then
+        for _, item in ipairs(weather.forecast.items) do
+            local d = item.day
+            if d and d > currentDay and not seenDays[d] and #forecast < 3 then
+                seenDays[d] = true
+                local title = WEATHER_CS[item.weatherType] or ""
+                local rec   = {
+                    day        = d,
+                    daysAhead  = d - currentDay,
+                    typeId     = item.weatherType or -1,
+                    title      = title,
+                }
+                if type(item.minTemperature) == "number" then rec.temperatureMin = round2(item.minTemperature) end
+                if type(item.maxTemperature) == "number" then rec.temperatureMax = round2(item.maxTemperature) end
+                table.insert(forecast, rec)
+            end
+        end
+    end
+
+    -- Fallback if items[] didn't yield enough entries: poll noon of the next 3 days.
+    if #forecast < 3 and weather.getNextWeatherType then
+        local noon = 12 * 60 * 60 * 1000   -- daytime in ms
+        for offset = 1, 3 do
+            local d = currentDay + offset
+            if not seenDays[d] then
+                local nextType = safeCall(function() return weather:getNextWeatherType(noon, d) end)
+                if nextType ~= nil then
+                    seenDays[d] = true
+                    table.insert(forecast, {
+                        day       = d,
+                        daysAhead = offset,
+                        typeId    = nextType,
+                        title     = WEATHER_CS[nextType] or "",
+                    })
+                end
+            end
+            if #forecast >= 3 then break end
+        end
+    end
+
+    if #forecast > 0 then out.forecast = forecast end
     return out
 end
 

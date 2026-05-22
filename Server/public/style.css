@@ -226,12 +226,48 @@ nav {
 .bell-item-arrow { color: var(--muted); font-size: 14px; }
 .bell-item.bell-urgent  .bell-item-icon { color: var(--red); }
 .bell-item.bell-warning .bell-item-icon { color: var(--accent2); }
+
+/* Per-row dismiss button — invisible until row hover. Hides the alert
+   from the bell badge until the underlying condition changes (different
+   items in detail) or the page reloads. */
+.bell-item-dismiss {
+    background: none;
+    border: none;
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 16px;
+    line-height: 1;
+    padding: 2px 6px;
+    border-radius: 4px;
+    opacity: 0;
+    transition: opacity .12s, color .12s, background-color .12s;
+    flex-shrink: 0;
+}
+.bell-item:hover .bell-item-dismiss { opacity: 1; }
+.bell-item-dismiss:hover { color: var(--red); background: rgba(255,255,255,.05); }
+
 .bell-empty {
     padding: 20px 14px;
     text-align: center;
     color: var(--muted);
     font-size: 12px;
 }
+.bell-panel-actions {
+    padding: 8px 14px;
+    border-top: 1px solid var(--border);
+    display: flex; justify-content: flex-end;
+}
+.bell-dismiss-all {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    padding: 4px 12px;
+    border-radius: 6px;
+    font-size: 11px;
+    cursor: pointer;
+    transition: color .12s, border-color .12s;
+}
+.bell-dismiss-all:hover { color: var(--text); border-color: var(--accent); }
 
 /* Card flash on bell-item click — short pulse to direct user's eye */
 @keyframes card-flash {
@@ -316,6 +352,81 @@ main {
 }
 .kpi-sub.delta-up   { color: var(--accent); }
 .kpi-sub.delta-down { color: var(--red); }
+
+/* Weather KPI — split into "current" (left) + "forecast strip" (right) with
+   a vertical divider. Overrides the default column flex on .kpi-card. */
+.kpi-card.kpi-weather-card {
+    flex-direction: row;
+    align-items: stretch;
+    gap: 0;
+    padding-right: 12px;
+}
+.kpi-weather-card .kpi-weather-current {
+    display: flex; flex-direction: column;
+    gap: 4px;
+    justify-content: center;
+    flex: 1; min-width: 0;
+}
+.kpi-weather-card .kpi-weather-forecast {
+    display: flex; flex-direction: column;
+    justify-content: center;
+    gap: 5px;
+    padding-left: 14px;
+    margin-left: 14px;
+    border-left: 2px solid var(--border);
+    min-width: 96px;
+}
+.kpi-weather-card .kpi-weather-forecast:empty { display: none; }
+.forecast-day {
+    display: flex; align-items: center;
+    gap: 7px;
+    font-size: 11px;
+    color: var(--muted);
+    white-space: nowrap;
+    line-height: 1;
+}
+.forecast-day .forecast-when { font-weight: 600; color: var(--text); opacity: .75; }
+.forecast-day .forecast-icon { font-size: 14px; }
+.forecast-day .forecast-temp { margin-left: auto; opacity: .8; }
+
+/* Balance KPI — same split as weather: current (left) + 3-day history (right) */
+.kpi-card.kpi-balance-card {
+    flex-direction: row;
+    align-items: stretch;
+    gap: 0;
+    padding-right: 12px;
+}
+.kpi-balance-card .kpi-balance-current {
+    display: flex; flex-direction: column;
+    gap: 4px;
+    justify-content: center;
+    flex: 1; min-width: 0;
+}
+.kpi-balance-card .kpi-balance-history {
+    display: flex; flex-direction: column;
+    justify-content: center;
+    gap: 5px;
+    padding-left: 14px;
+    margin-left: 14px;
+    border-left: 2px solid var(--border);
+    min-width: 96px;
+}
+.kpi-balance-card .kpi-balance-history:empty { display: none; }
+.history-day {
+    display: flex; align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    color: var(--muted);
+    white-space: nowrap;
+    line-height: 1;
+}
+.history-day .history-when  { font-weight: 600; color: var(--text); opacity: .75; }
+.history-day .history-arrow { font-size: 12px; }
+.history-day .history-delta { margin-left: auto; opacity: .85; }
+.history-day.delta-up    .history-arrow,
+.history-day.delta-up    .history-delta { color: var(--accent); opacity: 1; }
+.history-day.delta-down  .history-arrow,
+.history-day.delta-down  .history-delta { color: var(--red); opacity: 1; }
 
 /* ─── Stat bar (legacy, used by other pages) ─────────────────────────── */
 .stat-bar {
@@ -530,6 +641,94 @@ tr.flash-down > td { background-color: rgba(224, 82, 82, .35)                   
     outline-offset: 1px;
 }
 
+/* Field-need chips — used by the calendar Gantt (fixed grid) AND the main
+   dashboard Pole–přehled table (inline wrapping flex). */
+.need-chip {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 600;
+    padding: 1px 6px;
+    border-radius: 4px;
+    line-height: 1.5;
+    white-space: nowrap;
+    background: color-mix(in srgb, var(--accent2) 22%, transparent);
+    color: var(--accent2);
+}
+.need-chip.bad {
+    background: rgba(224, 82, 82, .20);
+    color: var(--red);
+}
+.field-needs-inline {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 3px;
+    margin-top: 4px;
+}
+
+/* Section visibility list inside Settings → Sekce — re-uses the same
+   iOS-style switch styling as the flash toggles but scoped to a row layout. */
+.section-list {
+    display: flex; flex-direction: column;
+    gap: 4px;
+    margin-top: 4px;
+}
+.section-row {
+    display: flex; align-items: center; gap: 12px;
+    padding: 8px 12px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    cursor: pointer;
+    transition: border-color .12s;
+    font-size: 13px;
+    color: var(--text);
+}
+.section-row:hover { border-color: var(--accent); }
+.section-row-label { flex: 1; }
+.section-row-toggle {
+    position: relative;
+    display: inline-flex; align-items: center;
+}
+.section-row input[type="checkbox"] {
+    appearance: none; -webkit-appearance: none; -moz-appearance: none;
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+    width: 0; height: 0;
+    margin: 0;
+}
+.section-row .switch-knob {
+    width: 28px; height: 16px;
+    background: var(--surface);
+    border: 1px solid color-mix(in srgb, var(--text) 18%, transparent);
+    border-radius: 9px;
+    position: relative;
+    transition: background-color .2s, border-color .2s;
+    flex-shrink: 0;
+}
+.section-row .switch-knob::before {
+    content: '';
+    position: absolute;
+    left: 1px; top: 1px;
+    width: 12px; height: 12px;
+    background: var(--muted);
+    border-radius: 50%;
+    transition: transform .2s ease-out, background-color .2s;
+    box-shadow: 0 1px 2px rgba(0,0,0,.25);
+}
+.section-row input:checked + .switch-knob {
+    background-color: color-mix(in srgb, var(--accent) 35%, transparent);
+    border-color: var(--accent);
+}
+.section-row input:checked + .switch-knob::before {
+    transform: translateX(12px);
+    background: var(--accent);
+}
+.section-row input:focus-visible + .switch-knob {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+}
+
 /* ─── Productions table (slightly tighter) ───────────────────────────── */
 #sec-productions table { table-layout: fixed; }
 #sec-productions thead th { white-space: normal; padding: 6px 6px; }
@@ -728,8 +927,34 @@ tr.flash-down > td { background-color: rgba(224, 82, 82, .35)                   
 #notif-modal {
     background: var(--surface); border: 1px solid var(--border);
     border-radius: var(--radius); padding: 24px; width: 380px; max-width: 92%;
+    position: relative;
 }
 #notif-modal h3 { margin-bottom: 12px; font-size: 16px; }
+
+/* Close button — top-right corner of the modal. */
+.settings-close {
+    position: absolute;
+    top: 10px; right: 12px;
+    width: 28px; height: 28px;
+    display: flex; align-items: center; justify-content: center;
+    background: transparent;
+    border: none;
+    color: var(--muted);
+    font-size: 22px;
+    line-height: 1;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: color .12s, background-color .12s;
+}
+.settings-close:hover { color: var(--red); background: var(--surface2); }
+
+/* Action row — sits at the bottom of the modal. Save right-aligned via
+   margin-left:auto on the button, Test (if visible) stays left. */
+.settings-actions {
+    margin-top: 16px;
+    padding-top: 14px;
+    border-top: 1px solid var(--border);
+}
 #notif-modal label { display: block; margin: 12px 0 4px; font-size: 12px; color: var(--muted); }
 #notif-modal input[type=number] {
     width: 80px; background: var(--surface2); border: 1px solid var(--border);
@@ -739,13 +964,68 @@ tr.flash-down > td { background-color: rgba(224, 82, 82, .35)                   
 #notif-modal .switch { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }
 #notif-modal button.primary {
     background: var(--accent); color: var(--bg); border: none;
-    padding: 8px 14px; border-radius: 4px; cursor: pointer; font-weight: 700;
-    width: 100%; margin-top: 16px; font-size: 13px;
+    padding: 8px 16px; border-radius: 4px; cursor: pointer; font-weight: 700;
+    font-size: 13px;
 }
+#notif-modal button.primary:hover { filter: brightness(1.1); }
 #notif-modal button.secondary {
     background: var(--surface2); border: 1px solid var(--border); color: var(--text);
     padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 12px;
 }
+
+/* Settings tabs — sit at the top of the modal, switch panels below. */
+.settings-tabs {
+    display: flex;
+    gap: 4px;
+    border-bottom: 1px solid var(--border);
+    margin: 0 -24px 14px;
+    padding: 0 24px;
+}
+.settings-tabs button {
+    background: transparent;
+    border: none;
+    color: var(--muted);
+    padding: 8px 12px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    transition: color .12s, border-color .12s;
+}
+.settings-tabs button:hover { color: var(--text); }
+.settings-tabs button.active {
+    color: var(--accent);
+    border-bottom-color: var(--accent);
+}
+.settings-panel[hidden] { display: none; }
+
+/* Theme picker — 2-col grid of cards inside the Vzhled tab. */
+.theme-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-top: 4px;
+}
+.theme-card {
+    display: flex; align-items: center; gap: 10px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 10px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+    text-align: left;
+    transition: border-color .12s, background-color .12s;
+}
+.theme-card:hover { border-color: var(--accent); }
+.theme-card.active {
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 15%, var(--surface2));
+    color: var(--accent);
+}
+.theme-card-icon { font-size: 18px; line-height: 1; }
 
 /* ─── Field condition badges (in detail modal) ─────────────────────── */
 .cond-grid {
