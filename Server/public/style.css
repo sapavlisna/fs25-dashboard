@@ -1148,3 +1148,250 @@ tr.flash-down > td { background-color: rgba(224, 82, 82, .35)                   
 .section[draggable="true"] > .section-header:active {
     cursor: grabbing;
 }
+
+/* ─── Help page ──────────────────────────────────────────────────────── */
+.help-main {
+    display: grid;
+    grid-template-columns: 240px 1fr;
+    gap: 24px;
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 24px 20px 80px;
+    align-items: start;
+}
+.help-toc {
+    position: sticky;
+    top: calc(var(--nav-h) + 16px);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 14px 16px;
+    font-size: 13px;
+    max-height: calc(100vh - var(--nav-h) - 32px);
+    overflow-y: auto;
+}
+.help-toc h3 {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: .08em;
+    color: var(--muted);
+    margin-bottom: 8px;
+}
+.help-toc ol {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+.help-toc ol ol {
+    padding-left: 14px;
+    margin-top: 4px;
+    font-size: 12px;
+}
+.help-toc li { margin: 4px 0; }
+.help-toc a {
+    color: var(--muted);
+    display: block;
+    padding: 3px 6px;
+    border-radius: 4px;
+    transition: background .15s, color .15s;
+}
+.help-toc a:hover {
+    background: var(--surface2);
+    color: var(--text);
+    text-decoration: none;
+}
+
+.help-article {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 28px 36px 40px;
+    line-height: 1.55;
+}
+.help-hero h1 {
+    font-size: 28px;
+    color: var(--accent);
+    margin-bottom: 8px;
+}
+.help-lead {
+    font-size: 15px;
+    color: var(--muted);
+    margin-bottom: 24px;
+}
+
+.help-section {
+    margin-top: 36px;
+    scroll-margin-top: calc(var(--nav-h) + 16px);
+}
+.help-section h2 {
+    font-size: 22px;
+    color: var(--text);
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 6px;
+    margin-bottom: 14px;
+}
+.help-section h3 {
+    font-size: 16px;
+    color: var(--accent);
+    margin: 22px 0 8px;
+    scroll-margin-top: calc(var(--nav-h) + 16px);
+}
+.help-section p,
+.help-section ul,
+.help-section ol,
+.help-section dl { margin-bottom: 12px; }
+.help-section ul,
+.help-section ol { padding-left: 22px; }
+.help-section li { margin: 4px 0; }
+.help-section code {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1px 6px;
+    font-family: 'Consolas', 'Courier New', monospace;
+    font-size: 12.5px;
+    color: var(--accent);
+}
+.help-section strong { color: var(--text); }
+.help-section a { color: var(--accent); }
+
+/* Help-specific table (slimmer than dashboard tables) */
+.help-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 8px 0 16px;
+    font-size: 13px;
+}
+.help-table th,
+.help-table td {
+    text-align: left;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+}
+.help-table th {
+    color: var(--muted);
+    font-weight: 600;
+    background: var(--surface2);
+}
+.help-table tbody tr:hover { background: color-mix(in srgb, var(--accent) 5%, transparent); }
+
+/* Callout boxes */
+.help-callout {
+    background: color-mix(in srgb, var(--accent) 10%, transparent);
+    border-left: 3px solid var(--accent);
+    border-radius: 4px;
+    padding: 10px 14px;
+    margin: 12px 0;
+    font-size: 13px;
+}
+.help-callout--warn {
+    background: color-mix(in srgb, var(--orange) 12%, transparent);
+    border-left-color: var(--orange);
+}
+
+/* Figures with images */
+.help-figure {
+    margin: 16px 0 20px;
+    text-align: center;
+}
+.help-figure img {
+    max-width: 100%;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    display: block;
+    margin: 0 auto;
+}
+.help-figure figcaption {
+    margin-top: 6px;
+    font-size: 12px;
+    color: var(--muted);
+}
+.help-figure--missing img { display: none; }
+.help-figure--missing::before {
+    content: "📷 (screenshot bude přidán později)";
+    display: block;
+    background: var(--surface2);
+    border: 1px dashed var(--border);
+    border-radius: var(--radius);
+    padding: 28px 16px;
+    color: var(--muted);
+    font-size: 13px;
+    text-align: center;
+}
+
+/* Inline color swatches for legend */
+.help-swatch {
+    display: inline-block;
+    width: 14px; height: 14px;
+    border-radius: 3px;
+    vertical-align: middle;
+    margin-right: 4px;
+    border: 1px solid var(--border);
+}
+.help-swatch--ready    { background: #7fb069; }
+.help-swatch--growing  { background: #4caf9a; }
+.help-swatch--tosow    { background: #e8a838; }
+.help-swatch--cut      { background: #888; }
+.help-swatch--withered { background: #e05252; }
+
+/* Theme preview cards */
+.help-theme-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 12px;
+    margin: 12px 0 20px;
+}
+.help-theme-card {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 12px;
+    text-align: center;
+}
+.help-theme-card strong { display: block; margin: 8px 0 4px; color: var(--text); }
+.help-theme-card p { font-size: 12px; color: var(--muted); margin: 0; }
+.help-theme-swatch {
+    height: 48px;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+}
+.help-theme-swatch--dark-green    { background: linear-gradient(135deg, #0d1610 0%, #172220 50%, #7fb069 100%); }
+.help-theme-swatch--dark-blue     { background: linear-gradient(135deg, #0e1422 0%, #162236 50%, #5a8fad 100%); }
+.help-theme-swatch--light         { background: linear-gradient(135deg, #f4f6f1 0%, #ffffff 50%, #3a8a22 100%); }
+.help-theme-swatch--high-contrast { background: linear-gradient(135deg, #000 0%, #181818 50%, #ffd400 100%); }
+
+/* FAQ definition list */
+.help-faq dt {
+    font-weight: 600;
+    color: var(--text);
+    margin-top: 12px;
+}
+.help-faq dd {
+    margin: 4px 0 0 0;
+    padding-left: 14px;
+    border-left: 2px solid var(--border);
+    color: var(--muted);
+    font-size: 13.5px;
+}
+
+.help-footer {
+    margin-top: 48px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border);
+    text-align: center;
+    color: var(--muted);
+    font-size: 12px;
+}
+
+/* Responsive — sidebar above content on narrow screens */
+@media (max-width: 900px) {
+    .help-main {
+        grid-template-columns: 1fr;
+    }
+    .help-toc {
+        position: static;
+        max-height: none;
+    }
+    .help-article { padding: 20px 18px 32px; }
+}

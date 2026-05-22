@@ -26,3 +26,7 @@ dist/
 *.local.ps1
 .local/
 log.txt
+
+# Playwright smoke test runtime artefakty
+Server/test-results/
+Server/playwright-report/

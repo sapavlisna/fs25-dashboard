@@ -1,0 +1,597 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Nápověda · FS25 Dashboard</title>
+<script>
+    (function () {
+        try {
+            var q = (location.search.match(/[?&]theme=([\w-]+)/) || [])[1];
+            var t = q || localStorage.getItem('fs25.dash.v1.theme') || 'dark-green';
+            document.documentElement.setAttribute('data-theme', t);
+            if (q) { try { localStorage.setItem('fs25.dash.v1.theme', t); } catch (_) {} }
+        } catch (e) {
+            document.documentElement.setAttribute('data-theme', 'dark-green');
+        }
+    })();
+</script>
+<link rel="stylesheet" href="style.css">
+<script src="state.js" defer></script>
+<script src="theme.js" defer></script>
+<script src="notifications.js" defer></script>
+<script src="bell.js" defer></script>
+<script src="app.js" defer></script>
+</head>
+<body>
+
+<nav>
+    <span class="nav-brand">🌾 FS25</span>
+    <div class="nav-links">
+        <a href="/">Dashboard</a>
+        <a href="/calendar.html">Kalendář polí</a>
+        <a href="/profit.html">Zisk polí</a>
+        <a href="/history.html">Historie</a>
+        <a href="/help.html" class="active">❓ Nápověda</a>
+    </div>
+    <div class="nav-status">
+        <span class="bell-slot" id="bell-slot"></span>
+        <span class="nav-updated" id="s-updated"></span>
+        <span class="dot" id="ws-dot"></span>
+        <span id="ws-label">Připojování…</span>
+    </div>
+</nav>
+
+<main class="help-main">
+
+    <aside class="help-toc" id="help-toc">
+        <h3>Obsah</h3>
+        <ol>
+            <li><a href="#uvod">Úvod</a></li>
+            <li><a href="#orientace">Orientace v navbaru</a></li>
+            <li>
+                <a href="#dashboard">Hlavní dashboard</a>
+                <ol>
+                    <li><a href="#kpi">KPI karty</a></li>
+                    <li><a href="#sec-pole">Pole – přehled</a></li>
+                    <li><a href="#sec-vozidla">Vozidla</a></li>
+                    <li><a href="#sec-zvirata">Zvířata</a></li>
+                    <li><a href="#sec-sklady">Sklady</a></li>
+                    <li><a href="#sec-vyrobny">Výrobny</a></li>
+                    <li><a href="#sec-ceny">Výkupní ceny</a></li>
+                </ol>
+            </li>
+            <li><a href="#kalendar">Kalendář polí</a></li>
+            <li><a href="#historie">Historie</a></li>
+            <li><a href="#zisk">Zisk polí</a></li>
+            <li>
+                <a href="#funkce">Společné funkce</a>
+                <ol>
+                    <li><a href="#nastaveni">Nastavení ⚙</a></li>
+                    <li><a href="#zvonecek">Zvoneček 🔔</a></li>
+                    <li><a href="#flash">Flash zvýraznění</a></li>
+                    <li><a href="#motivy">Motivy vzhledu</a></li>
+                    <li><a href="#perzistence">Co si pamatuje prohlížeč</a></li>
+                </ol>
+            </li>
+            <li><a href="#faq">Časté otázky</a></li>
+            <li><a href="#troubleshoot">Když něco nejde</a></li>
+        </ol>
+    </aside>
+
+    <article class="help-article">
+
+        <header class="help-hero">
+            <h1>📖 Nápověda k FS25 Dashboardu</h1>
+            <p class="help-lead">
+                Real-time webový dashboard pro Farming Simulator 25. Sleduje pole, vozidla,
+                stáda, sklady, výrobny a ceny komodit přímo z běžící hry — bez nutnosti
+                přepínat na monitor v autě.
+            </p>
+        </header>
+
+        <!-- ───────────────────────────────────────────────────────────── -->
+        <section id="uvod" class="help-section">
+            <h2>Úvod</h2>
+            <p>
+                Dashboard se skládá ze tří částí, ale tobě jako uživateli stačí znát jednu:
+                <strong>tuto webovou stránku</strong>. Otevřeš ji v prohlížeči (typicky
+                <code>http://localhost:3000</code> nebo <code>http://&lt;IP-PC&gt;:3000</code>
+                z tabletu/telefonu), data tečou automaticky.
+            </p>
+            <p>
+                Pokud na stránce nejsou žádná čísla a tečka v pravém horním rohu svítí šedě
+                nebo červeně, je problém na úrovni serveru nebo módu —
+                <a href="#troubleshoot">viz Když něco nejde</a>.
+            </p>
+
+            <div class="help-callout">
+                <strong>Tip:</strong> Stránka se obnovuje sama přes WebSocket, nemusíš
+                stránku znovu načítat. Jakmile něco ve hře změníš (zorat pole,
+                doplnit palivo), do 2 vteřin to uvidíš tady.
+            </div>
+        </section>
+
+        <!-- ───────────────────────────────────────────────────────────── -->
+        <section id="orientace" class="help-section">
+            <h2>Orientace v navbaru</h2>
+            <p>Lišta nahoře je všude stejná:</p>
+            <table class="help-table">
+                <thead><tr><th>Prvek</th><th>K čemu je</th></tr></thead>
+                <tbody>
+                    <tr><td>🌾 FS25</td><td>Logo, klik nedělá nic — jen značka.</td></tr>
+                    <tr><td>Dashboard / Kalendář polí / Zisk polí / Historie / Nápověda</td>
+                        <td>Přepínání mezi stránkami. Aktivní stránka je zvýrazněná.</td></tr>
+                    <tr><td>🔔 Zvoneček</td>
+                        <td>Notifikace — palivo, krmení, plné sklady. Číslo = počet
+                        aktivních upozornění. Klik = rozbalení seznamu.
+                        <a href="#zvonecek">Detail</a>.</td></tr>
+                    <tr><td>Čas aktualizace</td>
+                        <td>Kdy přišel poslední update z hry.</td></tr>
+                    <tr><td>Tečka stavu</td>
+                        <td>🟢 živé spojení · 🟡 obnovuje se · 🔴 chyba · ⚪ čeká.</td></tr>
+                    <tr><td>⚙ Nastavení</td>
+                        <td>Otevře modal se 3 záložkami — Notifikace, Sekce, Vzhled.
+                        <a href="#nastaveni">Detail</a>.</td></tr>
+                    <tr><td>🎨 Motiv</td>
+                        <td>Rychlý přepínač motivu (cyklus 4 motivů).
+                        <a href="#motivy">Detail</a>.</td></tr>
+                </tbody>
+            </table>
+        </section>
+
+        <!-- ───────────────────────────────────────────────────────────── -->
+        <section id="dashboard" class="help-section">
+            <h2>Hlavní dashboard</h2>
+            <p>
+                Domovská stránka <code>/</code>. Nahoře 4 KPI karty s tím nejdůležitějším,
+                pod nimi 6 sekcí s detaily.
+            </p>
+            <figure class="help-figure">
+                <img src="help/screenshot-dashboard.png" alt="Hlavní dashboard"
+                     onerror="this.parentElement.classList.add('help-figure--missing')">
+                <figcaption>Hlavní dashboard — KPI nahoře, sekce v masonry layoutu</figcaption>
+            </figure>
+
+            <h3 id="kpi">KPI karty</h3>
+            <table class="help-table">
+                <thead><tr><th>Karta</th><th>Co ukazuje</th></tr></thead>
+                <tbody>
+                    <tr><td><strong>Zůstatek</strong></td>
+                        <td>Aktuální peníze + delta proti včerejšku (↑/↓ barevně).
+                        Vpravo přes oddělovač <strong>strip posledních 3 dnů</strong> —
+                        zjistíš na první pohled, jestli farma generuje peníze nebo prodělává.</td></tr>
+                    <tr><td><strong>Počasí</strong></td>
+                        <td>Vlevo aktuální (ikona + teplota), vpravo přes oddělovač
+                        <strong>5denní předpověď</strong> (den, ikona, min–max°).
+                        Plánuj sušení sena podle toho.</td></tr>
+                    <tr><td><strong>Den</strong></td>
+                        <td>Herní den + sezóna/měsíc.</td></tr>
+                    <tr><td><strong>Čas</strong></td>
+                        <td>Herní čas (ne reálný).</td></tr>
+                </tbody>
+            </table>
+
+            <h3 id="sec-pole">🌱 Pole – přehled</h3>
+            <p>
+                Stručná tabulka vlastněných polí. Pro Gantt s časovou osou jdi na
+                <a href="/calendar.html">Kalendář polí</a>.
+            </p>
+            <ul>
+                <li><strong>ID#</strong> — interní engine ID pole (ne číslo parcely).</li>
+                <li><strong>ZP</strong> — číslo parcely (to, co vidíš ve hře v menu).</li>
+                <li><strong>Stav</strong> — tag „Připraveno / Roste / Sít / Zvadlé / Strniště“.</li>
+                <li><strong>Růst %</strong> a <strong>dní do sklizně</strong>.</li>
+                <li><strong>Chips potřeb</strong> (Orat / Kultivovat / Sít / Vápno / Plevel /
+                    Kameny / Válet) — co je potřeba pro maximální výnos. Zobrazují se jen
+                    ty potřeby, které jsou ve hře zapnuté v nastavení.</li>
+                <li><strong>Skrýt ×</strong> — schová pole do podsekce „Skryté“ (collapse).</li>
+                <li><strong>Flash při změně</strong> — když pole dozraje nebo se sklidí,
+                    řádek krátce blikne zeleně/červeně.</li>
+            </ul>
+
+            <h3 id="sec-vozidla">🚜 Vozidla</h3>
+            <p>Karty (ne tabulka), seskupené po vlastnících. Co každá karta ukazuje:</p>
+            <ul>
+                <li><strong>Stavová tečka</strong> — modrá = motor jede, šedá = stojí.</li>
+                <li><strong>Název + typ</strong> a motohodiny.</li>
+                <li><strong>AdBlue %</strong> pokud má nádržku.</li>
+                <li><strong>Bar paliva</strong> v procentech + l/kapacita.</li>
+            </ul>
+            <p>
+                Vozidla bez palivové nádrže (kolečka, vleky, pluhy bez motoru) se v této
+                sekci nezobrazují. Skrývání funguje přes <strong>drag &amp; drop</strong> —
+                přetáhni kartu dolů do zóny „Skryté“. Vrátit ji zpátky můžeš stejným způsobem.
+            </p>
+
+            <h3 id="sec-zvirata">🐄 Zvířata</h3>
+            <ul>
+                <li><strong>Ikona + název farmy</strong>, počet kusů, produktivita %.</li>
+                <li><strong>🐣 Reprodukční badge</strong> — % nejvyspělejšího stáda.
+                    Zelená ≥ 90 % = brzy budou mláďata.</li>
+                <li><strong>Bary</strong>: K (krmivo), V (voda), P (sláma), M (mléko),
+                    H (hnůj), Kj (kejda). Zobrazují se jen ty, které stáj reálně používá.</li>
+                <li><strong>⚠ Alert badge</strong> — „Doplnit!“ když dojde krmivo/voda/sláma,
+                    „Odvézt!“ když přeteče výstup.</li>
+                <li><strong>Červené podbarvení řádku</strong> se zapne <em>jen při aktivním
+                    alertu</em>, ne staticky.</li>
+                <li><strong>Klik na řádek</strong> = detail modal: jednotlivá stáda
+                    s plemenem, věkem, zdravím a reprodukcí.</li>
+            </ul>
+
+            <h3 id="sec-sklady">📦 Sklady</h3>
+            <p>
+                Tabulka skladů a sil s množstvím a zaplněním. Hlavní fíčura tady je
+                <strong>flash zvýraznění</strong>:
+            </p>
+            <ul>
+                <li>🟢 zelené pozadí 10 s = množství vzrostlo (něco se vysypalo do skladu)</li>
+                <li>🔴 červené pozadí 10 s = množství kleslo (prodáno, použito ve výrobě)</li>
+            </ul>
+            <p>
+                Vypnout/zapnout flash můžeš přepínačem v pravém rohu hlavičky sekce.
+                Skrytí položky × jde uložit do collapsible podsekce „Skryté“.
+            </p>
+
+            <h3 id="sec-vyrobny">🏭 Výrobny</h3>
+            <p>
+                Tabulka výroben (mlékárny, pekárny, mlýny…). Sleduje vstupy/výstupy a stav.
+                Flash funguje na úrovni hlavičky i jednotlivých položek (jeden přepínač
+                řídí oboje).
+            </p>
+
+            <h3 id="sec-ceny">💰 Výkupní ceny</h3>
+            <p>
+                Aktuální výkupní ceny u všech sběrných míst na mapě. Tlačítko
+                <strong>„Skrýt vše bez skladu“</strong> odfiltruje na komodity, které
+                aktuálně vlastníš (jdou prodat hned).
+            </p>
+        </section>
+
+        <!-- ───────────────────────────────────────────────────────────── -->
+        <section id="kalendar" class="help-section">
+            <h2>📅 Kalendář polí</h2>
+            <p>
+                Gantt-style časová osa <code>/calendar.html</code>. Cíl: na jednom pohledu
+                vidět, která pole čekají na co a kdy se hodí kombajn.
+            </p>
+
+            <figure class="help-figure">
+                <img src="help/screenshot-calendar.png" alt="Kalendář polí"
+                     onerror="this.parentElement.classList.add('help-figure--missing')">
+                <figcaption>Gantt s pevnými 7 sloupci potřeb a barevnými pruhy fází</figcaption>
+            </figure>
+
+            <h3>Pevných 7 sloupců potřeb</h3>
+            <p>
+                Vedle popisku každého pole je mřížka <strong>Orat | Kultivovat | Sít | Vápno
+                | Plevel | Kameny | Válet</strong>. Každá buňka obsahuje buď chip
+                s potřebou, nebo zůstává prázdná — sloupce jsou tedy zarovnané a snadno se
+                porovnává více polí najednou.
+            </p>
+            <p>
+                Které sloupce vidíš, řídí <strong>nastavení hry</strong>
+                (Plevel, Kameny, Vápno, Orba). Pokud máš v menu „Vyžaduje orbu = Vypnuto“,
+                sloupec Orat se nikdy nerozsvítí.
+            </p>
+
+            <h3>Barevné pruhy</h3>
+            <ul>
+                <li><span class="help-swatch help-swatch--ready"></span> <strong>Připraveno</strong>
+                    — pole je dozrálé, jeď sklízet.</li>
+                <li><span class="help-swatch help-swatch--growing"></span> <strong>Roste</strong>
+                    — pruh ukazuje očekávanou délku dozrávání.</li>
+                <li><span class="help-swatch help-swatch--tosow"></span> <strong>K setbě</strong>
+                    — pole čeká.</li>
+                <li><span class="help-swatch help-swatch--cut"></span> <strong>Sklizeno (strniště)</strong>
+                    — vždy potřebuje znovu kultivovat + sít.</li>
+                <li><span class="help-swatch help-swatch--withered"></span> <strong>Zvadlé</strong>
+                    — propásl jsi okno sklizně, jediná cesta dál je kultivovat a začít znovu.</li>
+            </ul>
+
+            <h3>Hnojení (●●/●○/○○)</h3>
+            <p>
+                Badge u každého pole: <strong>●●</strong> plně pohnojeno (zelená),
+                <strong>●○</strong> jedna dávka chybí (žlutá),
+                <strong>○○</strong> nepohnojeno (červená).
+            </p>
+
+            <h3>Časový rozsah</h3>
+            <p>
+                Slider 5–60 dní. Defaultně 14. Today marker (svislá čára) je vždy úplně vlevo.
+            </p>
+
+            <h3>Klik na pruh = detail</h3>
+            <p>
+                Modal s plodinou, fází, ETA sklizně, est. denem sklizně a kompletním
+                seznamem potřeb (OK / ANO / POTŘEBA).
+            </p>
+        </section>
+
+        <!-- ───────────────────────────────────────────────────────────── -->
+        <section id="historie" class="help-section">
+            <h2>📈 Historie</h2>
+            <p>
+                Stránka <code>/history.html</code> obsahuje 3 grafy z dlouhodobých záznamů
+                serveru. Server píše JSONL soubory do <code>data/</code> a načítá je do paměti.
+            </p>
+
+            <figure class="help-figure">
+                <img src="help/screenshot-history.png" alt="Historie a grafy"
+                     onerror="this.parentElement.classList.add('help-figure--missing')">
+                <figcaption>3 grafy: zůstatek, cena komodity, sezónní křivka</figcaption>
+            </figure>
+
+            <h3>Volba období</h3>
+            <p>Rychlé tlačítka <strong>7 / 30 / 90 dní</strong>, default 7.</p>
+
+            <h3>Zůstatek farmy (line)</h3>
+            <p>Historický průběh peněz po hracích dnech. Tooltip ukazuje přesnou částku.</p>
+
+            <h3>Cena komodity (multi-line)</h3>
+            <ul>
+                <li><strong>Selector komodity</strong>: vlastněné jsou nahoře v oddělené
+                    optgroup — co můžeš prodat hned, vidíš první.</li>
+                <li><strong>Filtr sběrných míst</strong>: nabízí jen místa, která
+                    aktuálně vykupují vybranou komoditu (žádné prázdné křivky).</li>
+                <li>Každé sběrné místo je v grafu zvlášť obarvená čára.</li>
+            </ul>
+
+            <h3>Sezónní křivka (bar, full-width)</h3>
+            <p>
+                <strong>12 měsíců dopředu</strong> s očekávanými cenovými násobiteli. Top 3
+                měsíce jsou zelené („nejlepší prodej“), spodní 3 červené („ztráta“),
+                aktuální měsíc je orámovaný. Nad grafem souhrn:
+                „nyní €XXX · nejlépe v Březen €XXX (za N dní) · nejhůř …“
+            </p>
+
+            <div class="help-callout">
+                <strong>Nedostatek dat:</strong> Některé grafy potřebují alespoň 2 záznamy
+                v DB. Při čerstvém startu uvidíš místo grafu zprávu „Zatím málo dat“.
+            </div>
+        </section>
+
+        <!-- ───────────────────────────────────────────────────────────── -->
+        <section id="zisk" class="help-section">
+            <h2>💵 Zisk polí</h2>
+            <p>Stránka <code>/profit.html</code> — pokus o per-pole P&amp;L analýzu.</p>
+
+            <div class="help-callout help-callout--warn">
+                ⚠️ <strong>Důležité omezení:</strong> Hra neumožňuje přesné sledování
+                nákladů (semena, hnojivo, palivo). Server odhaduje z událostí setí/sklizeň.
+                Slouží <em>k orientaci, ne k účetnictví</em>.
+            </div>
+
+            <h3>4 KPI nahoře</h3>
+            <ul>
+                <li><strong>Celkový zisk</strong> (barevně) — kolik polí je v plusu, kolik v mínusu.</li>
+                <li><strong>Celkové výnosy</strong> (zelená) — co přiteklo ze sklizní.</li>
+                <li><strong>Celkové náklady</strong> (červená) — odhad nákladů na setí.</li>
+                <li><strong>Aktivita</strong> — počet setí + sklizní.</li>
+            </ul>
+
+            <h3>Tabulka per pole</h3>
+            <p>
+                Pole #, poslední plodina, počet setí/sklizní, náklady, výnosy, zisk
+                a stav („✓ N sklizní“ / „⏳ Roste“ / „—“).
+            </p>
+
+            <h3>Tabulka nedávných událostí</h3>
+            <p>
+                Chronologický log <strong>setí 🌱</strong> (žlutě) a <strong>sklizní 🚜</strong>
+                (zeleně) s denem, polem, plodinou, plochou a finanční změnou.
+            </p>
+        </section>
+
+        <!-- ───────────────────────────────────────────────────────────── -->
+        <section id="funkce" class="help-section">
+            <h2>Společné funkce</h2>
+
+            <h3 id="nastaveni">⚙ Nastavení</h3>
+            <p>
+                Klik na ozubené kolo otevře modal se 3 záložkami. <strong>Uložit</strong>
+                je vždy vpravo dole, <strong>×</strong> vpravo nahoře.
+            </p>
+            <table class="help-table">
+                <thead><tr><th>Záložka</th><th>Co tam najdeš</th></tr></thead>
+                <tbody>
+                    <tr><td>🔔 <strong>Notifikace</strong></td>
+                        <td>Master přepínač, prahy (krmivo zvířat %, palivo vozidel %,
+                        prázdné pole dnů, cooldown mezi opakovanými notifikacemi v minutách)
+                        a test tlačítko.</td></tr>
+                    <tr><td>📋 <strong>Sekce</strong></td>
+                        <td>iOS-style přepínače pro každou sekci hlavního dashboardu —
+                        sekce, kterou nepotřebuješ (například Výrobny při hraní bez
+                        produkčního řetězce), jednoduše vypneš a zmizí.</td></tr>
+                    <tr><td>🎨 <strong>Vzhled</strong></td>
+                        <td>4 motivy — dark-green (default), dark-blue, light,
+                        high-contrast. Klik aplikuje okamžitě napříč všemi stránkami.</td></tr>
+                </tbody>
+            </table>
+
+            <h3 id="zvonecek">🔔 Zvoneček</h3>
+            <p>
+                Vedle WebSocket tečky. Číslo nad ikonou = počet aktivních alertů.
+                Klik rozbalí seznam.
+            </p>
+            <ul>
+                <li><strong>Skupiny alertů</strong>: krmivo zvířat, voda, sláma, výstup
+                    (mléko/hnůj), pole připravené ke sklizni, palivo, plné sklady.</li>
+                <li><strong>Per-řádek ×</strong> = skryje konkrétní alert, dokud se
+                    nezmění obsah (např. přibude další pole). Otisk dělá kombinace
+                    klíče skupiny + seřazených názvů položek.</li>
+                <li><strong>„Skrýt vše“</strong> dole = smaže všechny aktuální alerty
+                    jednou ranou.</li>
+                <li><strong>Klik na alert</strong> = scroll na cílovou sekci + pulz animace.</li>
+            </ul>
+            <div class="help-callout">
+                <strong>Pozn.:</strong> Skrytí je <em>session-only</em>. Po reloadu stránky
+                se alerty vrátí. Pokud chceš trvale ztišit, použij notifikační prahy
+                v Nastavení.
+            </div>
+
+            <h3 id="flash">⚡ Flash zvýraznění</h3>
+            <p>
+                Krátké barevné podbarvení řádku/karty, když se hodnota mění:
+            </p>
+            <ul>
+                <li>🟢 zelená 10 s — hodnota vzrostla</li>
+                <li>🔴 červená 10 s — hodnota klesla</li>
+            </ul>
+            <p>
+                Per-sekce přepínač v pravém rohu hlavičky (iOS switch s tooltipem).
+                Stav se ukládá lokálně.
+            </p>
+            <p>
+                Pod kapotou: detekce změny mezi tiky, ochrana proti „pinned green“
+                (sklad, do kterého padá +1 l/tick, nesvítí pořád) a dedup při duplicitních
+                názvech (dva sklady „Sklad balíků u kravína“ se nepletou).
+            </p>
+
+            <h3 id="motivy">🎨 Motivy vzhledu</h3>
+            <p>4 motivy, přepínají se tlačítkem 🎨 v navbaru nebo v Nastavení:</p>
+            <div class="help-theme-grid">
+                <div class="help-theme-card">
+                    <div class="help-theme-swatch help-theme-swatch--dark-green"></div>
+                    <strong>dark-green 🌿</strong>
+                    <p>Default. Tlumený les + zralé obilí. Šetří oči.</p>
+                </div>
+                <div class="help-theme-card">
+                    <div class="help-theme-swatch help-theme-swatch--dark-blue"></div>
+                    <strong>dark-blue 🌙</strong>
+                    <p>Chladnější noční paleta.</p>
+                </div>
+                <div class="help-theme-card">
+                    <div class="help-theme-swatch help-theme-swatch--light"></div>
+                    <strong>light ☀️</strong>
+                    <p>Pro denní hraní u okna nebo na tabletu.</p>
+                </div>
+                <div class="help-theme-card">
+                    <div class="help-theme-swatch help-theme-swatch--high-contrast"></div>
+                    <strong>high-contrast ◐</strong>
+                    <p>Černá + žlutá + bílá. Maximální čitelnost.</p>
+                </div>
+            </div>
+
+            <h3 id="perzistence">💾 Co si pamatuje prohlížeč</h3>
+            <p>
+                V <code>localStorage</code> pod prefixem <code>fs25.dash.v1.*</code>:
+            </p>
+            <ul>
+                <li><strong>theme</strong> — zvolený motiv</li>
+                <li><strong>hiddenVehicles / hiddenStorages / hiddenProductions</strong> —
+                    co jsi skryl drag-dropem nebo ×</li>
+                <li><strong>hiddenSections</strong> — vypnuté panely z Nastavení &gt; Sekce</li>
+                <li><strong>flashEnabled</strong> — mapa „která sekce má flash zapnutý“</li>
+                <li><strong>notifications</strong> — prahy a master přepínač</li>
+                <li><strong>bell-dismissed</strong> — fingerprinty zavřených alertů
+                    (jen session)</li>
+            </ul>
+            <p>
+                Vymazat všechno → DevTools (F12) &gt; Application &gt; Local Storage &gt;
+                smaž <code>fs25.dash.v1.*</code> klíče a refresh.
+            </p>
+        </section>
+
+        <!-- ───────────────────────────────────────────────────────────── -->
+        <section id="faq" class="help-section">
+            <h2>❓ Časté otázky</h2>
+
+            <dl class="help-faq">
+                <dt>Proč ID# a ZP nesouhlasí?</dt>
+                <dd>To jsou dvě různá čísla. <strong>ID#</strong> je engine ID
+                    (interní), <strong>ZP</strong> je číslo parcely (to vidíš ve hře).
+                    Mapy je nemívají stejné.</dd>
+
+                <dt>Jak vrátit skryté pole / vozidlo / sklad?</dt>
+                <dd>Pole + sklad: rozbal podsekci „Skryté“ na konci sekce a klikni na
+                    odhalit. Vozidla: přetáhni kartu zpět nahoru drag &amp; dropem.</dd>
+
+                <dt>Proč u jednoho stáda nevidím bary M nebo Kj?</dt>
+                <dd>Bary se zobrazují jen pro výstupy, které dané stádo skutečně má.
+                    Krávy mléčné mají M, masné ne. Ovce nemají Kj, prasata ano.</dd>
+
+                <dt>Flash u skladu svítí pořád, co s tím?</dt>
+                <dd>Zkontroluj v Nastavení &gt; Sekce, jestli máš Sklady zapnuté. Pokud
+                    ano, jde nejspíš o <em>velmi pomalý kontinuální přírůstek</em>
+                    (např. mlékárna +1 l/min). Aktuální verze má guard, který by tomu
+                    měl bránit — kdyby přetrvávalo, napiš issue.</dd>
+
+                <dt>Zvíře má 100% reprodukci, ale nic se neděje.</dt>
+                <dd>Reprodukce funguje ve hře po vlnách. 100 % znamená „připraveno“,
+                    samotný porod proběhne v dalším herním cyklu (může to být i pár
+                    herních dnů). Sleduj klesající procento — to znamená, že nový
+                    mladý kus vznikl a počítadlo se vyresetovalo.</dd>
+
+                <dt>Předpověď počasí ukazuje jen aktuální, ne další dny.</dt>
+                <dd>Mód čte forecast z <code>g_currentMission.environment.weather.forecast</code>.
+                    Některé mapy předpověď nepublikují — pak server posílá jen aktuální
+                    stav. Není to bug dashboardu.</dd>
+
+                <dt>Cena komodity ukazuje „Čekám na data z módu“.</dt>
+                <dd>Server potřebuje aspoň pár tiků, aby zaznamenal historii cen. Po
+                    ~30 vteřinách reálného času hry by se to mělo objevit. Pokud ne,
+                    podívej se do <code>data/prices.jsonl</code>, jestli vůbec něco píše.</dd>
+            </dl>
+        </section>
+
+        <!-- ───────────────────────────────────────────────────────────── -->
+        <section id="troubleshoot" class="help-section">
+            <h2>🛠 Když něco nejde</h2>
+
+            <h3>Tečka v navbaru je červená nebo šedá</h3>
+            <ol>
+                <li>Zkontroluj, jestli běží <strong>Node.js server</strong>
+                    (<code>start.bat</code> nebo <code>npm start</code> v složce
+                    <code>Server/</code>).</li>
+                <li>Zkontroluj, jestli máš v <strong>FS25 zapnutý mód „FS25 Dashboard“</strong>
+                    a hru jsi spustil (mód píše do <code>dashboard_data.json</code>).</li>
+                <li>F12 v prohlížeči &gt; Console — uvidíš WebSocket chybu s konkrétním
+                    detailem.</li>
+            </ol>
+
+            <h3>Stránka se načte, ale čísla jsou prázdná / „—“</h3>
+            <p>
+                Server běží, ale ještě nedostal první payload z módu. Počkej 2–5 vteřin.
+                Pokud trvá déle, ve hře otevři menu a zavři ho (mód píše jen za běhu
+                vlastního ticku).
+            </p>
+
+            <h3>Notifikace nepřicházejí, i když mám prahy nastavené</h3>
+            <ol>
+                <li>V Nastavení &gt; Notifikace ověř, že <strong>Master přepínač</strong>
+                    je zapnutý.</li>
+                <li>Zkus <strong>Test</strong> tlačítko — pošle dummy alert. Pokud
+                    nepřijde, prohlížeč nepovolil notifikace systému.</li>
+                <li>Cooldown brání spamu — po reagování na alert se nezopakuje
+                    minimálně X minut.</li>
+            </ol>
+
+            <h3>Layout se rozsypal, sekce na sebe lezou</h3>
+            <p>
+                Masonry layout přepočítává pozice na resize. Pokud po změně rozlišení
+                vypadá divně, refresh (F5) opraví. Drag-and-drop pořadí sekcí se
+                neukládá — pořadí je defaultní pro každý load.
+            </p>
+
+            <h3>Chci úplný reset</h3>
+            <ul>
+                <li>F12 &gt; Application &gt; Local Storage &gt; smaž <code>fs25.dash.v1.*</code></li>
+                <li>Vymaž <code>data/*.jsonl</code> v Server složce <em>jen pokud chceš
+                    smazat i historii</em>.</li>
+                <li>F5</li>
+            </ul>
+        </section>
+
+        <footer class="help-footer">
+            <p>
+                FS25 Dashboard · open source · MIT licence ·
+                <a href="https://github.com/sapavlisna/fs25-dashboard" target="_blank">GitHub</a>
+            </p>
+        </footer>
+
+    </article>
+</main>
+
+</body>
+</html>
