@@ -245,7 +245,7 @@ nav {
 }
 .bell-item-arrow { color: var(--muted); font-size: 14px; }
 .bell-item.bell-urgent  .bell-item-icon { color: var(--red); }
-.bell-item.bell-warning .bell-item-icon { color: var(--accent2); }
+.bell-item.bell-warning .bell-item-icon { color: var(--orange); }
 
 /* Per-row dismiss button — invisible until row hover. Hides the alert
    from the bell badge until the underlying condition changes (different
@@ -343,6 +343,25 @@ main {
     min-height: 92px;
     justify-content: center;
 }
+/* Status accents — light left-border tint so the eye picks up the card's
+   state before reading the number (balance dropped, fields ready, ...). */
+.kpi-card.kpi-alert { border-left: 3px solid var(--red);    padding-left: 13px; }
+.kpi-card.kpi-ok    { border-left: 3px solid var(--accent); padding-left: 13px; }
+
+/* Forecast advice — pulls the seasonal headline out of an 11px muted
+   chart-header span and into a real callout box above the chart. */
+.forecast-advice {
+    margin: 8px 16px 4px;
+    padding: 8px 12px;
+    background: color-mix(in srgb, var(--accent2) 12%, transparent);
+    border-left: 3px solid var(--accent2);
+    border-radius: 4px;
+    font-size: 13px;
+    color: var(--text);
+    line-height: 1.4;
+}
+.forecast-advice b { color: var(--accent2); }
+.forecast-advice .forecast-advice-text { margin-left: 4px; }
 .kpi-label {
     font-size: 10px;
     text-transform: uppercase;
@@ -448,57 +467,6 @@ main {
 .history-day.delta-down  .history-arrow,
 .history-day.delta-down  .history-delta { color: var(--red); opacity: 1; }
 
-/* ─── Stat bar (legacy, used by other pages) ─────────────────────────── */
-.stat-bar {
-    display: flex; gap: 12px; flex-wrap: wrap;
-}
-/* Legacy: large card layout (kept for other pages that use it) */
-.stat-card {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 12px 18px;
-    flex: 1; min-width: 140px;
-}
-.stat-card .label {
-    font-size: 10px; text-transform: uppercase;
-    letter-spacing: .08em; color: var(--muted);
-}
-.stat-card .value {
-    font-size: 20px; font-weight: 700;
-    color: var(--accent2); margin-top: 3px;
-    white-space: nowrap;
-}
-
-/* Slim stat bar (dashboard header) */
-.stat-bar.slim {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 8px 14px;
-    gap: 0;
-    align-items: center;
-}
-.stat-bar.slim .stat-item {
-    display: flex; align-items: baseline; gap: 8px;
-    flex: 1; min-width: 0;
-    padding: 0 14px;
-    border-right: 1px solid var(--border);
-}
-.stat-bar.slim .stat-item:last-child { border-right: 0; }
-.stat-bar.slim .stat-item:first-child { padding-left: 0; }
-.stat-bar.slim .label {
-    font-size: 10px; text-transform: uppercase;
-    letter-spacing: .08em; color: var(--muted);
-    white-space: nowrap;
-}
-.stat-bar.slim .value {
-    font-size: 16px; font-weight: 700;
-    color: var(--accent2);
-    white-space: nowrap;
-    overflow: hidden; text-overflow: ellipsis;
-}
-
 /* Updated timestamp in nav */
 .nav-updated {
     font-size: 11px; color: var(--muted);
@@ -527,6 +495,19 @@ main {
     padding: 1px 7px;
     font-size: 10px; color: var(--text);
 }
+:root[data-theme="fs25-native"] .section-header .count {
+    background: color-mix(in srgb, var(--accent2) 25%, transparent);
+    color: var(--accent2);
+}
+.section-header .section-jump {
+    margin-left: auto;
+    font-size: 11px;
+    text-transform: none;
+    letter-spacing: 0;
+    color: var(--accent);
+    text-decoration: none;
+}
+.section-header .section-jump:hover { text-decoration: underline; }
 .section-body { padding: 12px 16px; }
 
 /* ─── Table ──────────────────────────────────────────────────────────── */
@@ -1161,12 +1142,28 @@ tr.flash-down > td { background-color: rgba(224, 82, 82, .35)                   
 }
 .section-btn:hover { border-color: var(--accent); color: var(--accent); }
 
-/* Sections draggable — grab cursor on header */
+/* Sections draggable — grab cursor on header + subtle handle hint on hover.
+   The ⠿ glyph stays invisible until the user hovers the header so it does
+   not clutter the default view, but reveals the drag affordance when they
+   do explore that area. */
 .section[draggable="true"] > .section-header {
     cursor: grab;
+    position: relative;
 }
 .section[draggable="true"] > .section-header:active {
     cursor: grabbing;
+}
+.section[draggable="true"] > .section-header::before {
+    content: '⠿';
+    color: var(--border);
+    font-size: 14px;
+    margin-right: 6px;
+    opacity: 0;
+    transition: opacity .15s, color .15s;
+}
+.section[draggable="true"] > .section-header:hover::before {
+    opacity: 1;
+    color: var(--muted);
 }
 
 /* ─── Help page ──────────────────────────────────────────────────────── */
@@ -1219,6 +1216,11 @@ tr.flash-down > td { background-color: rgba(224, 82, 82, .35)                   
     background: var(--surface2);
     color: var(--text);
     text-decoration: none;
+}
+.help-toc a.toc-active {
+    background: var(--surface2);
+    color: var(--accent);
+    font-weight: 600;
 }
 
 .help-article {
@@ -1415,4 +1417,48 @@ tr.flash-down > td { background-color: rgba(224, 82, 82, .35)                   
         max-height: none;
     }
     .help-article { padding: 20px 18px 32px; }
+}
+
+/* ─── Mobile / narrow viewports ───────────────────────────────────────────
+   The dashboard is desktop-first but should remain usable on tablets and
+   phones (a player checking status from the couch). Tighten paddings, allow
+   the nav to wrap, scale KPI numbers down, and let the masonry's JS layout
+   take care of dropping to 1 column (containerW < 360 + gap). */
+@media (max-width: 700px) {
+    main { padding: 8px; }
+    .section-body { padding: 10px 12px; }
+    .section-header { padding: 8px 12px; }
+    .kpi-card { padding: 10px 12px; min-height: 76px; }
+    .kpi-value { font-size: 22px; }
+    .kpi-card.kpi-balance-card,
+    .kpi-card.kpi-weather-card {
+        flex-direction: column;
+        align-items: stretch;
+        padding-right: 12px;
+    }
+    .kpi-balance-card .kpi-balance-history,
+    .kpi-weather-card .kpi-weather-forecast {
+        border-left: 0;
+        border-top: 1px solid var(--border);
+        margin-left: 0; margin-top: 8px;
+        padding-left: 0; padding-top: 6px;
+        min-width: 0;
+    }
+    .nav-links {
+        gap: 0;
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+    .nav-links a { padding: 6px 10px; font-size: 12px; white-space: nowrap; }
+    nav { padding: 0 10px; }
+    .nav-brand { font-size: 13px; }
+}
+@media (max-width: 480px) {
+    .kpi-value { font-size: 18px; }
+    .kpi-card { padding: 8px 10px; min-height: 64px; }
+    .section-header { font-size: 10px; padding: 7px 10px; }
+    table { font-size: 12px; }
+    thead th, tbody td { padding: 5px 6px; }
+    .nav-brand { display: none; }
 }

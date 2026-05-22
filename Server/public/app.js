@@ -21,7 +21,7 @@
         { id: 'sec-fields',      label: '🌱 Pole – přehled' },
         { id: 'sec-vehicles',    label: '🚜 Vozidla' },
         { id: 'sec-animals',     label: '🐄 Zvířata' },
-        { id: 'sec-storage',     label: '🏚 Sklady' },
+        { id: 'sec-storage',     label: '📦 Sklady' },
         { id: 'sec-productions', label: '🏭 Výrobny' },
         { id: 'sec-prices',      label: '💰 Výkupní ceny' },
     ];

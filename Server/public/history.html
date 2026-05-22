@@ -62,7 +62,7 @@
     height: 100%; color: var(--muted); font-size: 13px;
 }
 
-/* Compact period selector — replaces stat-bar Výhled card */
+/* Compact period selector — sits between the KPI row and the charts. */
 .period-bar {
     background: var(--surface);
     border: 1px solid var(--border);
@@ -175,8 +175,9 @@
         <!-- Seasonal forecast — full-width row -->
         <div class="chart-card" style="grid-column: 1 / -1">
             <div class="chart-header">
-                <h3>🔮 Sezónní křivka ceny <span id="forecast-summary" style="font-weight:400;color:var(--muted);font-size:11px;text-transform:none;letter-spacing:0;margin-left:auto"></span></h3>
+                <h3>🔮 Sezónní křivka ceny</h3>
             </div>
+            <div class="forecast-advice" id="forecast-summary" hidden>💡 <span class="forecast-advice-text"></span></div>
             <div class="chart-body" style="height: 200px">
                 <canvas id="chart-forecast"></canvas>
                 <div class="chart-empty" id="empty-forecast" style="display:none">Čekám na data z módu (FS25 musí běžet)…</div>
@@ -406,12 +407,13 @@ function renderForecastChart() {
     const canvas = document.getElementById('chart-forecast');
     const empty  = document.getElementById('empty-forecast');
     const summary = document.getElementById('forecast-summary');
+    const summaryText = summary ? summary.querySelector('.forecast-advice-text') : null;
     const selected = document.getElementById('sel-filltype').value;
 
     if (!latestForecast || !selected) {
         canvas.style.display = 'none';
         empty.style.display  = '';
-        summary.textContent  = '';
+        if (summary) summary.hidden = true;
         return;
     }
     const entry = (latestForecast.fillTypes || []).find(x => x.name === selected);
@@ -419,7 +421,7 @@ function renderForecastChart() {
         canvas.style.display = 'none';
         empty.style.display  = '';
         empty.textContent    = 'Mód pro tuto komoditu neposílá sezónní křivku.';
-        summary.textContent  = '';
+        if (summary) summary.hidden = true;
         return;
     }
     canvas.style.display = '';
@@ -489,10 +491,13 @@ function renderForecastChart() {
     const monthsToBest = ((best.i - curPeriod0 + 12) % 12);
     const eta = monthsToBest === 0 ? 'nyní'
               : monthsToBest * (latestForecast.daysPerPeriod || 1) + ' herních dní';
-    summary.innerHTML =
-        `nyní <b>${FS25Money.format(cur)}</b> · `
-      + `nejlépe v <b style="color:${green}">${bestMonth}</b> ${FS25Money.format(best.p)} (za ${eta}) · `
-      + `nejhůř <span style="color:${red}">${worstMonth}</span> ${FS25Money.format(worst.p)}`;
+    if (summary && summaryText) {
+        summaryText.innerHTML =
+            `nyní <b>${FS25Money.format(cur)}</b> · `
+          + `nejlépe v <b style="color:${green}">${bestMonth}</b> ${FS25Money.format(best.p)} (za ${eta}) · `
+          + `nejhůř <span style="color:${red}">${worstMonth}</span> ${FS25Money.format(worst.p)}`;
+        summary.hidden = false;
+    }
 }
 
 async function loadPriceChart() {

@@ -155,7 +155,7 @@
 
     <!-- Storage -->
     <div class="section" id="sec-storage" draggable="true" data-tt-dnd="sections" data-tt-key="storage">
-        <div class="section-header">🏚 Sklady <span class="count" id="cnt-storage">0</span>
+        <div class="section-header">📦 Sklady <span class="count" id="cnt-storage">0</span>
             <label class="flash-toggle" style="margin-left:auto" title="Flash změn — zvýrazní změny hodnot (zeleně = přibylo, červeně = ubylo)">
                 <input type="checkbox" data-flash-toggle="storage" checked>
             </label>
@@ -402,9 +402,11 @@ function renderKPI(d) {
     const deltaEl = $('kpi-balance-sub');
     const delta = d.farmBalanceDeltaDay;
     deltaEl.classList.remove('delta-up', 'delta-down');
+    const balanceCard = document.querySelector('.kpi-balance-card');
+    if (balanceCard) balanceCard.classList.remove('kpi-alert', 'kpi-ok');
     if (Number.isFinite(delta)) {
-        if (delta > 0)      { deltaEl.textContent = '↑ ' + fmtMoney(delta) + ' od minulého dne'; deltaEl.classList.add('delta-up'); }
-        else if (delta < 0) { deltaEl.textContent = '↓ ' + fmtMoney(Math.abs(delta)) + ' od minulého dne'; deltaEl.classList.add('delta-down'); }
+        if (delta > 0)      { deltaEl.textContent = '↑ ' + fmtMoney(delta) + ' od minulého dne'; deltaEl.classList.add('delta-up'); if (balanceCard) balanceCard.classList.add('kpi-ok'); }
+        else if (delta < 0) { deltaEl.textContent = '↓ ' + fmtMoney(Math.abs(delta)) + ' od minulého dne'; deltaEl.classList.add('delta-down'); if (balanceCard) balanceCard.classList.add('kpi-alert'); }
         else                  deltaEl.textContent = '→ beze změny od minulého dne';
     } else {
         deltaEl.textContent = '';
@@ -1383,7 +1385,9 @@ function _doRelayout() {
 
     const containerW = container.clientWidth;
     const gap = 12;
-    const minColW = 440;
+    // Smaller minColW on narrow viewports so tablets get 2 columns instead of
+    // forcing 1. Below ~480px we still fall back to 1 column naturally.
+    const minColW = containerW < 900 ? 360 : 440;
     let ncols = Math.max(1, Math.floor((containerW + gap) / (minColW + gap)));
     const colW = (containerW - gap * (ncols - 1)) / ncols;
 

@@ -96,7 +96,10 @@
     transition: filter .15s;
     display: flex; align-items: center; padding: 0 6px;
     font-size: 10px; font-weight: 600; white-space: nowrap; overflow: hidden;
-    color: rgba(0,0,0,.7);
+    /* Text uses the theme's darkest tone so it stays legible on the bar's
+       saturated background across all 5 themes (dark themes: near-black on
+       mid-bright bar; light theme: near-white on darkened bar). */
+    color: var(--bg);
 }
 .gantt-bar:hover { filter: brightness(1.2); }
 
@@ -373,6 +376,8 @@ function renderKPI(allFields) {
     $('kpi-ready').textContent  = ready.length;
     const readyHa = ready.reduce((s, f) => s + (f.area || 0), 0);
     $('kpi-ready-sub').textContent = ready.length ? readyHa.toFixed(2) + ' ha k sklizni' : 'Vše roste';
+    const readyCard = $('kpi-ready').closest('.kpi-card');
+    if (readyCard) readyCard.classList.toggle('kpi-ok', ready.length > 0);
 
     $('kpi-growing').textContent = growing.length;
     if (growing.length) {
@@ -473,16 +478,22 @@ function renderGantt(allFields) {
                             : f.isWithered      ? `${esc(f.fruitName)} · Zvadlé`
                             : f.isCut           ? `${esc(f.fruitName)} · Sklizeno`
                             :                     `${esc(f.fruitName)}${phase} · ${f.growthPercent}%`;
+            const barTitle  = f.isReadyToHarvest ? `Pole #${f.id} · ${esc(f.fruitName)} · Sklízet teď`
+                            : f.isWithered      ? `Pole #${f.id} · ${esc(f.fruitName)} · Zvadlé`
+                            : f.isCut           ? `Pole #${f.id} · ${esc(f.fruitName)} · Sklizeno (strniště)`
+                            :                     `Pole #${f.id} · ${esc(f.fruitName)} · ${f.growthPercent}%${phase ? ` (fáze${phase})` : ''} · ${f.daysToHarvest || 0} ${(f.daysToHarvest || 0) === 1 ? 'den' : 'dní'} do sklizně`;
 
             if (barStart * PX_PER_DAY < viewDays * PX_PER_DAY) {
                 bars += `<div class="gantt-bar"
                     style="left:${barStart}px; width:${Math.min(barWidth, viewDays * PX_PER_DAY - barStart)}px; background:${color};"
+                    title="${barTitle}"
                     data-field='${JSON.stringify(f).replace(/'/g,"&#39;")}'
                     onclick="openModal(this)"
                 >${barLabel}</div>`;
             }
         } else if (f.needsSowing) {
             bars += `<div class="gantt-bar" style="left:0;width:40px;background:var(--accent2);"
+                title="Pole #${f.id} · Čeká na zasetí"
                 data-field='${JSON.stringify(f).replace(/'/g,"&#39;")}'
                 onclick="openModal(this)">Sít</div>`;
         }

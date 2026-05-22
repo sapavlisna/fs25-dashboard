@@ -601,5 +601,33 @@
     </article>
 </main>
 
+<script>
+// IntersectionObserver — highlights the TOC entry of whichever section is
+// currently in the viewport. rootMargin shrinks the active band to roughly
+// the middle 30% of the viewport so the highlight tracks the section the
+// user is actually reading, not the one they just scrolled past.
+(function () {
+    const tocLinks = document.querySelectorAll('.help-toc a[href^="#"]');
+    const targets  = [];
+    tocLinks.forEach(a => {
+        const id = a.getAttribute('href').slice(1);
+        const el = id ? document.getElementById(id) : null;
+        if (el) targets.push(el);
+    });
+    if (!targets.length || !('IntersectionObserver' in window)) return;
+
+    const linkFor = id => document.querySelector(`.help-toc a[href="#${id}"]`);
+    const observer = new IntersectionObserver(entries => {
+        for (const e of entries) {
+            if (!e.isIntersecting) continue;
+            tocLinks.forEach(l => l.classList.remove('toc-active'));
+            const link = linkFor(e.target.id);
+            if (link) link.classList.add('toc-active');
+        }
+    }, { rootMargin: '-20% 0px -65% 0px' });
+
+    targets.forEach(t => observer.observe(t));
+})();
+</script>
 </body>
 </html>

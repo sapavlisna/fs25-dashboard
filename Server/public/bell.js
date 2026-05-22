@@ -130,7 +130,7 @@
             }
         }
         if (fullSilos.length) out.push({
-            key: 'storage-full', icon: '🏚', severity: 'info',
+            key: 'storage-full', icon: '📦', severity: 'info',
             title: `${fullSilos.length} ${plural(fullSilos.length, 'sklad téměř plný', 'sklady téměř plné', 'skladů téměř plných')}`,
             detail: fullSilos.join(' · '),
             items:  fullSilos,
