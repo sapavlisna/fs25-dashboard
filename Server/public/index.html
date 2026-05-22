@@ -965,7 +965,7 @@ function fieldNeedsChips(f) {
     if (s.limeRequired !== false && f.needsLime)              chip('Vápno',      'Potřebuje vápno');
     if (s.weedsEnabled !== false && f.weedLevel > 0)          chip('Plevel ' + f.weedLevel, `Plevel ${f.weedLevel}/3`, f.weedLevel >= 2 ? 'bad' : 'warn');
     if (s.stonesEnabled !== false && f.stoneLevel > 0)        chip('Kameny ' + f.stoneLevel, `Kameny ${f.stoneLevel}/3`, f.stoneLevel >= 2 ? 'bad' : 'warn');
-    if (f.fruitTypeId && f.rollerLevel === 0 && !f.isCut && !f.isWithered && fm && fm.needsRolling)
+    if (f.fruitTypeId && f.rollerLevel === 0 && fm && fm.needsRolling)
         chip('Válet', 'Potřebuje uválet (zvyšuje výnos)');
 
     return parts.length ? `<div class="field-needs-inline">${parts.join('')}</div>` : '';

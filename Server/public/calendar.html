@@ -345,7 +345,7 @@ function needsCells(f, settings, fruitMeta) {
     const c4 = cell(s.limeRequired !== false && f.needsLime, 'Vápno', 'Potřebuje vápno');
     const c5 = cell(s.weedsEnabled !== false && f.weedLevel > 0, 'Plevel ' + f.weedLevel, `Plevel ${f.weedLevel}/3`, f.weedLevel >= 2 ? 'bad' : 'warn');
     const c6 = cell(s.stonesEnabled !== false && f.stoneLevel > 0, 'Kameny ' + f.stoneLevel, `Kameny ${f.stoneLevel}/3`, f.stoneLevel >= 2 ? 'bad' : 'warn');
-    const c7 = cell(f.fruitTypeId && f.rollerLevel === 0 && !f.isCut && !f.isWithered && fm && fm.needsRolling,
+    const c7 = cell(f.fruitTypeId && f.rollerLevel === 0 && fm && fm.needsRolling,
                     'Válet', 'Potřebuje uválet (zvyšuje výnos)');
 
     return `<div class="gantt-needs">${c1}${c2}${c3}${c4}${c5}${c6}${c7}</div>`;
@@ -585,13 +585,14 @@ function openModal(el) {
         if (gs.stonesEnabled !== false && f.stoneLevel != null)
             cb('Kameny',     f.stoneLevel === 0   ? 'OK'        : f.stoneLevel + '/3', f.stoneLevel === 0 ? 'ok' : 'bad');
 
-        // Rolling — only relevant when the crop benefits from rolling and isn't
-        // already cut/withered. Skip the OK/válcováno status when the crop has
-        // needsRolling=false (corn/beet/rice/sugarcane) — would just be noise.
+        // Rolling — mirrors the game's "Zemědělská půda" panel: shown whenever
+        // the crop benefits from rolling (corn/beet/rice/sugarcane opt out via
+        // needsRolling=false). Stubble/withered fields still show it because
+        // the game does too — rollerLevel persists across the harvest.
         const modalFruitMeta = {};
         for (const fr of (currentData && currentData.availableFruits) || []) modalFruitMeta[fr.name] = fr;
         const mfm = modalFruitMeta[f.fruitTypeId];
-        if (f.fruitTypeId && mfm && mfm.needsRolling && !f.isCut && !f.isWithered) {
+        if (f.fruitTypeId && mfm && mfm.needsRolling) {
             cb('Válet', f.rollerLevel > 0 ? 'OK' : 'POTŘEBA', f.rollerLevel > 0 ? 'ok' : 'warn');
         }
 
