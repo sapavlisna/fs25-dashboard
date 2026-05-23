@@ -165,5 +165,8 @@
     }
 
     document.addEventListener('DOMContentLoaded', autoAttach);
-    window.Sortable = { attach, autoAttach };
+    // Exposed as TableSort to avoid clashing with the Sortable.js library
+    // (which owns the `Sortable` global and provides drag-reorder used by
+    // tabletools.js).
+    window.TableSort = { attach, autoAttach };
 })();

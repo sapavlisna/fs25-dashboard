@@ -212,8 +212,30 @@
                 <li><strong>Ikona + název farmy</strong>, počet kusů, produktivita %.</li>
                 <li><strong>🐣 Reprodukční badge</strong> — % nejvyspělejšího stáda.
                     Zelená ≥ 90 % = brzy budou mláďata.</li>
-                <li><strong>Bary</strong>: K (krmivo), V (voda), P (sláma), M (mléko),
-                    H (hnůj), Kj (kejda). Zobrazují se jen ty, které stáj reálně používá.</li>
+                <li><strong>Bary jsou rozdělené do dvou sloupců:</strong> vlevo
+                    <em>vstupy</em> (co stáj spotřebovává — nízké % = doplnit),
+                    vpravo <em>výstupy</em> (co stáj produkuje — vysoké % = odvézt).
+                    Zobrazují se jen ty, které stáj reálně používá (Králík/Křepelka
+                    nemají žádné výstupy).</li>
+            </ul>
+            <table class="help-table">
+                <thead>
+                    <tr><th>Zkr.</th><th>Sloupec</th><th>Význam</th><th>Co znamená vysoké %</th></tr>
+                </thead>
+                <tbody>
+                    <tr><td><code>K</code></td><td>vlevo (vstupy)</td><td>Krmivo</td><td>OK (plný žlab)</td></tr>
+                    <tr><td><code>V</code></td><td>vlevo (vstupy)</td><td>Voda</td><td>OK</td></tr>
+                    <tr><td><code>P</code></td><td>vlevo (vstupy)</td><td>Podestýlka (sláma)</td><td>OK</td></tr>
+                    <tr><td><code>M</code></td><td>vpravo (výstupy)</td><td><strong>Mléko</strong></td><td>Špatně — silo plné, mléko se ztrácí</td></tr>
+                    <tr><td><code>H</code></td><td>vpravo (výstupy)</td><td>Hnůj (suchý)</td><td>Špatně — odvézt na pole</td></tr>
+                    <tr><td><code>Kj</code></td><td>vpravo (výstupy)</td><td>Kejda (tekutý hnůj)</td><td>Špatně — odčerpat</td></tr>
+                </tbody>
+            </table>
+            <p>
+                <strong>M (Mléko) ≠ H (Hnůj)</strong> — u krav a koz vidíš M, H i Kj naráz, protože stáj produkuje
+                mléko (k prodeji) <em>a zároveň</em> hnůj + kejdu (k odvozu na pole).
+            </p>
+            <ul>
                 <li><strong>⚠ Alert badge</strong> — „Doplnit!“ když dojde krmivo/voda/sláma,
                     „Odvézt!“ když přeteče výstup.</li>
                 <li><strong>Červené podbarvení řádku</strong> se zapne <em>jen při aktivním

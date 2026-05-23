@@ -56,6 +56,7 @@
                     <button type="button" data-tab="theme">🎨 Vzhled</button>
                 </nav>
 
+                <div class="settings-panels">
                 <section class="settings-panel" data-panel="notif">
                     <div class="switch">
                         <input type="checkbox" id="nt-enabled">
@@ -77,13 +78,24 @@
 
                 <section class="settings-panel" data-panel="sections" hidden>
                     <label style="margin-bottom:8px;display:block">Sekce hlavního dashboardu</label>
-                    <div class="section-list" id="section-list"></div>
+                    <p class="settings-hint">
+                        Přetáhni řádek pro změnu pořadí.
+                        Přepínač vpravo skrývá/zobrazuje sekci.
+                    </p>
+                    <div class="section-list" id="section-list" data-tt-dnd-container="sections"></div>
+                    <div class="section-reset-row">
+                        <button class="secondary" id="sec-reset-order" type="button"
+                                title="Vrátí výchozí pořadí, viditelnost zůstane">↺ Obnovit pořadí</button>
+                        <button class="danger" id="sec-reset-all" type="button"
+                                title="Zruší pořadí i to, co jsi skryl">Resetovat vše</button>
+                    </div>
                 </section>
 
                 <section class="settings-panel" data-panel="theme" hidden>
                     <label style="margin-bottom:8px;display:block">Téma vzhledu</label>
                     <div class="theme-grid">${themeButtons}</div>
                 </section>
+                </div>
 
                 <div id="nt-status" style="font-size:11px;color:var(--muted);margin-top:10px"></div>
                 <div class="row settings-actions">
@@ -120,14 +132,42 @@
             card.onclick = () => applyTheme(card.dataset.themeId);
         });
 
-        // Sekce panel — toggles persist in DashState.hiddenSections and apply
-        // to the main dashboard immediately (when modal is open from /).
+        // Sekce panel — toggles persist in DashState.hiddenSections, the
+        // drag-reorder uses TableTools 'sections' scope (same one the main
+        // dashboard reads). The two stay in sync because both read from the
+        // same localStorage keys.
         renderSectionList();
         document.getElementById('section-list').addEventListener('change', e => {
             const cb = e.target.closest('input[data-section-id]');
             if (!cb) return;
             toggleSection(cb.dataset.sectionId, !cb.checked);
         });
+        // Wire reset buttons
+        const btnOrder = document.getElementById('sec-reset-order');
+        const btnAll   = document.getElementById('sec-reset-all');
+        if (btnOrder) btnOrder.onclick = () => {
+            if (window.TableTools) TableTools.clearOrder('sections');
+            renderSectionList();
+            if (typeof window.applySectionOrder === 'function') window.applySectionOrder();
+        };
+        if (btnAll) btnAll.onclick = () => {
+            if (!confirm('Opravdu zrušit pořadí i viditelnost sekcí?')) return;
+            if (window.TableTools) TableTools.clearOrder('sections');
+            if (window.DashState) window.DashState.set(window.DashState.KEYS.hiddenSections, []);
+            renderSectionList();
+            if (typeof window.applySectionOrder === 'function') window.applySectionOrder();
+            if (typeof window.applyHiddenSections === 'function') window.applyHiddenSections();
+        };
+        // After a drag inside this panel, write the new order under the same
+        // 'sections' scope key the main dashboard reads, then re-render the
+        // panel (so the visible order stays in sync) and re-apply on the
+        // dashboard if it's currently shown.
+        if (window.TableTools) {
+            TableTools.onChange('sections', () => {
+                renderSectionList();
+                if (typeof window.applySectionOrder === 'function') window.applySectionOrder();
+            });
+        }
     }
 
     function renderSectionList() {
@@ -136,15 +176,24 @@
         const hidden = new Set(window.DashState
             ? (window.DashState.get(window.DashState.KEYS.hiddenSections, []) || [])
             : []);
-        wrap.innerHTML = DASHBOARD_SECTIONS.map(s => {
+        // Apply saved drag-order so the panel mirrors the dashboard layout.
+        const ordered = window.TableTools
+            ? TableTools.applyOrder(DASHBOARD_SECTIONS, 'sections', s => s.id.replace(/^sec-/, ''))
+            : DASHBOARD_SECTIONS;
+        wrap.innerHTML = ordered.map(s => {
             const checked = !hidden.has(s.id);
-            return `<label class="section-row">
+            // ttKey matches the data-tt-key on the corresponding .section in
+            // index.html (e.g. sec-fields → ttKey="fields"). That's what gets
+            // saved by Sortable to the 'sections' order key.
+            const ttKey = s.id.replace(/^sec-/, '');
+            return `<div class="section-row" data-tt-dnd="sections" data-tt-key="${ttKey}">
+                <span class="drag-handle" title="Přetáhni pro změnu pořadí" aria-label="Přesunout">⠿</span>
                 <span class="section-row-label">${s.label}</span>
-                <span class="section-row-toggle">
+                <label class="section-row-toggle">
                     <input type="checkbox" data-section-id="${s.id}"${checked ? ' checked' : ''}>
                     <span class="switch-knob"></span>
-                </span>
-            </label>`;
+                </label>
+            </div>`;
         }).join('');
     }
 

@@ -309,28 +309,58 @@ main {
 
 /* Bento content grid — auto-fit columns. Cards keep their natural height
    (`align-items:start`) so a tall card doesn't stretch its row neighbours. */
-/* Masonry layout — sections are absolutely-positioned by JS (relayoutMasonry)
- * so that variable-height items pack tightly into N columns. Pole (.sec-fields)
- * spans 2 columns when possible; the rest are 1 column wide. */
+/* Section layout — 4-column CSS grid with sec-fields spanning 2 cells.
+ * At a wide viewport the field table is the visual anchor (2 of 4 cols,
+ * left side), the four smaller sections fill the remaining 2 cols and the
+ * row below. At 1300 px we collapse to 2 cols (sec-fields then = both =
+ * full width); below 700 px every section stacks in a single column.
+ *
+ * grid-auto-flow:row dense lets shorter sections back-fill gaps created
+ * by sec-fields' span, so the layout stays compact instead of leaving
+ * empty cells next to the field table.
+ */
 .masonry {
-    position: relative;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    /* `row` (not `row dense`) — places each section into the next available
+       cell in DOM order so the user's drag-reorder is respected. */
+    grid-auto-flow: row;
+    /* 2 px row unit — fine enough that the `grid-row: span N` inline value
+       written by applyMasonrySpans() lands within a couple of pixels of
+       each section's true height. Larger row units (8 px, 4 px) leave
+       noticeable trailing whitespace below shorter sections; 2 px keeps the
+       excess below 14 px (≈ one row gap). */
+    grid-auto-rows: 2px;
+    gap: 5px;
+    align-items: start;
 }
 .masonry > .section {
-    position: absolute;
     margin: 0;
-    box-sizing: border-box;
+    min-width: 0;
+    /* Default span — JS overrides per-section after measuring. */
+    grid-row: span 100;
 }
-/* Before JS runs (first paint) sections render in normal flow so they're
- * at least visible. JS sets position:absolute and locks in widths. */
-.masonry:not(.laid-out) > .section { position: static; margin-bottom: 12px; }
+.masonry > .sec-fields {
+    grid-column: span 2;
+}
+@media (max-width: 1300px) {
+    .masonry { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    /* sec-fields stays at span:2 — that's the whole row at 2-col viewport. */
+}
+@media (max-width: 700px) {
+    .masonry { grid-template-columns: 1fr; }
+    .masonry > .sec-fields { grid-column: auto; }
+}
 
 /* ─── KPI hero row ───────────────────────────────────────────────────── */
 .kpi-row {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
+    /* auto-fit so the row gracefully shrinks when KPIs are hidden — the
+       remaining cards fill the row instead of leaving a 75 %-wide layout. */
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
     gap: 12px;
 }
-@media (max-width: 900px) { .kpi-row { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 900px) { .kpi-row { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); } }
 @media (max-width: 480px) { .kpi-row { grid-template-columns: 1fr; } }
 
 .kpi-card {
@@ -730,6 +760,45 @@ tr.flash-down > td { background-color: rgba(224, 82, 82, .35)                   
     outline-offset: 1px;
 }
 
+/* Settings hint — small muted explainer under a panel label. */
+.settings-hint {
+    font-size: 11px;
+    color: var(--muted);
+    margin: 0 0 10px 0;
+    line-height: 1.4;
+}
+
+/* Reset row inside Settings → Sekce: one tertiary (just order) + one
+   destructive (everything). */
+.section-reset-row {
+    display: flex;
+    gap: 8px;
+    margin-top: 14px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+}
+.section-reset-row .secondary,
+.section-reset-row .danger {
+    font-size: 12px;
+    padding: 6px 12px;
+    border-radius: 5px;
+    border: 1px solid var(--border);
+    background: var(--surface2);
+    color: var(--text);
+    cursor: pointer;
+    transition: border-color .12s, color .12s, background .12s;
+}
+.section-reset-row .secondary:hover { border-color: var(--accent); color: var(--accent); }
+.section-reset-row .danger {
+    color: var(--red);
+    border-color: color-mix(in srgb, var(--red) 35%, var(--border));
+    margin-left: auto;
+}
+.section-reset-row .danger:hover {
+    background: color-mix(in srgb, var(--red) 12%, transparent);
+    border-color: var(--red);
+}
+
 /* ─── Productions table (slightly tighter) ───────────────────────────── */
 #sec-productions table { table-layout: fixed; }
 #sec-productions thead th { white-space: normal; padding: 6px 6px; }
@@ -744,8 +813,9 @@ tr.flash-down > td { background-color: rgba(224, 82, 82, .35)                   
 #vehicles-body, #vehicles-hidden-body { padding: 4px 12px 8px; }
 .vehicle-row {
     display: grid;
-    /* dot · name(flex) · meta(flex) · fixed fuel block (bar+text). Hide is done via DnD. */
-    grid-template-columns: 10px minmax(100px, 1.2fr) minmax(100px, 1fr) 150px;
+    /* dot · name(flex) · fuel block · motor-hours. The full vehicle type
+       name is in the row's title attribute (tooltip on hover). */
+    grid-template-columns: 10px minmax(120px, 1fr) 180px 70px;
     align-items: center;
     gap: 8px;
     padding: 6px 10px 6px 7px;
@@ -776,6 +846,13 @@ tr.flash-down > td { background-color: rgba(224, 82, 82, .35)                   
 .vc-fuel { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .vc-fuel .bar-wrap { width: 70px; min-width: 70px; flex: 0 0 70px; }
 .vc-fuel-num { font-size: 11px; color: var(--muted); white-space: nowrap; flex-shrink: 0; }
+.vc-mh {
+    font-size: 11px;
+    color: var(--muted);
+    text-align: right;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+}
 
 /* Vehicle drag-and-drop zone highlight */
 .vehicle-row { cursor: grab; }
@@ -797,16 +874,27 @@ tr.flash-down > td { background-color: rgba(224, 82, 82, .35)                   
 .vc-hide:hover { color: var(--text); border-color: var(--accent); }
 
 /* ─── Animal rows (compact) ──────────────────────────────────────────── */
-#animals-body, #animals-empty-body { padding: 4px 12px 8px; }
+#animals-body, #animals-hidden-body { padding: 4px 12px 8px; }
 .animal-row {
     display: grid;
-    /* icon · meta(flex) · bars area · hide btn */
-    grid-template-columns: 28px minmax(160px, 1fr) auto auto;
+    /* icon · meta(flex, shrinkable) · inputs column · outputs column.
+       The two bar columns are fixed-width so K/P always sit in the same
+       slot across rows. minmax(0, …) on the meta column lets it shrink
+       past its content's natural width, so on narrow sections (430-ish
+       px) the outputs column doesn't overflow off the right edge. */
+    grid-template-columns: 24px minmax(0, 1fr) 88px 88px;
     align-items: center;
-    gap: 10px;
+    column-gap: 2px;
     padding: 6px 8px;
     border-bottom: 1px solid var(--border);
     font-size: 12px;
+}
+/* Truncate the husbandry name + sub-text instead of overflowing — without
+   this, a long name forces the row wider than the section. */
+.ac-name, .ac-sub {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 .animal-row:last-child { border-bottom: 0; }
 .animal-row.alert { background: rgba(224,82,82,.07); }
@@ -816,11 +904,19 @@ tr.flash-down > td { background-color: rgba(224, 82, 82, .35)                   
 .ac-sub  { font-size: 11px; color: var(--muted); }
 .ac-bars {
     display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 3px 6px;
-    justify-content: flex-end;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 3px;
+    min-width: 0;
 }
+.ac-bars:empty { display: none; }
+.ac-bars-outputs {
+    border-left: 1px solid var(--border);
+    padding-left: 10px;
+}
+/* When outputs are empty (e.g. Králičí výběh has no produce), drop the
+   divider so the row doesn't show an orphan border. */
+.ac-bars-outputs:empty { border-left: 0; padding-left: 0; }
 .ac-barpair {
     display: flex;
     align-items: center;
@@ -828,10 +924,15 @@ tr.flash-down > td { background-color: rgba(224, 82, 82, .35)                   
     flex: 0 0 auto;          /* fixed-size — bars don't stretch */
 }
 .ac-barpair .bar-wrap {
-    width: 80px;             /* compact, comparable across rows */
-    min-width: 80px;
+    width: 56px;             /* compact — fits 88 px column with label + value */
+    min-width: 56px;
     flex: none;
+    gap: 2px;                /* tight gap between the bar and the % text */
 }
+.ac-barpair .bar-pct {
+    width: 26px;             /* 2-3 digit values — narrower than the 32 px default */
+}
+.ac-barpair { gap: 2px; }    /* tight gap between the label and the bar */
 .ac-bar-lbl {
     color: var(--muted); font-size: 10px;
     min-width: 12px; text-align: right;
@@ -999,7 +1100,26 @@ tr.flash-down > td { background-color: rgba(224, 82, 82, .35)                   
     color: var(--accent);
     border-bottom-color: var(--accent);
 }
-.settings-panel[hidden] { display: none; }
+/* Stack all panels in the same grid cell so the modal sizes to the tallest
+   panel and doesn't reflow when the user switches tabs. Hidden panels are
+   layout-present (visibility: hidden) so they still contribute to sizing. */
+.settings-panels {
+    display: grid;
+    grid-template-areas: 'stack';
+    grid-template-columns: 1fr;
+}
+.settings-panels > .settings-panel {
+    grid-area: stack;
+    min-width: 0;
+}
+.settings-panel[hidden] {
+    /* Override the UA `[hidden] { display: none }` so the panel keeps
+       contributing to the grid sizing — visibility:hidden takes care of
+       not showing it, pointer-events:none keeps the inputs untabbable. */
+    display: block;
+    visibility: hidden;
+    pointer-events: none;
+}
 
 /* Theme picker — 2-col grid of cards inside the Vzhled tab. */
 .theme-grid {
@@ -1117,10 +1237,189 @@ tr.flash-down > td { background-color: rgba(224, 82, 82, .35)                   
     line-height: 1;
 }
 .tt-hide:hover { color: var(--red); background: rgba(255,255,255,.05); }
-[data-tt-dnd][draggable="true"] { cursor: grab; }
-[data-tt-dnd][draggable="true"]:active { cursor: grabbing; }
-.tt-dragging { opacity: 0.4; }
-.tt-drag-over { box-shadow: inset 0 2px 0 0 var(--accent); }
+[data-tt-dnd][data-tt-key] { cursor: grab; }
+[data-tt-dnd][data-tt-key]:active { cursor: grabbing; }
+/* Sortable's forceFallback drag doesn't suppress text selection on its own
+   — mid-drag pointer moves sweep through table cells, turning everything
+   blue. Disable selection globally while a drag is in progress (body gets
+   .tt-drag-active in tabletools.js onStart/onEnd). */
+body.tt-drag-active,
+body.tt-drag-active * {
+    user-select: none !important;
+    -webkit-user-select: none !important;
+}
+/* Sortable.js classes — applied during drag:
+   .tt-ghost    = the placeholder element shown at the drop position (where
+                  the dragged item will land if released now). Acts as the
+                  insertion indicator — the user sees the actual destination,
+                  not just a 2px line.
+   .tt-chosen   = the original element while it's being picked up (subtle
+                  scale + outline).
+   .tt-dragging = the floating element following the cursor (fallback drag
+                  image since we set forceFallback: true). */
+/* Insertion-point placeholder — has to be the loudest element on the page
+   during a drag, since this is the only feedback the user has for "where
+   will it land?". A bold dashed accent outline + a halo and a faint stripe
+   pattern make it pop against any background; content of the placeholder is
+   hidden so the user reads the SHAPE (size + position) instead of being
+   distracted by the duplicated table contents. */
+.tt-ghost {
+    opacity: 0.55;
+    background: color-mix(in srgb, var(--accent) 18%, transparent);
+    outline: 2px dashed var(--accent);
+    outline-offset: -2px;
+}
+/* Bigger placeholder (section/chart card) — Sortable shows the SHAPE of
+   where the item will land, so blank it out and overlay a clear hint.
+   Skipped on small rows (table TRs, KPI cards) where the hint wouldn't fit
+   and the outline alone reads fine. */
+.section.tt-ghost,
+.chart-card.tt-ghost {
+    position: relative;
+    opacity: 1;
+    background: color-mix(in srgb, var(--accent) 14%, var(--surface));
+    outline: 3px dashed var(--accent);
+    outline-offset: -3px;
+    box-shadow: 0 0 0 6px color-mix(in srgb, var(--accent) 18%, transparent);
+    border-radius: 6px;
+}
+.section.tt-ghost > *,
+.chart-card.tt-ghost > * { visibility: hidden; }
+.section.tt-ghost::after,
+.chart-card.tt-ghost::after {
+    content: '↓ Sem se umístí';
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--accent);
+    font-weight: 700;
+    font-size: 14px;
+    letter-spacing: .04em;
+    text-shadow: 0 1px 2px rgba(0,0,0,.5);
+    visibility: visible;
+    pointer-events: none;
+}
+/* .tt-chosen — the originating row while Sortable is still deciding whether
+   to drag (touch long-press window). Strong visual signal that the item is
+   "armed" — accent outline + a slight grow so the user knows they can now
+   move it. Without this, mobile users couldn't tell whether their long-press
+   registered. */
+.tt-chosen {
+    background: color-mix(in srgb, var(--accent) 14%, transparent);
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+    transform: scale(1.01);
+    transition: transform .12s, background .12s, outline-color .12s;
+}
+/* Fallback element (the floating clone that follows the cursor with
+   forceFallback). Show the WHOLE source so the user sees exactly what
+   they're moving; lower opacity + accent halo + heavy shadow signals "I'm
+   being carried" without hiding the drop target underneath. The 1:1 cursor
+   tracking is handled by tabletools.js (attachFallbackTracking) — Sortable's
+   own positioning math is broken for items inside absolutely-positioned
+   parents and was leaving the clone stuck near the source. */
+.tt-dragging {
+    opacity: 0.85 !important;
+    border-radius: 8px !important;
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6), 0 0 0 2px var(--accent) !important;
+    cursor: grabbing !important;
+    transition: none !important;
+}
+
+/* Dim the rest of the page slightly during a drag so the bright .tt-ghost
+   insertion indicator dominates the user's visual focus. The masonry and
+   KPI row stay readable but recede; the active drop zone (lit by the
+   existing .tt-hidden-zone rule) and the .tt-ghost placeholder stand out. */
+body.tt-drag-active main { filter: brightness(0.85) saturate(0.85); }
+body.tt-drag-active .tt-ghost,
+body.tt-drag-active .tt-hidden-zone [data-tt-hidden] { filter: none; }
+
+/* Shared "Skryté …" drop zone styling used by every section that supports
+   drag-to-hide. The zone is always rendered so it's a valid drop target —
+   when no items are hidden it shows a dashed hint, otherwise the hidden
+   items live inside at lower opacity. */
+.tt-hidden-zone {
+    margin-top: 4px;
+    border-top: 1px dashed color-mix(in srgb, var(--border) 80%, var(--accent2));
+}
+.tt-hidden-zone .subgroup-header {
+    color: var(--muted);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    padding: 6px 14px 2px;
+    display: flex; align-items: center; gap: 6px;
+    cursor: pointer;
+    user-select: none;
+}
+.tt-hidden-zone .subgroup-header:hover { color: var(--text); }
+.tt-hidden-zone .subgroup-header .group-toggle {
+    font-size: 10px;
+    transition: transform .15s;
+    display: inline-block;
+}
+/* Collapsed: hide everything in the zone except the header so the user
+   can still see + click the toggle. Tables (tbody children) and divs
+   alike get hidden via display:none. During a Sortable drag we restore
+   visibility so the zone stays a valid drop target — `display: revert`
+   falls back to the UA default (block for div, table-row-group for tbody). */
+.tt-hidden-zone.collapsed > :not(.subgroup-header) {
+    display: none;
+}
+.tt-hidden-zone.collapsed .subgroup-header .group-toggle {
+    transform: rotate(-90deg);
+}
+body.tt-drag-active .tt-hidden-zone.collapsed > :not(.subgroup-header) {
+    display: revert;
+}
+.tt-hidden-zone .tt-hidden-icon { font-size: 13px; opacity: .8; }
+.tt-hidden-zone [data-tt-hidden] {
+    min-height: 36px;
+    padding: 6px 10px 8px;
+}
+.tt-hidden-zone [data-tt-hidden] > *:not(.tt-hidden-empty) {
+    opacity: 0.55;
+    filter: grayscale(0.25);
+    transition: opacity .15s;
+}
+.tt-hidden-zone [data-tt-hidden] > *:not(.tt-hidden-empty):hover {
+    opacity: 0.85;
+}
+.tt-hidden-empty {
+    font-size: 11px;
+    color: var(--muted);
+    text-align: center;
+    padding: 10px;
+    border: 1px dashed color-mix(in srgb, var(--border) 70%, var(--accent2));
+    border-radius: 6px;
+    background: color-mix(in srgb, var(--accent2) 4%, transparent);
+}
+/* Highlight the hidden zone while a drag is in progress so the drop target
+   is obvious. Sortable doesn't add a class to the over-container directly,
+   but it does mark `body` with .tt-drag-active when forceFallback is on. */
+body.tt-drag-active .tt-hidden-zone [data-tt-hidden]:empty,
+body.tt-drag-active .tt-hidden-zone [data-tt-hidden] {
+    background: color-mix(in srgb, var(--accent) 6%, transparent);
+}
+
+/* Divider between the KPI hero row and the dashboard masonry. The KPI
+   cards no longer support drag-to-hide (only drag-to-reorder), so a
+   simple line carries the visual separation that the hide drop zone
+   used to provide. */
+.kpi-divider {
+    margin: 10px 0 12px;
+    border: 0;
+    height: 1px;
+    background: linear-gradient(
+        to right,
+        transparent,
+        var(--border) 8%,
+        var(--border) 92%,
+        transparent
+    );
+}
 .tt-hidden-sep td {
     background: color-mix(in srgb, var(--surface) 70%, transparent);
     color: var(--muted);
@@ -1142,28 +1441,63 @@ tr.flash-down > td { background-color: rgba(224, 82, 82, .35)                   
 }
 .section-btn:hover { border-color: var(--accent); color: var(--accent); }
 
-/* Sections draggable — grab cursor on header + subtle handle hint on hover.
-   The ⠿ glyph stays invisible until the user hovers the header so it does
-   not clutter the default view, but reveals the drag affordance when they
-   do explore that area. */
-.section[draggable="true"] > .section-header {
+/* Drag handle — a dedicated element inside section-header (and any other
+   reorderable container) that serves as the grab target. Visible at low
+   opacity in idle state so touch users see the affordance; lights up on
+   hover. The flash-toggle + count badge + section-jump links inside the
+   header all stay clickable because drag is restricted to this element. */
+.drag-handle {
+    display: inline-flex;
+    align-items: center;
     cursor: grab;
-    position: relative;
-}
-.section[draggable="true"] > .section-header:active {
-    cursor: grabbing;
-}
-.section[draggable="true"] > .section-header::before {
-    content: '⠿';
-    color: var(--border);
-    font-size: 14px;
-    margin-right: 6px;
-    opacity: 0;
-    transition: opacity .15s, color .15s;
-}
-.section[draggable="true"] > .section-header:hover::before {
-    opacity: 1;
     color: var(--muted);
+    opacity: 0.55;
+    font-size: 14px;
+    line-height: 1;
+    padding: 2px 4px;
+    margin-right: 4px;
+    border-radius: 3px;
+    user-select: none;
+    transition: opacity .15s, color .15s, background .15s;
+}
+.drag-handle:hover {
+    opacity: 1;
+    color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+.drag-handle:active { cursor: grabbing; }
+.drag-handle:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    opacity: 1;
+}
+/* On touch devices (hover: none) the handle is always at full opacity so
+   the user knows it's there — no hover hint to discover. */
+@media (hover: none) {
+    .drag-handle { opacity: 1; }
+}
+/* Keyboard-driven reorder mode: handle stays lit + accent-tinted while the
+   user is moving with arrow keys. Distinct from :focus-visible so a casual
+   Tab-through doesn't look like an active move. */
+.drag-handle.kb-moving {
+    opacity: 1;
+    color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 22%, transparent);
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+}
+
+/* Screen-reader-only — used by the #tt-announcer live region. */
+.sr-only {
+    position: absolute !important;
+    width: 1px !important;
+    height: 1px !important;
+    overflow: hidden !important;
+    clip: rect(0, 0, 0, 0) !important;
+    white-space: nowrap !important;
+    border: 0 !important;
+    padding: 0 !important;
+    margin: -1px !important;
 }
 
 /* ─── Help page ──────────────────────────────────────────────────────── */

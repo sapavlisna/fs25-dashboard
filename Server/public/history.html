@@ -21,6 +21,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Nunito+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js" defer></script>
 <script src="theme.js" defer></script>
 <script src="notifications.js" defer></script>
 <script src="bell.js" defer></script>
@@ -41,6 +42,10 @@
     border-radius: 10px;
     overflow: hidden;
 }
+/* Full-width card (forecast). Class instead of inline style so the
+   modifier survives a Sortable reorder where DOM order changes. */
+.chart-card--wide { grid-column: 1 / -1; }
+@media (max-width: 900px) { .chart-card--wide { grid-column: auto; } }
 .chart-header {
     padding: 10px 16px;
     border-bottom: 1px solid var(--border);
@@ -142,11 +147,12 @@
         </div>
     </div>
 
-    <div class="history-grid">
+    <div class="history-grid" id="history-charts">
 
         <!-- Balance chart -->
-        <div class="chart-card">
+        <div class="chart-card" data-tt-dnd="history-charts" data-tt-key="balance">
             <div class="chart-header">
+                <span class="drag-handle" title="Přetáhni pro přesun grafu" aria-label="Přesunout graf">⠿</span>
                 <h3>💰 Zůstatek farmy</h3>
             </div>
             <div class="chart-body">
@@ -156,8 +162,9 @@
         </div>
 
         <!-- Price chart -->
-        <div class="chart-card">
+        <div class="chart-card" data-tt-dnd="history-charts" data-tt-key="prices">
             <div class="chart-header">
+                <span class="drag-handle" title="Přetáhni pro přesun grafu" aria-label="Přesunout graf">⠿</span>
                 <h3>📈 Cena komodity</h3>
                 <select id="sel-filltype" onchange="onFillTypeChange()">
                     <option value="">Načítám…</option>
@@ -173,12 +180,16 @@
         </div>
 
         <!-- Seasonal forecast — full-width row -->
-        <div class="chart-card" style="grid-column: 1 / -1">
+        <div class="chart-card chart-card--wide" data-tt-dnd="history-charts" data-tt-key="forecast">
             <div class="chart-header">
+                <span class="drag-handle" title="Přetáhni pro přesun grafu" aria-label="Přesunout graf">⠿</span>
                 <h3>🔮 Sezónní křivka ceny</h3>
+                <select id="sel-filltype-forecast" class="sel-filltype-sync" onchange="onFillTypeChange(this.value)">
+                    <option value="">Načítám…</option>
+                </select>
             </div>
             <div class="forecast-advice" id="forecast-summary" hidden>💡 <span class="forecast-advice-text"></span></div>
-            <div class="chart-body" style="height: 200px">
+            <div class="chart-body" style="height: 400px">
                 <canvas id="chart-forecast"></canvas>
                 <div class="chart-empty" id="empty-forecast" style="display:none">Čekám na data z módu (FS25 musí běžet)…</div>
             </div>
@@ -338,9 +349,21 @@ async function loadFillTypes() {
 // Owned-first commodity dropdown. Owned set is derived from live storage —
 // items with amount > 0 are commodities the player can sell right now. Two
 // <optgroup>s give a visible separator. Empty optgroups are omitted.
+// True once the user has manually picked a commodity from either dropdown.
+// Before that, every rebuild re-snaps the selection to the first OWNED
+// commodity (or the first option overall if the player has nothing in
+// storage yet). The previous "remember prev value" logic was sticky in a
+// bad way: the very first rebuild ran before WS data arrived, so it landed
+// on an alphabetical "Ostatní" option, then later rebuilds preserved that
+// stale pick instead of switching to the first owned one once storage
+// became known.
+let _userPickedFt = false;
+
 function rebuildFillTypeDropdown() {
     const ftSel = document.getElementById('sel-filltype');
-    const prev  = ftSel.value;
+    const fcSel = document.getElementById('sel-filltype-forecast');
+    const beforeValue = ftSel.value;
+    const prev  = _userPickedFt ? (ftSel.value || (fcSel && fcSel.value) || '') : '';
     const ownedSet = new Set();
     if (latestStorage) {
         for (const s of latestStorage) {
@@ -358,9 +381,29 @@ function rebuildFillTypeDropdown() {
     if (owned.length) html += `<optgroup label="📦 Mám na skladě (lze prodat)">${optHtml(owned)}</optgroup>`;
     if (rest.length)  html += `<optgroup label="${owned.length ? 'Ostatní' : 'Komodity'}">${optHtml(rest)}</optgroup>`;
     ftSel.innerHTML = html;
+    if (fcSel) fcSel.innerHTML = html;
 
     if (prev && [...ftSel.options].some(o => o.value === prev)) {
+        // Restore the user's last manual pick.
         ftSel.value = prev;
+        if (fcSel) fcSel.value = prev;
+    } else if (owned.length) {
+        // Default to the first OWNED commodity — that's what the player can
+        // actually sell right now, so it's the most useful starting point.
+        ftSel.value = owned[0].fill_type;
+        if (fcSel) fcSel.value = owned[0].fill_type;
+    }
+    // No `owned` and no `prev` → browser leaves the first option selected
+    // (first item from "Ostatní"); price chart will show "Zatím málo dat".
+
+    // If the auto-default changed the selection (e.g. WS just brought in
+    // the first storage snapshot), reload the price chart and the forecast
+    // for the new commodity. Without this, the charts would keep showing
+    // whatever stale commodity was selected at first paint.
+    if (ftSel.value !== beforeValue) {
+        rebuildSellPointDropdown();
+        loadPriceChart();
+        renderForecastChart();
     }
 }
 
@@ -391,7 +434,22 @@ function rebuildSellPointDropdown() {
     }
 }
 
-function onFillTypeChange() {
+function onFillTypeChange(newValue) {
+    // Manual change → stop auto-defaulting to the first owned commodity.
+    _userPickedFt = true;
+    // Sync the two dropdowns — one lives in the price-chart header, the
+    // other in the forecast header. Whichever fired, copy the value over.
+    if (typeof newValue === 'string') {
+        const ftSel = document.getElementById('sel-filltype');
+        const fcSel = document.getElementById('sel-filltype-forecast');
+        if (ftSel && ftSel.value !== newValue) ftSel.value = newValue;
+        if (fcSel && fcSel.value !== newValue) fcSel.value = newValue;
+    } else {
+        // Inline handler "onFillTypeChange()" → no arg from sel-filltype.
+        const ftSel = document.getElementById('sel-filltype');
+        const fcSel = document.getElementById('sel-filltype-forecast');
+        if (ftSel && fcSel) fcSel.value = ftSel.value;
+    }
     rebuildSellPointDropdown();
     loadPriceChart();
     renderForecastChart();
@@ -403,6 +461,14 @@ function onFillTypeChange() {
 // (price-wise) are green ("nejlepší prodej"); the bottom 3 red ("ztráta").
 // Forecast assumes a neutral station — actual sale price varies per
 // sellpoint by the station's own multiplier on top of the seasonal curve.
+//
+// FS25 economics note: `fillType.economy.factors[1..12]` is static for the
+// session, and `pricePerLiter` (the base) is set once at load. The forecast
+// therefore only changes when the player ticks into a new in-game MONTH
+// (currentPeriod), which happens roughly every game-day-times-daysPerPeriod
+// real minutes. Memoizing the input means we skip the Chart.js
+// destroy+recreate on the noisy 2-second WS tick.
+let _forecastMemo = null;
 function renderForecastChart() {
     const canvas = document.getElementById('chart-forecast');
     const empty  = document.getElementById('empty-forecast');
@@ -414,6 +480,7 @@ function renderForecastChart() {
         canvas.style.display = 'none';
         empty.style.display  = '';
         if (summary) summary.hidden = true;
+        _forecastMemo = null;
         return;
     }
     const entry = (latestForecast.fillTypes || []).find(x => x.name === selected);
@@ -422,8 +489,21 @@ function renderForecastChart() {
         empty.style.display  = '';
         empty.textContent    = 'Mód pro tuto komoditu neposílá sezónní křivku.';
         if (summary) summary.hidden = true;
+        _forecastMemo = null;
         return;
     }
+
+    // Memo key: anything that affects the rendered bars + advice text.
+    // factors are static for the session, currentPeriod changes per month,
+    // pricePerTon is the base economy price (also session-static for now).
+    const memoKey = selected + '|'
+        + (entry.pricePerTon || 0) + '|'
+        + (latestForecast.currentPeriod || 0) + '|'
+        + (latestForecast.daysPerPeriod || 0) + '|'
+        + (entry.factors || []).join(',');
+    if (memoKey === _forecastMemo) return;
+    _forecastMemo = memoKey;
+
     canvas.style.display = '';
     empty.style.display  = 'none';
 
@@ -448,8 +528,49 @@ function renderForecastChart() {
     const borderColors = prices.map((_, i) => i === curPeriod0 ? accent : 'transparent');
     const borderWidths = prices.map((_, i) => i === curPeriod0 ? 3 : 0);
 
+    // Y-axis: don't start at 0 — when seasonal factors only swing ±10 %,
+    // a zero-anchored scale flattens every bar into "looks identical".
+    // Use min - 15 % of the price range below, and max + 15 % above. If
+    // all months are tied (factors = 1.00, no seasonal variation), fall
+    // back to a small symmetric band so the bars stay visible.
+    const minPrice = Math.min(...prices);
+    const maxPrice = Math.max(...prices);
+    const range    = maxPrice - minPrice;
+    const pad      = range > 0 ? range * 0.15 : Math.max(1, maxPrice * 0.02);
+    const yMin     = Math.max(0, Math.floor(minPrice - pad));
+    const yMax     = Math.ceil(maxPrice + pad);
+
     if (forecastChart) forecastChart.destroy();
     const def = chartDefaults();
+
+    // Inline Chart.js plugin that draws each bar's price above its top edge.
+    // Cheaper than pulling in chartjs-plugin-datalabels for one purpose.
+    const valueLabels = {
+        id: 'forecast-value-labels',
+        afterDatasetsDraw(chart) {
+            const { ctx } = chart;
+            const meta = chart.getDatasetMeta(0);
+            ctx.save();
+            ctx.font         = '600 11px "Segoe UI", system-ui, sans-serif';
+            ctx.textAlign    = 'center';
+            ctx.textBaseline = 'bottom';
+            meta.data.forEach((bar, i) => {
+                const v = chart.data.datasets[0].data[i];
+                // Match the bar's accent — current month gets the amber
+                // outline colour, top-3/bottom-3 inherit their bar tint,
+                // middle 6 stay subtle (muted text).
+                let color;
+                if (i === curPeriod0)      color = accent;
+                else if (topSet.has(i))    color = green;
+                else if (bottomSet.has(i)) color = red;
+                else                       color = themeVar('--text') || '#e6ecdf';
+                ctx.fillStyle = color;
+                ctx.fillText(FS25Money.format(v), bar.x, bar.y - 4);
+            });
+            ctx.restore();
+        },
+    };
+
     forecastChart = new Chart(canvas, {
         type: 'bar',
         data: {
@@ -463,6 +584,9 @@ function renderForecastChart() {
         },
         options: {
             ...def,
+            animation: false,   // memo skips most re-renders; on the rare actual
+                                // re-render (new month), don't animate the swap
+            layout: { padding: { top: 18 } },   // headroom for the value labels
             plugins: {
                 legend: { display: false },
                 tooltip: {
@@ -477,9 +601,13 @@ function renderForecastChart() {
             scales: {
                 ...def.scales,
                 y: { ...def.scales.y,
+                    min: yMin,
+                    max: yMax,
+                    beginAtZero: false,
                     ticks: { ...def.scales.y.ticks, callback: v => FS25Money.format(v) } },
             },
         },
+        plugins: [valueLabels],
     });
 
     // Headline summary above the chart
@@ -589,7 +717,25 @@ function esc(s) { return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt
 
 // ─── Init (via shared app.js) ─────────────────────────────────────────────────
 
+// Apply persisted chart order by reshuffling the static .chart-card
+// children of #history-charts at page-load. Three cards, so this is cheap.
+function applyHistoryChartOrder() {
+    if (!window.TableTools) return;
+    const grid = document.getElementById('history-charts');
+    if (!grid) return;
+    const order = TableTools.getOrder('history-charts');
+    if (!order || !order.length) return;
+    const byKey = {};
+    grid.querySelectorAll('[data-tt-dnd="history-charts"][data-tt-key]').forEach(el => {
+        byKey[el.dataset.ttKey] = el;
+    });
+    for (const k of order) {
+        if (byKey[k]) grid.appendChild(byKey[k]);
+    }
+}
+
 window.addEventListener('DOMContentLoaded', () => {
+    applyHistoryChartOrder();
     FS25App.connect(data => {
         // Live snapshot feeds the dropdown filters + forecast:
         //   • prices        → which sell points currently buy the chosen commodity
@@ -605,6 +751,9 @@ window.addEventListener('DOMContentLoaded', () => {
     });
     loadFillTypes();
     loadBalanceChart();
+    if (window.TableTools) {
+        TableTools.onChange('history-charts', applyHistoryChartOrder);
+    }
 });
 
 // Reload charts every 60s (history doesn't need real-time)

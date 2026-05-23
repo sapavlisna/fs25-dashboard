@@ -20,6 +20,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Nunito+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js" defer></script>
 <script src="theme.js" defer></script>
 <script src="notifications.js" defer></script>
 <script src="bell.js" defer></script>
@@ -98,11 +99,12 @@
         Slouží k orientaci, ne k účetnictví.
     </div>
 
-    <div class="content-grid">
+    <div class="content-grid" id="profit-sections">
 
     <!-- Per-field profit table -->
-    <div class="section">
+    <div class="section" data-tt-dnd="profit-sections" data-tt-key="per-field">
         <div class="section-header">
+            <span class="drag-handle" title="Přetáhni pro přesun sekce" aria-label="Přesunout sekci">⠿</span>
             💰 Zisk per pole
             <span class="count" id="cnt-fields">0</span>
             <a href="#sec-events" class="section-jump" title="Skočit na Poslední události">↓ Poslední události</a>
@@ -119,19 +121,29 @@
                         <th class="num">Výnosy</th>
                         <th class="num">Zisk</th>
                         <th>Aktivita</th>
-                        <th style="width:32px"></th>
                     </tr>
                 </thead>
-                <tbody id="profit-body">
-                    <tr><td colspan="9" class="empty">Žádná data – mod zatím nezachytil žádné setí/sklizeň.</td></tr>
+                <tbody id="profit-body" data-tt-container="profitFields">
+                    <tr><td colspan="8" class="empty">Žádná data – mod zatím nezachytil žádné setí/sklizeň.</td></tr>
                 </tbody>
             </table>
+        </div>
+        <div class="tt-hidden-zone" id="profit-hidden-wrap">
+            <div class="subgroup-header">
+                <span class="tt-hidden-icon">📥</span> Skrytá pole <span class="count" id="cnt-profit-hidden">0</span>
+            </div>
+            <div class="table-wrap">
+                <table>
+                    <tbody id="profit-hidden-body" data-tt-container="profitFields" data-tt-hidden></tbody>
+                </table>
+            </div>
         </div>
     </div>
 
     <!-- Recent events -->
-    <div class="section" id="sec-events">
+    <div class="section" id="sec-events" data-tt-dnd="profit-sections" data-tt-key="events">
         <div class="section-header">
+            <span class="drag-handle" title="Přetáhni pro přesun sekce" aria-label="Přesunout sekci">⠿</span>
             📋 Poslední události
             <span class="count" id="cnt-events">0</span>
         </div>
@@ -146,13 +158,22 @@
                         <th class="num">Plocha</th>
                         <th class="num">Náklad / Výnos</th>
                         <th class="num">Výtěžek</th>
-                        <th style="width:32px"></th>
                     </tr>
                 </thead>
-                <tbody id="events-body">
-                    <tr><td colspan="8" class="empty">Zatím žádné události.</td></tr>
+                <tbody id="events-body" data-tt-container="profitEvents">
+                    <tr><td colspan="7" class="empty">Zatím žádné události.</td></tr>
                 </tbody>
             </table>
+        </div>
+        <div class="tt-hidden-zone" id="events-hidden-wrap">
+            <div class="subgroup-header">
+                <span class="tt-hidden-icon">📥</span> Skryté události <span class="count" id="cnt-events-hidden">0</span>
+            </div>
+            <div class="table-wrap">
+                <table>
+                    <tbody id="events-hidden-body" data-tt-container="profitEvents" data-tt-hidden></tbody>
+                </table>
+            </div>
         </div>
     </div>
 
@@ -201,10 +222,13 @@ async function loadProfit() {
         ? `${totalSow} setí · ${totalHarv} sklizní`
         : 'zatím žádná';
 
-    // Per-field table
+    // Per-field table — two tbodies: visible + hidden drop zone below.
     const body = $('profit-body');
+    const hBody = $('profit-hidden-body');
     if (!rows.length) {
-        body.innerHTML = '<tr><td colspan="9" class="empty">Žádná data – mod zatím nezachytil žádné setí/sklizeň.</td></tr>';
+        body.innerHTML = '<tr><td colspan="8" class="empty">Žádná data – mod zatím nezachytil žádné setí/sklizeň.</td></tr>';
+        hBody.innerHTML = '<tr><td colspan="8" class="tt-hidden-empty">Přetáhni sem pole pro skrytí.</td></tr>';
+        $('cnt-profit-hidden').textContent = 0;
         return;
     }
 
@@ -213,14 +237,13 @@ async function loadProfit() {
     const ordered = TableTools.applyOrder(rows, STATE_KEY, getKey);
     const { visible, hidden } = TableTools.split(ordered, STATE_KEY, getKey);
 
-    const rowHTML = (r, canHide) => {
+    const rowHTML = (r) => {
         const cls  = r.profit > 0 ? 'profit-positive' : r.profit < 0 ? 'profit-negative' : 'profit-neutral';
         const stat = r.harvests > 0 ? `<span class="c-green">${r.harvests} sklizní</span>` :
                      r.sowings  > 0 ? `<span class="c-yellow">Roste</span>` : '<span class="c-muted">—</span>';
         const fruitCell = r.lastFruitType
             ? CropIcons.iconWithName(r.lastFruitType, esc(r.lastFruit))
             : (esc(r.lastFruit) || '—');
-        const btn = canHide ? TableTools.hideBtn(STATE_KEY, r.fieldId) : TableTools.unhideBtn(STATE_KEY, r.fieldId);
         return `<tr ${TableTools.dndAttrs(STATE_KEY, r.fieldId)}>
             <td>#${r.fieldId}</td>
             <td>${fruitCell}</td>
@@ -230,16 +253,16 @@ async function loadProfit() {
             <td class="num c-green">${fmtMoney(r.totalRevenue)}</td>
             <td class="num ${cls}">${fmtMoney(r.profit)}</td>
             <td>${stat}</td>
-            <td>${btn}</td>
         </tr>`;
     };
 
-    let html = visible.map(r => rowHTML(r, true)).join('');
-    if (hidden.length) {
-        html += TableTools.hiddenSubgroupRow(STATE_KEY, hidden.length, 9);
-        html += hidden.map(r => rowHTML(r, false).replace('<tr ', '<tr class="hidden-row" ')).join('');
-    }
-    body.innerHTML = html;
+    body.innerHTML = visible.length
+        ? visible.map(rowHTML).join('')
+        : '<tr><td colspan="8" class="empty">Všechna pole jsou skrytá.</td></tr>';
+    $('cnt-profit-hidden').textContent = hidden.length;
+    hBody.innerHTML = hidden.length
+        ? hidden.map(rowHTML).join('')
+        : '<tr><td colspan="8" class="tt-hidden-empty">Přetáhni sem pole pro skrytí.</td></tr>';
 }
 
 async function loadEvents() {
@@ -248,8 +271,11 @@ async function loadEvents() {
 
     $('cnt-events').textContent = rows.length;
     const body = $('events-body');
+    const hBody = $('events-hidden-body');
     if (!rows.length) {
-        body.innerHTML = '<tr><td colspan="8" class="empty">Zatím žádné události.</td></tr>';
+        body.innerHTML = '<tr><td colspan="7" class="empty">Zatím žádné události.</td></tr>';
+        hBody.innerHTML = '<tr><td colspan="7" class="tt-hidden-empty">Přetáhni sem událost pro skrytí.</td></tr>';
+        $('cnt-events-hidden').textContent = 0;
         return;
     }
 
@@ -258,7 +284,7 @@ async function loadEvents() {
     const ordered = TableTools.applyOrder(rows, STATE_KEY, getKey);
     const { visible, hidden } = TableTools.split(ordered, STATE_KEY, getKey);
 
-    const rowHTML = (r, canHide) => {
+    const rowHTML = (r) => {
         const typeLabel = r.type === 'sowing'  ? '<span class="c-yellow">🌱 Setí</span>' :
                           r.type === 'harvest' ? '<span class="c-green">🚜 Sklizeň</span>' :
                           esc(r.type);
@@ -272,7 +298,6 @@ async function loadEvents() {
             ? CropIcons.iconWithName(r.fruit_type, esc(r.fruit_name))
             : (esc(r.fruit_name) || '—');
         const k = getKey(r);
-        const btn = canHide ? TableTools.hideBtn(STATE_KEY, k) : TableTools.unhideBtn(STATE_KEY, k);
         return `<tr ${TableTools.dndAttrs(STATE_KEY, k)}>
             <td>D${r.game_day}</td>
             <td>${typeLabel}</td>
@@ -281,28 +306,48 @@ async function loadEvents() {
             <td class="num">${r.area} ha</td>
             <td class="num">${moneyCol}</td>
             <td class="num">${yieldCol}</td>
-            <td>${btn}</td>
         </tr>`;
     };
 
-    let html = visible.map(r => rowHTML(r, true)).join('');
-    if (hidden.length) {
-        html += TableTools.hiddenSubgroupRow(STATE_KEY, hidden.length, 8);
-        html += hidden.map(r => rowHTML(r, false).replace('<tr ', '<tr class="hidden-row" ')).join('');
-    }
-    body.innerHTML = html;
+    body.innerHTML = visible.length
+        ? visible.map(rowHTML).join('')
+        : '<tr><td colspan="7" class="empty">Všechny události skryté.</td></tr>';
+    $('cnt-events-hidden').textContent = hidden.length;
+    hBody.innerHTML = hidden.length
+        ? hidden.map(rowHTML).join('')
+        : '<tr><td colspan="7" class="tt-hidden-empty">Přetáhni sem událost pro skrytí.</td></tr>';
 }
 
 async function loadAll() {
     await Promise.all([loadProfit(), loadEvents()]);
 }
 
+// Apply persisted section order from localStorage by re-arranging the
+// static .section children of #profit-sections. Two sections, so a tiny
+// pass over the saved order is enough.
+function applyProfitSectionOrder() {
+    if (!window.TableTools) return;
+    const grid = document.getElementById('profit-sections');
+    if (!grid) return;
+    const order = TableTools.getOrder('profit-sections');
+    if (!order || !order.length) return;
+    const byKey = {};
+    grid.querySelectorAll('[data-tt-dnd="profit-sections"][data-tt-key]').forEach(el => {
+        byKey[el.dataset.ttKey] = el;
+    });
+    for (const k of order) {
+        if (byKey[k]) grid.appendChild(byKey[k]);
+    }
+}
+
 window.addEventListener('DOMContentLoaded', () => {
+    applyProfitSectionOrder();
     FS25App.connect(loadAll);  // refresh on every WS update
     loadAll();
     if (window.TableTools) {
         TableTools.onChange('profitFields', () => loadProfit());
         TableTools.onChange('profitEvents', () => loadEvents());
+        TableTools.onChange('profit-sections', applyProfitSectionOrder);
     }
 });
 </script>

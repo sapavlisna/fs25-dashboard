@@ -187,8 +187,16 @@ function DashboardExport:collectGameTime()
     if env.getDayInPeriodFromDay and env.currentMonotonicDay then
         dayInMonth = env:getDayInPeriodFromDay(env.currentMonotonicDay)
     end
+    -- Year. FS25 exposes it as env.currentYear when the save has progressed
+    -- past day 1; fall back to a count derived from the monotonic day so we
+    -- never show "nil".
+    local year = env.currentYear
+    if year == nil and env.currentMonotonicDay then
+        year = math.floor((env.currentMonotonicDay - 1) / (12 * daysPerMonth)) + 1
+    end
     return {
         gameDay      = day,
+        gameYear     = year or 1,
         gameMonth    = month,
         dayInMonth   = dayInMonth,
         daysPerMonth = daysPerMonth,
@@ -1134,15 +1142,20 @@ function DashboardExport:collectAnimals()
             -- Milk (max % across active fill types; report dominant fill type)
             local mSpec = placeable.spec_husbandryMilk
             if mSpec and mSpec.activeFillTypes then
-                local maxPct, maxLvl, maxCap, maxName = 0, 0, 0, ""
+                -- Sentinel -1 so the FIRST read always wins, even when the
+                -- silo is empty (p == 0). The old `p > maxPct` started at 0
+                -- and rejected empties, so milkCapacity stayed 0 and the
+                -- detail modal hid the milk row entirely.
+                local maxPct, maxLvl, maxCap, maxName = -1, 0, 0, ""
                 for _, ft in pairs(mSpec.activeFillTypes) do
                     local l, c, p = fillReading(placeable, ft)
-                    if p and p > maxPct then
+                    if p ~= nil and p >= maxPct then
                         maxPct, maxLvl, maxCap = p, l, c
                         local ftDesc = g_fillTypeManager and g_fillTypeManager:getFillTypeByIndex(ft)
                         maxName = (ftDesc and (ftDesc.title or ftDesc.name)) or ""
                     end
                 end
+                if maxPct < 0 then maxPct = 0 end
                 rec.milkPercent  = maxPct
                 rec.milkLiters   = maxLvl
                 rec.milkCapacity = maxCap

@@ -22,6 +22,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Nunito+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js" defer></script>
 <script src="state.js" defer></script>
 <script src="theme.js" defer></script>
 <script src="notifications.js" defer></script>
@@ -55,9 +56,11 @@
 <!-- ── Main ────────────────────────────────────────────────────────── -->
 <main>
 
-    <!-- KPI hero row -->
-    <div class="kpi-row">
-        <div class="kpi-card kpi-balance-card">
+    <!-- KPI hero row — each card is a draggable/hideable item. The KPIs
+         have stable keys (balance, weather, day, time) so reorder and hide
+         state persist across page reloads. -->
+    <div class="kpi-row" id="kpi-row" data-tt-container="kpi">
+        <div class="kpi-card kpi-balance-card" data-tt-dnd="kpi" data-tt-key="balance">
             <div class="kpi-balance-current">
                 <span class="kpi-label">Zůstatek</span>
                 <span class="kpi-value" id="kpi-balance">—</span>
@@ -65,7 +68,7 @@
             </div>
             <div class="kpi-balance-history" id="kpi-balance-history"></div>
         </div>
-        <div class="kpi-card kpi-weather-card">
+        <div class="kpi-card kpi-weather-card" data-tt-dnd="kpi" data-tt-key="weather">
             <div class="kpi-weather-current">
                 <span class="kpi-label">Počasí</span>
                 <span class="kpi-value">
@@ -76,23 +79,26 @@
             </div>
             <div class="kpi-weather-forecast" id="kpi-weather-forecast"></div>
         </div>
-        <div class="kpi-card">
+        <div class="kpi-card" data-tt-dnd="kpi" data-tt-key="day">
             <span class="kpi-label">Den</span>
             <span class="kpi-value" id="kpi-day">—</span>
             <span class="kpi-sub" id="kpi-day-sub"></span>
         </div>
-        <div class="kpi-card">
+        <div class="kpi-card" data-tt-dnd="kpi" data-tt-key="time">
             <span class="kpi-label">Čas</span>
             <span class="kpi-value" id="kpi-time">—</span>
             <span class="kpi-sub" id="kpi-time-sub"></span>
         </div>
     </div>
+    <!-- Visual divider between the KPI hero row and the section masonry. -->
+    <hr class="kpi-divider" aria-hidden="true">
 
     <div class="masonry" id="masonry">
 
     <!-- Fields quick overview (spans 2 columns in masonry) -->
-    <div class="section sec-fields" id="sec-fields" draggable="true" data-tt-dnd="sections" data-tt-key="fields">
+    <div class="section sec-fields" id="sec-fields" data-tt-dnd="sections" data-tt-key="fields">
         <div class="section-header">
+            <span class="drag-handle" title="Přetáhni pro přesun sekce" aria-label="Přesunout sekci">⠿</span>
             🌱 Pole – přehled <span class="count" id="cnt-fields">0</span>
             <span style="margin-left:auto;font-size:11px;font-weight:400">
                 <a href="/calendar.html" style="color:var(--accent)">→ Kalendář</a>
@@ -112,50 +118,64 @@
                         <th>Stav</th>
                         <th>Růst</th>
                         <th class="num">Dní do sklizně</th>
-                        <th style="width:32px"></th>
                     </tr>
                 </thead>
-                <tbody id="fields-body"></tbody>
+                <tbody id="fields-body" data-tt-container="fields"></tbody>
             </table>
+        </div>
+        <div id="fields-hidden-wrap" class="tt-hidden-zone">
+            <div class="subgroup-header">
+                <span class="tt-hidden-icon">📥</span> Skrytá pole <span class="count" id="cnt-fields-hidden">0</span>
+            </div>
+            <div class="table-wrap">
+                <table>
+                    <tbody id="fields-hidden-body" data-tt-container="fields" data-tt-hidden></tbody>
+                </table>
+            </div>
         </div>
     </div>
 
     <!-- Vehicles -->
-    <div class="section" id="sec-vehicles" draggable="true" data-tt-dnd="sections" data-tt-key="vehicles">
+    <div class="section" id="sec-vehicles" data-tt-dnd="sections" data-tt-key="vehicles">
         <div class="section-header">
+            <span class="drag-handle" title="Přetáhni pro přesun sekce" aria-label="Přesunout sekci">⠿</span>
             🚜 Vozidla <span class="count" id="cnt-vehicles">0</span>
             <label class="flash-toggle" style="margin-left:auto" title="Flash změn — zvýrazní změny paliva (zeleně = natankováno, červeně = spotřeba)">
                 <input type="checkbox" data-flash-toggle="vehicles" checked>
             </label>
         </div>
-        <div id="vehicles-body"></div>
-        <div id="vehicles-hidden-wrap" style="display:none">
-            <div class="subgroup-header" id="veh-hidden-toggle">
-                <span class="group-toggle">▶</span> Skryté vozidla <span class="count" id="cnt-veh-hidden">0</span>
+        <div id="vehicles-body" data-tt-container="vehicles"></div>
+        <div id="vehicles-hidden-wrap" class="tt-hidden-zone">
+            <div class="subgroup-header">
+                <span class="tt-hidden-icon">📥</span> Skryté vozidla <span class="count" id="cnt-veh-hidden">0</span>
             </div>
-            <div id="vehicles-hidden-body" class="hidden-row"></div>
+            <div id="vehicles-hidden-body" data-tt-container="vehicles" data-tt-hidden></div>
         </div>
     </div>
 
     <!-- Animals -->
-    <div class="section" id="sec-animals" draggable="true" data-tt-dnd="sections" data-tt-key="animals">
-        <div class="section-header">🐄 Zvířata <span class="count" id="cnt-animals">0</span>
+    <div class="section" id="sec-animals" data-tt-dnd="sections" data-tt-key="animals">
+        <div class="section-header">
+            <span class="drag-handle" title="Přetáhni pro přesun sekce" aria-label="Přesunout sekci">⠿</span>
+            🐄 Zvířata <span class="count" id="cnt-animals">0</span>
             <label class="flash-toggle" style="margin-left:auto" title="Flash změn — zvýrazní změny počtu zvířat (zeleně = přírůstek, červeně = úbytek)">
                 <input type="checkbox" data-flash-toggle="animals" checked>
             </label>
         </div>
-        <div id="animals-body"></div>
-        <div id="animals-empty-wrap" style="display:none">
-            <div class="subgroup-header" id="anim-empty-toggle">
-                <span class="group-toggle">▶</span> Prázdné chovy <span class="count" id="cnt-anim-empty">0</span>
+        <div id="animals-body" data-tt-container="animals"></div>
+        <div id="animals-hidden-wrap" class="tt-hidden-zone">
+            <div class="subgroup-header">
+                <span class="tt-hidden-icon">📥</span> Skryté chovy <span class="count" id="cnt-anim-hidden">0</span>
             </div>
-            <div id="animals-empty-body" class="hidden-row"></div>
+            <div id="animals-hidden-body" data-tt-container="animals" data-tt-hidden></div>
         </div>
     </div>
 
     <!-- Storage -->
-    <div class="section" id="sec-storage" draggable="true" data-tt-dnd="sections" data-tt-key="storage">
-        <div class="section-header">📦 Sklady <span class="count" id="cnt-storage">0</span>
+    <div class="section" id="sec-storage" data-tt-dnd="sections" data-tt-key="storage">
+        <div class="section-header">
+            <span class="drag-handle" title="Přetáhni pro přesun sekce" aria-label="Přesunout sekci">⠿</span>
+            📦 Sklady <span class="count" id="cnt-storage">0</span>
             <label class="flash-toggle" style="margin-left:auto" title="Flash změn — zvýrazní změny hodnot (zeleně = přibylo, červeně = ubylo)">
                 <input type="checkbox" data-flash-toggle="storage" checked>
             </label>
@@ -170,24 +190,26 @@
                         <th style="min-width:140px">Zaplnění</th>
                     </tr>
                 </thead>
-                <tbody id="storage-body"></tbody>
+                <tbody id="storage-body" data-tt-container="storages"></tbody>
             </table>
         </div>
-        <div id="storages-hidden-wrap" style="display:none">
-            <div class="subgroup-header" id="stor-hidden-toggle">
-                <span class="group-toggle">▶</span> Skryté sklady <span class="count" id="cnt-stor-hidden">0</span>
+        <div id="storages-hidden-wrap" class="tt-hidden-zone">
+            <div class="subgroup-header">
+                <span class="tt-hidden-icon">📥</span> Skryté sklady <span class="count" id="cnt-stor-hidden">0</span>
             </div>
-            <div class="table-wrap hidden-row" id="storages-hidden-body-wrap">
+            <div class="table-wrap">
                 <table>
-                    <tbody id="storages-hidden-body"></tbody>
+                    <tbody id="storages-hidden-body" data-tt-container="storages" data-tt-hidden></tbody>
                 </table>
             </div>
         </div>
     </div>
 
     <!-- Productions -->
-    <div class="section" id="sec-productions" draggable="true" data-tt-dnd="sections" data-tt-key="productions">
-        <div class="section-header">🏭 Výrobny <span class="count" id="cnt-productions">0</span>
+    <div class="section" id="sec-productions" data-tt-dnd="sections" data-tt-key="productions">
+        <div class="section-header">
+            <span class="drag-handle" title="Přetáhni pro přesun sekce" aria-label="Přesunout sekci">⠿</span>
+            🏭 Výrobny <span class="count" id="cnt-productions">0</span>
             <label class="flash-toggle" style="margin-left:auto" title="Flash změn — zvýrazní změny zaplnění výrobny (zeleně = přibylo, červeně = ubylo)">
                 <input type="checkbox" data-flash-toggle="productions" checked>
             </label>
@@ -202,24 +224,26 @@
                         <th style="width:90px">Zaplnění / stav</th>
                     </tr>
                 </thead>
-                <tbody id="productions-body"></tbody>
+                <tbody id="productions-body" data-tt-container="productions"></tbody>
             </table>
         </div>
-        <div id="productions-hidden-wrap" style="display:none">
-            <div class="subgroup-header" id="prod-hidden-toggle">
-                <span class="group-toggle">▶</span> Skryté výrobny <span class="count" id="cnt-prod-hidden">0</span>
+        <div id="productions-hidden-wrap" class="tt-hidden-zone">
+            <div class="subgroup-header">
+                <span class="tt-hidden-icon">📥</span> Skryté výrobny <span class="count" id="cnt-prod-hidden">0</span>
             </div>
-            <div class="table-wrap hidden-row">
+            <div class="table-wrap">
                 <table>
-                    <tbody id="productions-hidden-body"></tbody>
+                    <tbody id="productions-hidden-body" data-tt-container="productions" data-tt-hidden></tbody>
                 </table>
             </div>
         </div>
     </div>
 
     <!-- Prices -->
-    <div class="section" id="sec-prices" draggable="true" data-tt-dnd="sections" data-tt-key="prices">
-        <div class="section-header">💰 Výkupní ceny (<span class="cur-unit">€</span> / t)
+    <div class="section" id="sec-prices" data-tt-dnd="sections" data-tt-key="prices">
+        <div class="section-header">
+            <span class="drag-handle" title="Přetáhni pro přesun sekce" aria-label="Přesunout sekci">⠿</span>
+            💰 Výkupní ceny (<span class="cur-unit">€</span> / t)
             <button id="btn-hide-zero-prices" class="section-btn" style="margin-left:auto" title="Skrýt všechny komodity, které momentálně nemáš na skladě">Skrýt vše bez skladu</button>
             <label class="flash-toggle" title="Flash změn — zvýrazní změny ceny (zeleně = vyrostla, červeně = klesla)">
                 <input type="checkbox" data-flash-toggle="prices" checked>
@@ -228,8 +252,18 @@
         <div class="table-wrap">
             <table>
                 <thead><tr><th>Komodita</th><th class="num"><span class="cur-unit">€</span> / t</th><th style="width:32px"></th></tr></thead>
-                <tbody id="prices-body"></tbody>
+                <tbody id="prices-body" data-tt-container="prices"></tbody>
             </table>
+        </div>
+        <div id="prices-hidden-wrap" class="tt-hidden-zone">
+            <div class="subgroup-header">
+                <span class="tt-hidden-icon">📥</span> Skrytá výkupní místa <span class="count" id="cnt-prices-hidden">0</span>
+            </div>
+            <div class="table-wrap">
+                <table>
+                    <tbody id="prices-hidden-body" data-tt-container="prices" data-tt-hidden></tbody>
+                </table>
+            </div>
         </div>
     </div>
 
@@ -454,7 +488,9 @@ function renderKPI(d) {
     $('kpi-day').textContent  = d.gameDay ?? '—';
     const mLabel = monthLabel(d.gameMonth);
     const season = seasonForDay(d.gameDay);
-    $('kpi-day-sub').textContent = mLabel ? (season ? `${mLabel} · ${season}` : mLabel) : season;
+    const yearPart = d.gameYear ? `${d.gameYear}. rok` : '';
+    const parts = [mLabel, season, yearPart].filter(Boolean);
+    $('kpi-day-sub').textContent = parts.join(' · ');
 
     // Time
     $('kpi-time').textContent = d.gameTime ?? '—';
@@ -518,6 +554,24 @@ function getFlashCls(section, rowKey) {
     const f = flashes.get(`${section}::${rowKey}`);
     if (!f || f.expiresAt <= Date.now()) return '';
     return f.dir === 'up' ? ' flash-up' : ' flash-down';
+}
+
+// Stable snapshot of every still-live flash for a given section. Used as
+// part of the per-renderer memo key — if no flash entered or expired since
+// the last call, the renderer can safely no-op. We DO NOT include the
+// expiresAt timestamp itself (it would be different every call); just the
+// row key + direction, plus a 1 if still live.
+function flashSnapshot(section) {
+    if (!isFlashEnabled(section)) return '';
+    const now = Date.now();
+    const out = [];
+    for (const [k, f] of flashes) {
+        if (!k.startsWith(section + '::')) continue;
+        if (f.expiresAt <= now) continue;
+        out.push(k + ':' + f.dir);
+    }
+    out.sort();
+    return out.join('|');
 }
 
 function scheduleFlashCleanup() {
@@ -623,44 +677,52 @@ function vehicleCardHTML(v, opts) {
         : '';
     const dotCls = v.isInUse ? 'dot-active' : 'dot-idle';
     const fuelTitle = `${fmt(v.fuelLiters)} / ${fmt(v.fuelCapacity)} l`;
+    // The row used to show two names (v.name short + v.typeName long
+    // truncated). Per user feedback: keep only the short name visible
+    // and put the full type + motor hours + AdBlue in the tooltip.
+    const rowTitle = `${v.typeName || v.name} · ${v.motorHours ?? 0} mh${adblue}`;
     const flashCls = getFlashCls('vehicles', v.name);
-    return `<div class="vehicle-row ${v.isInUse ? 'in-use' : ''}${flashCls}" ${TableTools.dndAttrs('vehicles', v.name)} title="Přetáhni do/ze sekce ‚Skryté vozidla‘ pro skrytí">
+    return `<div class="vehicle-row ${v.isInUse ? 'in-use' : ''}${flashCls}" ${TableTools.dndAttrs('vehicles', v.name)} title="${esc(rowTitle)}">
         <span class="${dotCls}"></span>
         <span class="vc-name">${esc(v.name)}</span>
-        <span class="vc-type">${esc(v.typeName)} · ${v.motorHours ?? 0} mh${adblue}</span>
         <div class="vc-fuel" title="${esc(fuelTitle)}">
             ${bar(fp)}
             <span class="vc-fuel-num">${fmt(v.fuelLiters)}/${fmt(v.fuelCapacity)} l</span>
         </div>
+        <span class="vc-mh" title="Motohodiny">${v.motorHours ?? 0} mh</span>
     </div>`;
 }
 
+let _vehiclesMemo = null;
 function renderVehicles(vehicles) {
+    const memoKey = JSON.stringify(vehicles)
+        + '|' + [...TableTools.getHidden('vehicles')].sort().join(',')
+        + '|' + (TableTools.getOrder('vehicles') || []).join(',')
+        + '|' + flashSnapshot('vehicles');
+    if (memoKey === _vehiclesMemo) return;
+    _vehiclesMemo = memoKey;
+
     $('cnt-vehicles').textContent = vehicles.length;
 
-    const hidden = new Set(DashState.get(DashState.KEYS.hiddenVehicles, []));
+    const hidden = TableTools.getHidden('vehicles');
 
     const ordered = TableTools.applyOrder(vehicles, 'vehicles', v => v.name);
     const visible = [];
     const hiddenList = [];
     for (const v of ordered) {
-        if (hidden.has(v.name)) hiddenList.push(v);
-        else                    visible.push(v);
+        if (hidden.has(String(v.name))) hiddenList.push(v);
+        else                            visible.push(v);
     }
 
     const body = $('vehicles-body');
-    if (!visible.length) {
-        body.innerHTML = '<div class="empty">Žádná vozidla.</div>';
-    } else {
-        body.innerHTML = visible.map(v => vehicleCardHTML(v, { canHide: true })).join('');
-    }
+    body.innerHTML = visible.length
+        ? visible.map(v => vehicleCardHTML(v, {})).join('')
+        : '<div class="empty">Žádná vozidla. Vrať skryté přetažením zpět nahoru.</div>';
 
-    const hiddenWrap = $('vehicles-hidden-wrap');
-    hiddenWrap.style.display = '';
     $('cnt-veh-hidden').textContent = hiddenList.length;
     $('vehicles-hidden-body').innerHTML = hiddenList.length
-        ? hiddenList.map(v => vehicleCardHTML(v, { canHide: false })).join('')
-        : '<div class="empty vc-drop-hint">Přetáhni sem vozidla, která chceš skrýt.</div>';
+        ? hiddenList.map(v => vehicleCardHTML(v, {})).join('')
+        : '<div class="tt-hidden-empty">Přetáhni sem vozidlo pro skrytí.</div>';
 }
 
 function animalCardHTML(a, opts) {
@@ -686,23 +748,24 @@ function animalCardHTML(a, opts) {
     const badge = isAlert ? `<span class="alert-badge">⚠ ${alertMsg}</span>` : '';
     const icon = resolveAnimalIcon(a);
 
-    // Build bar pairs: inputs (low=bad) and outputs (high=bad)
-    const pairs = [
+    // Inputs (consumed by animals, low % = bad → needs refilling) on the
+    // left; outputs (produced by animals, high % = bad → needs collecting)
+    // on the right. Each husbandry shows only the bars it actually exposes.
+    const inputs = [
         { lbl: 'K', pct: fp,                      title: 'Krmivo' },
         ...(wp != null ? [{ lbl: 'V', pct: wp,    title: 'Voda' }]       : []),
         ...(sp != null ? [{ lbl: 'P', pct: sp,    title: 'Podestýlka' }] : []),
+    ];
+    const outputs = [
         ...(mp != null ? [{ lbl: 'M', pct: mp,    title: 'Mléko' }]      : []),
         ...(mn != null ? [{ lbl: 'H', pct: mn,    title: 'Hnůj' }]       : []),
         ...(lm != null ? [{ lbl: 'Kj', pct: lm,  title: 'Kejda' }]      : []),
     ];
-    const barsHTML = pairs.map(p =>
-        `<span class="ac-barpair"><span class="ac-bar-lbl" title="${p.title}">${p.lbl}</span>${bar(p.pct)}</span>`
-    ).join('');
+    const barPair = p =>
+        `<span class="ac-barpair"><span class="ac-bar-lbl" title="${p.title}">${p.lbl}</span>${bar(p.pct)}</span>`;
+    const inputsHTML  = inputs.map(barPair).join('');
+    const outputsHTML = outputs.map(barPair).join('');
 
-    const canHide = opts ? opts.canHide : true;
-    const hideBtn = canHide
-        ? TableTools.hideBtn('animals', a.husbandryName, 'Skrýt chov')
-        : TableTools.unhideBtn('animals', a.husbandryName, 'Zobrazit chov');
     // Reproduction badge — max % across clusters. Tinted green ≥90 % so the
     // user can spot a herd about to birth at a glance. Empty pens (count==0)
     // and husbandries that don't expose reproduction get no badge.
@@ -718,8 +781,8 @@ function animalCardHTML(a, opts) {
             <div class="ac-name">${esc(a.husbandryName)} ${badge}</div>
             <div class="ac-sub">${a.count} ks · zdr. ${a.productivity ?? 0} %${reproBadge}</div>
         </div>
-        <div class="ac-bars">${barsHTML}</div>
-        <span style="margin-left:4px">${hideBtn}</span>
+        <div class="ac-bars ac-bars-inputs"  title="Vstupy">${inputsHTML}</div>
+        <div class="ac-bars ac-bars-outputs" title="Výstupy">${outputsHTML}</div>
     </div>`;
 }
 
@@ -769,10 +832,10 @@ function openAnimalModal(name) {
             <tbody>
                 ${fillRow('🌾 Krmivo',         data.foodLiters,         data.foodCapacity,         data.foodPercent)}
                 ${fillRow('💧 Voda',           data.waterLiters,        data.waterCapacity,        data.waterPercent)}
-                ${data.strawCapacity != null ? fillRow('🛏️ Podestýlka', data.strawLiters, data.strawCapacity, data.strawPercent) : ''}
-                ${data.milkCapacity != null && data.milkCapacity > 0 ? fillRow('🥛 ' + (data.milkType || 'Mléko'), data.milkLiters, data.milkCapacity, data.milkPercent) : ''}
-                ${data.manureCapacity != null ? fillRow('💩 Hnůj',     data.manureLiters,       data.manureCapacity,       data.manurePercent) : ''}
-                ${data.liquidManureCapacity != null ? fillRow('🪣 Kejda', data.liquidManureLiters, data.liquidManureCapacity, data.liquidManurePercent) : ''}
+                ${data.strawPercent != null ? fillRow('🛏️ Podestýlka', data.strawLiters, data.strawCapacity, data.strawPercent) : ''}
+                ${data.milkPercent != null  ? fillRow('🥛 ' + (data.milkType || 'Mléko'), data.milkLiters, data.milkCapacity, data.milkPercent) : ''}
+                ${data.manurePercent != null ? fillRow('💩 Hnůj',     data.manureLiters,       data.manureCapacity,       data.manurePercent) : ''}
+                ${data.liquidManurePercent != null ? fillRow('🪣 Kejda', data.liquidManureLiters, data.liquidManureCapacity, data.liquidManurePercent) : ''}
             </tbody>
         </table>`;
 
@@ -806,126 +869,61 @@ document.addEventListener('click', e => {
 });
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeAnimalModal(); });
 
+let _animalsMemo = null;
 function renderAnimals(animals) {
+    const memoKey = JSON.stringify(animals)
+        + '|' + [...TableTools.getHidden('animals')].sort().join(',')
+        + '|' + (TableTools.getOrder('animals') || []).join(',')
+        + '|' + flashSnapshot('animals');
+    if (memoKey === _animalsMemo) return;
+    _animalsMemo = memoKey;
+
     window.__lastAnimals = animals;
     $('cnt-animals').textContent = animals.length;
-    const body = $('animals-body');
+    const body  = $('animals-body');
+    const hBody = $('animals-hidden-body');
     if (!animals.length) {
-        body.innerHTML = '<div class="empty">Žádná zvířata.</div>';
-        $('animals-empty-wrap').style.display = 'none';
+        body.innerHTML  = '<div class="empty">Žádná zvířata.</div>';
+        hBody.innerHTML = '<div class="tt-hidden-empty">Přetáhni sem chov pro skrytí.</div>';
+        $('cnt-anim-hidden').textContent = 0;
         return;
     }
 
+    // Per the user's request, "Prázdné chovy" is no longer a separate group —
+    // empty husbandries render alongside filled ones. The user can still
+    // drag an empty husbandry into the Skryté chovy zone if they want it
+    // out of the way.
     const ordered = TableTools.applyOrder(animals, 'animals', a => a.husbandryName);
     const { visible, hidden } = TableTools.split(ordered, 'animals', a => a.husbandryName);
 
-    const filled = visible.filter(a => a.count > 0);
-    const empty  = visible.filter(a => !(a.count > 0));
+    body.innerHTML = visible.length
+        ? visible.map(a => animalCardHTML(a, {})).join('')
+        : '<div class="empty">Všechny chovy jsou skryté.</div>';
 
-    if (!filled.length) {
-        body.innerHTML = '<div class="empty">Všechny chovy jsou prázdné.</div>';
-    } else {
-        body.innerHTML = filled.map(a => animalCardHTML(a, { canHide: true })).join('')
-            + (hidden.length ? `<div class="subgroup-header"><span class="group-toggle">▶</span> Skryté chovy <span class="count">${hidden.length}</span></div>`
-                + `<div class="hidden-row">${hidden.map(a => animalCardHTML(a, { canHide: false })).join('')}</div>`
-                : '');
-    }
-
-    const wrap = $('animals-empty-wrap');
-    if (empty.length) {
-        wrap.style.display = '';
-        $('cnt-anim-empty').textContent = empty.length;
-        $('animals-empty-body').innerHTML = empty.map(a => animalCardHTML(a, { canHide: true })).join('');
-    } else {
-        wrap.style.display = 'none';
-    }
+    $('cnt-anim-hidden').textContent = hidden.length;
+    hBody.innerHTML = hidden.length
+        ? hidden.map(a => animalCardHTML(a, {})).join('')
+        : '<div class="tt-hidden-empty">Přetáhni sem chov pro skrytí.</div>';
 }
 
-// Vehicle hide via drag-and-drop between visible/hidden zones.
-// Tracks which container a drag started in; on drop, if the user crossed into
-// the other container, toggle the persisted hide state. Reorder within a single
-// container is left to TableTools.
-let __vehicleDragOrigin = null;  // 'visible' | 'hidden'
-function __vehicleZoneOf(el) {
-    if (!el) return null;
-    if (el.closest('#vehicles-hidden-body, #vehicles-hidden-wrap')) return 'hidden';
-    if (el.closest('#vehicles-body')) return 'visible';
-    return null;
-}
-document.addEventListener('dragstart', e => {
-    const row = e.target.closest('.vehicle-row');
-    if (!row) { __vehicleDragOrigin = null; return; }
-    __vehicleDragOrigin = __vehicleZoneOf(row);
-});
-document.addEventListener('dragover', e => {
-    if (!__vehicleDragOrigin) return;
-    const zone = __vehicleZoneOf(e.target);
-    if (!zone || zone === __vehicleDragOrigin) return;
-    e.preventDefault();  // allow drop on the opposite zone
-    const target = zone === 'hidden' ? $('vehicles-hidden-wrap') : $('vehicles-body');
-    target.classList.add('vc-drop-active');
-});
-document.addEventListener('dragleave', e => {
-    const wrap = e.target.closest('#vehicles-hidden-wrap, #vehicles-body');
-    if (wrap) wrap.classList.remove('vc-drop-active');
-});
-document.addEventListener('drop', e => {
-    document.querySelectorAll('.vc-drop-active').forEach(el => el.classList.remove('vc-drop-active'));
-    if (!__vehicleDragOrigin) return;
-    const row = e.target.closest('.vehicle-row');
-    const zone = __vehicleZoneOf(e.target);
-    if (!zone || zone === __vehicleDragOrigin) { __vehicleDragOrigin = null; return; }
-    // Cross-zone drop: toggle hide state for the dragged vehicle.
-    const draggedName = (e.dataTransfer && e.dataTransfer.getData('text/plain')) || (row && row.dataset.ttKey);
-    if (draggedName) {
-        DashState.setToggle(DashState.KEYS.hiddenVehicles, draggedName);
-        if (window.__lastData) renderVehicles(window.__lastData.vehicles || []);
-    }
-    __vehicleDragOrigin = null;
-});
-document.addEventListener('dragend', () => {
-    document.querySelectorAll('.vc-drop-active').forEach(el => el.classList.remove('vc-drop-active'));
-    __vehicleDragOrigin = null;
-});
+// Vehicle drag-to-hide is handled by TableTools / Sortable.js — see the
+// data-tt-container + data-tt-hidden markers on #vehicles-body and
+// #vehicles-hidden-body. The previous HTML5-DnD listeners that lived here
+// conflicted with Sortable's forceFallback pointer-event drag.
 
-// Other section hide/show buttons (storage, productions) ─────────────────
+// Subgroup-header collapse toggle. Only applies to subgroups that ship a
+// .group-toggle indicator (▶/▼) — that's "Prázdné chovy" under Zvířata.
+// The drag-to-hide zones use .tt-hidden-zone (no .group-toggle inside) and
+// must stay visible so they're always a valid drop target.
 document.addEventListener('click', e => {
-    const hideSt = e.target.closest('button[data-hide-storage]');
-    const showSt = e.target.closest('button[data-show-storage]');
-    if (hideSt) {
-        e.stopPropagation();
-        DashState.setToggle(DashState.KEYS.hiddenStorages, hideSt.dataset.hideStorage);
-        if (window.__lastData) renderStorage(window.__lastData.storage || []);
-        return;
-    }
-    if (showSt) {
-        e.stopPropagation();
-        DashState.setToggle(DashState.KEYS.hiddenStorages, showSt.dataset.showStorage);
-        if (window.__lastData) renderStorage(window.__lastData.storage || []);
-        return;
-    }
-    const hideProd = e.target.closest('button[data-hide-prod]');
-    const showProd = e.target.closest('button[data-show-prod]');
-    if (hideProd) {
-        e.stopPropagation();
-        DashState.setToggle(DashState.KEYS.hiddenProductions, hideProd.dataset.hideProd);
-        if (window.__lastData) renderProductions(window.__lastData.productions || []);
-        return;
-    }
-    if (showProd) {
-        e.stopPropagation();
-        DashState.setToggle(DashState.KEYS.hiddenProductions, showProd.dataset.showProd);
-        if (window.__lastData) renderProductions(window.__lastData.productions || []);
-        return;
-    }
-    // Subgroup toggles (Skryté vozidla, Prázdné chovy)
     const sub = e.target.closest('.subgroup-header');
-    if (sub) {
-        const body = sub.nextElementSibling;
-        const toggle = sub.querySelector('.group-toggle');
-        const collapsed = body.classList.toggle('hidden-row');
-        if (toggle) toggle.textContent = collapsed ? '▶' : '▼';
-    }
+    if (!sub) return;
+    const toggle = sub.querySelector('.group-toggle');
+    if (!toggle) return;   // no indicator → not a collapsible subgroup
+    const body = sub.nextElementSibling;
+    if (!body) return;
+    const collapsed = body.classList.toggle('hidden-row');
+    toggle.textContent = collapsed ? '▶' : '▼';
 });
 
 // FS25 ground-type → Czech label + tag class. Save file is more granular
@@ -995,18 +993,40 @@ function fieldConditionBadge(f) {
     return '';
 }
 
+// Memo cache — every WS tick (~2 s real, 5 s mock) the server pushes the
+// full payload, even when nothing about the fields changed since last
+// tick. Rebuilding tbody.innerHTML on each tick caused a visible flash
+// in the masonry grid (Sortable's animation kicked in for the "new"
+// rows even though the values were identical). The cache key folds the
+// fields list + hide set + saved order; if all three are stable, the
+// renderer is a no-op.
+let _fieldsMemo = null;
 function renderFields(fields) {
+    const memoKey = JSON.stringify(fields)
+        + '|' + [...TableTools.getHidden('fields')].sort().join(',')
+        + '|' + (TableTools.getOrder('fields') || []).join(',')
+        + '|' + JSON.stringify(flashSnapshot('fields'));
+    if (memoKey === _fieldsMemo) return;
+    _fieldsMemo = memoKey;
+
     const owned = fields.filter(f => f.owned);
     $('cnt-fields').textContent = `${owned.length} / ${fields.length}`;
     const tbody = $('fields-body');
-    if (!owned.length) { tbody.innerHTML = '<tr><td colspan="8" class="empty">Žádná vlastněná pole.</td></tr>'; return; }
+    const hBody = $('fields-hidden-body');
+
+    if (!owned.length) {
+        tbody.innerHTML = '<tr><td colspan="7" class="empty">Žádná vlastněná pole.</td></tr>';
+        hBody.innerHTML = '<tr><td colspan="7" class="tt-hidden-empty">Přetáhni sem pole pro skrytí.</td></tr>';
+        $('cnt-fields-hidden').textContent = 0;
+        return;
+    }
 
     const STATE_KEY = 'fields';
     const getKey = f => f.id;
     const ordered = TableTools.applyOrder(owned, STATE_KEY, getKey);
     const { visible, hidden } = TableTools.split(ordered, STATE_KEY, getKey);
 
-    const rowHTML = (f, canHide) => {
+    const rowHTML = (f) => {
         const stateTag = fieldStateTag(f);
         let growthCell;
         if (f.isReadyToHarvest)      growthCell = '<span class="c-green">100%</span>';
@@ -1021,7 +1041,6 @@ function renderFields(fields) {
         const farmlandCell = f.farmlandId != null
             ? `<span title="Zemědělská půda ${f.farmlandId} (z map UI)">${f.farmlandId}</span>`
             : '<span class="c-muted" title="Mod nezná farmland binding pro toto pole">—</span>';
-        const btn = canHide ? TableTools.hideBtn(STATE_KEY, f.id) : TableTools.unhideBtn(STATE_KEY, f.id);
         const flashCls = getFlashCls('fields', f.id);
         return `<tr class="${flashCls.trim()}" ${TableTools.dndAttrs(STATE_KEY, f.id)}>
             <td class="num">${f.id}</td>
@@ -1031,19 +1050,17 @@ function renderFields(fields) {
             <td>${stateTag}${fieldNeedsChips(f)}</td>
             <td style="min-width:120px">${growthCell}</td>
             <td class="num">${days}</td>
-            <td>${btn}</td>
         </tr>`;
     };
 
-    let html = visible.map(f => rowHTML(f, true)).join('');
-    if (hidden.length) {
-        html += TableTools.hiddenSubgroupRow(STATE_KEY, hidden.length, 8);
-        html += hidden.map(f => {
-            // hidden rows start collapsed
-            return rowHTML(f, false).replace('<tr ', '<tr class="hidden-row" ');
-        }).join('');
-    }
-    tbody.innerHTML = html;
+    tbody.innerHTML = visible.length
+        ? visible.map(rowHTML).join('')
+        : '<tr><td colspan="7" class="empty">Všechna pole jsou skrytá.</td></tr>';
+
+    $('cnt-fields-hidden').textContent = hidden.length;
+    hBody.innerHTML = hidden.length
+        ? hidden.map(rowHTML).join('')
+        : '<tr><td colspan="7" class="tt-hidden-empty">Přetáhni sem pole pro skrytí.</td></tr>';
 }
 
 // Persistent collapse state — survives WebSocket re-renders.
@@ -1071,14 +1088,11 @@ function storageRowsHTML(st, opts) {
         ? `<span class="group-meta">${items.length} ${items.length === 1 ? 'položka' : items.length < 5 ? 'položky' : 'položek'} · ${fmt(totalAmount)}${totalCap > 0 ? ' / ' + fmt(totalCap) : ''} l</span>`
         : '<span class="group-meta">prázdné</span>';
     const pctTxt = totalCap > 0 ? `<span class="silo-pct">${pct} %</span>` : '';
-    const hideBtn = opts.canHide
-        ? `<button class="vc-hide" title="Skrýt sklad" data-hide-storage="${esc(key)}" style="float:right">✕</button>`
-        : `<button class="vc-hide" title="Zobrazit sklad" data-show-storage="${esc(key)}" style="float:right">+</button>`;
     // Flash uses a different (dedup) key so two storages with identical
     // `${type}:${name}` don't share flash state. Hide/collapse keep `key`.
     const fKey = storageFlashKey(st);
     const hdrFlashCls = getFlashCls('storage', `header::${fKey}`);
-    const header = `<tr class="st-row collapsible${hdrFlashCls}" ${TableTools.dndAttrs('storages', key)} data-group="${esc(key)}"><td colspan="4">${hideBtn}<span class="group-toggle">${indicator}</span> ${donut} ${esc(st.storageName)} ${summary} ${pctTxt}</td></tr>`;
+    const header = `<tr class="st-row collapsible${hdrFlashCls}" ${TableTools.dndAttrs('storages', key)} data-group="${esc(key)}"><td colspan="4"><span class="group-toggle">${indicator}</span> ${donut} ${esc(st.storageName)} ${summary} ${pctTxt}</td></tr>`;
     const rows = items.map(item => {
         const ipct = item.capacity > 0 ? Math.round(item.amount / item.capacity * 100) : 0;
         const cls = ipct >= 95 ? 'full' : ipct >= 70 ? 'warn' : '';
@@ -1094,12 +1108,28 @@ function storageRowsHTML(st, opts) {
     return header + rows;
 }
 
+let _storageMemo = null;
 function renderStorage(storage) {
+    const memoKey = JSON.stringify(storage)
+        + '|' + [...TableTools.getHidden('storages')].sort().join(',')
+        + '|' + (TableTools.getOrder('storages') || []).join(',')
+        + '|' + flashSnapshot('storage');
+    if (memoKey === _storageMemo) return;
+    _storageMemo = memoKey;
+
     $('cnt-storage').textContent = storage.length;
     const tbody = $('storage-body');
-    if (!storage.length) { tbody.innerHTML = '<tr><td colspan="4" class="empty">Žádné sklady.</td></tr>'; $('storages-hidden-wrap').style.display = 'none'; return; }
+    const hWrap = $('storages-hidden-wrap');
+    const hBody = $('storages-hidden-body');
 
-    const hidden = new Set(DashState.get(DashState.KEYS.hiddenStorages, []));
+    if (!storage.length) {
+        tbody.innerHTML = '<tr><td colspan="4" class="empty">Žádné sklady.</td></tr>';
+        hBody.innerHTML = '<tr><td colspan="4" class="tt-hidden-empty">Přetáhni sem sklad pro skrytí.</td></tr>';
+        $('cnt-stor-hidden').textContent = 0;
+        return;
+    }
+
+    const hidden = TableTools.getHidden('storages');
     const visible = [];
     const hiddenList = [];
     for (const st of storage) {
@@ -1119,17 +1149,13 @@ function renderStorage(storage) {
     visible.length = 0; visible.push(...ordered);
     hiddenList.sort((a, b) => (a.storageName || '').localeCompare(b.storageName || ''));
 
-    tbody.innerHTML = visible.map(st => storageRowsHTML(st, { canHide: true })).join('')
+    tbody.innerHTML = visible.map(st => storageRowsHTML(st, {})).join('')
         || '<tr><td colspan="4" class="empty">Všechny sklady jsou skryté.</td></tr>';
 
-    const hWrap = $('storages-hidden-wrap');
-    if (hiddenList.length) {
-        hWrap.style.display = '';
-        $('cnt-stor-hidden').textContent = hiddenList.length;
-        $('storages-hidden-body').innerHTML = hiddenList.map(st => storageRowsHTML(st, { canHide: false })).join('');
-    } else {
-        hWrap.style.display = 'none';
-    }
+    $('cnt-stor-hidden').textContent = hiddenList.length;
+    hBody.innerHTML = hiddenList.length
+        ? hiddenList.map(st => storageRowsHTML(st, {})).join('')
+        : '<tr><td colspan="4" class="tt-hidden-empty">Přetáhni sem sklad pro skrytí.</td></tr>';
 }
 
 const PRODUCTION_STATUS_LABEL = {
@@ -1152,11 +1178,8 @@ function productionRowsHTML(p, opts) {
     const activeRecipes = recipes.filter(r => r.status === 'active').length;
     const summary = `<span class="group-meta">${recipes.length} recept${recipes.length === 1 ? '' : 'y'}${activeRecipes ? ' · ' + activeRecipes + ' běží' : ''}${items.length ? ' · ' + fmt(totalAmount) + (totalCap > 0 ? ' / ' + fmt(totalCap) : '') + ' l' : ''}</span>`;
     const pctTxt = totalCap > 0 ? `<span class="silo-pct">${pct} %</span>` : '';
-    const hideBtn = opts.canHide
-        ? `<button class="vc-hide" title="Skrýt výrobnu" data-hide-prod="${esc(key)}" style="float:right">✕</button>`
-        : `<button class="vc-hide" title="Zobrazit výrobnu" data-show-prod="${esc(key)}" style="float:right">+</button>`;
     const hdrFlashCls = getFlashCls('productions', `header::${p.name}`);
-    const header = `<tr class="st-row collapsible${hdrFlashCls}" ${TableTools.dndAttrs('productions', key)} data-group="${esc(key)}"><td colspan="4">${hideBtn}<span class="group-toggle">${indicator}</span> ${donut} ${esc(p.name)} ${summary} ${pctTxt}</td></tr>`;
+    const header = `<tr class="st-row collapsible${hdrFlashCls}" ${TableTools.dndAttrs('productions', key)} data-group="${esc(key)}"><td colspan="4"><span class="group-toggle">${indicator}</span> ${donut} ${esc(p.name)} ${summary} ${pctTxt}</td></tr>`;
     const hiddenCls = collapsed ? ' hidden-row' : '';
     const stockRows = items.map(item => {
         const ipct = item.capacity > 0 ? Math.round(item.amount / item.capacity * 100) : 0;
@@ -1183,12 +1206,27 @@ function productionRowsHTML(p, opts) {
 }
 
 
+let _productionsMemo = null;
 function renderProductions(productions) {
+    const memoKey = JSON.stringify(productions)
+        + '|' + [...TableTools.getHidden('productions')].sort().join(',')
+        + '|' + (TableTools.getOrder('productions') || []).join(',')
+        + '|' + flashSnapshot('productions');
+    if (memoKey === _productionsMemo) return;
+    _productionsMemo = memoKey;
+
     $('cnt-productions').textContent = productions.length;
     const tbody = $('productions-body');
-    if (!productions.length) { tbody.innerHTML = '<tr><td colspan="4" class="empty">Žádné výrobny.</td></tr>'; $('productions-hidden-wrap').style.display = 'none'; return; }
+    const hBody = $('productions-hidden-body');
 
-    const hidden = new Set(DashState.get(DashState.KEYS.hiddenProductions, []));
+    if (!productions.length) {
+        tbody.innerHTML = '<tr><td colspan="4" class="empty">Žádné výrobny.</td></tr>';
+        hBody.innerHTML = '<tr><td colspan="4" class="tt-hidden-empty">Přetáhni sem výrobnu pro skrytí.</td></tr>';
+        $('cnt-prod-hidden').textContent = 0;
+        return;
+    }
+
+    const hidden = TableTools.getHidden('productions');
     const visible = [];
     const hiddenList = [];
     for (const p of productions) {
@@ -1211,17 +1249,13 @@ function renderProductions(productions) {
     }
     hiddenList.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
 
-    tbody.innerHTML = visible.map(p => productionRowsHTML(p, { canHide: true })).join('')
+    tbody.innerHTML = visible.map(p => productionRowsHTML(p, {})).join('')
         || '<tr><td colspan="4" class="empty">Všechny výrobny jsou skryté.</td></tr>';
 
-    const hWrap = $('productions-hidden-wrap');
-    if (hiddenList.length) {
-        hWrap.style.display = '';
-        $('cnt-prod-hidden').textContent = hiddenList.length;
-        $('productions-hidden-body').innerHTML = hiddenList.map(p => productionRowsHTML(p, { canHide: false })).join('');
-    } else {
-        hWrap.style.display = 'none';
-    }
+    $('cnt-prod-hidden').textContent = hiddenList.length;
+    hBody.innerHTML = hiddenList.length
+        ? hiddenList.map(p => productionRowsHTML(p, {})).join('')
+        : '<tr><td colspan="4" class="tt-hidden-empty">Přetáhni sem výrobnu pro skrytí.</td></tr>';
 }
 
 function buildStockMap(data) {
@@ -1238,9 +1272,31 @@ function buildStockMap(data) {
     return map;
 }
 
+let _pricesMemo = null;
 function renderPrices(prices) {
+    // Prices' stock badges depend on the storage + productions data via
+    // buildStockMap — include those in the memo key so a silo change forces
+    // a re-render even if the sell-point prices themselves were stable.
+    const d = window.__lastData || {};
+    const memoKey = JSON.stringify(prices)
+        + '|' + JSON.stringify(d.storage || [])
+        + '|' + JSON.stringify(d.productions || [])
+        + '|' + [...TableTools.getHidden('prices')].sort().join(',')
+        + '|' + [...TableTools.getHidden('priceItems')].sort().join(',')
+        + '|' + (TableTools.getOrder('prices') || []).join(',')
+        + '|' + flashSnapshot('prices');
+    if (memoKey === _pricesMemo) return;
+    _pricesMemo = memoKey;
+
     const tbody = $('prices-body');
-    if (!prices.length) { tbody.innerHTML = '<tr><td colspan="3" class="empty">Žádná výkupní místa.</td></tr>'; return; }
+    const hTbody = $('prices-hidden-body');
+
+    if (!prices.length) {
+        tbody.innerHTML = '<tr><td colspan="3" class="empty">Žádná výkupní místa.</td></tr>';
+        hTbody.innerHTML = '<tr><td colspan="3" class="tt-hidden-empty">Přetáhni sem výkupní místo pro skrytí.</td></tr>';
+        $('cnt-prices-hidden').textContent = 0;
+        return;
+    }
 
     const stock = buildStockMap(window.__lastData);
     const STATE_KEY = 'prices';
@@ -1250,11 +1306,13 @@ function renderPrices(prices) {
     const ordered = TableTools.applyOrder(prices, STATE_KEY, getKey);
     const { visible, hidden } = TableTools.split(ordered, STATE_KEY, getKey);
 
-    const groupHTML = (sp, canHide) => {
+    // Each sell point renders as: header row + visible commodity rows + optional
+    // "Skryté komodity" subgroup. Commodity-level hide stays via ✕ buttons —
+    // they're nested inside a parent and not a good drag target.
+    const groupHTML = (sp) => {
         const key = `sell:${sp.sellPoint}`;
         const collapsed = groupState(key);
         const indicator = collapsed ? '▶' : '▼';
-        // Split items by per-commodity hide; sort each part by stock desc → name.
         const sortItems = (arr) => arr.slice().sort((a, b) => {
             const aHas = stock[a.name] || 0, bHas = stock[b.name] || 0;
             if (aHas !== bHas) return bHas - aHas;
@@ -1265,10 +1323,7 @@ function renderPrices(prices) {
         const hiddenItemRows = sortItems(allItems.filter(it => hiddenItems.has(String(it.name))));
 
         const summary = `<span class="group-meta">${visibleItems.length}${hiddenItemRows.length ? ' / ' + allItems.length : ''} komodit</span>`;
-        const btn = canHide
-            ? TableTools.hideBtn(STATE_KEY, sp.sellPoint, 'Skrýt výkupní místo')
-            : TableTools.unhideBtn(STATE_KEY, sp.sellPoint, 'Zobrazit výkupní místo');
-        const header = `<tr class="sp-row collapsible" ${TableTools.dndAttrs(STATE_KEY, sp.sellPoint)} data-group="${esc(key)}"><td colspan="3"><span style="float:right">${btn}</span><span class="group-toggle">${indicator}</span> 📍 ${esc(sp.sellPoint)} ${summary}</td></tr>`;
+        const header = `<tr class="sp-row collapsible" ${TableTools.dndAttrs(STATE_KEY, sp.sellPoint)} data-group="${esc(key)}"><td colspan="3"><span class="group-toggle">${indicator}</span> 📍 ${esc(sp.sellPoint)} ${summary}</td></tr>`;
 
         const itemRow = (item, canHideItem) => {
             const cls = item.pricePerTon >= 800 ? 'c-green' : item.pricePerTon >= 500 ? 'c-yellow' : '';
@@ -1291,12 +1346,13 @@ function renderPrices(prices) {
         return header + rows;
     };
 
-    let html = visible.map(sp => groupHTML(sp, true)).join('');
-    if (hidden.length) {
-        html += TableTools.hiddenSubgroupRow(STATE_KEY, hidden.length, 3);
-        html += hidden.map(sp => groupHTML(sp, false).replace(/<tr /g, '<tr class="hidden-row" ').replace(/class="hidden-row" class="/g, 'class="hidden-row ')).join('');
-    }
-    tbody.innerHTML = html;
+    tbody.innerHTML = visible.map(groupHTML).join('')
+        || '<tr><td colspan="3" class="empty">Všechna výkupní místa jsou skrytá.</td></tr>';
+
+    $('cnt-prices-hidden').textContent = hidden.length;
+    hTbody.innerHTML = hidden.length
+        ? hidden.map(groupHTML).join('')
+        : '<tr><td colspan="3" class="tt-hidden-empty">Přetáhni sem výkupní místo pro skrytí.</td></tr>';
 }
 
 function hideAllZeroStockPrices() {
@@ -1350,76 +1406,74 @@ function applySectionOrder() {
             if (byKey[k]) grid.appendChild(byKey[k]);  // moves existing node to end in given order
         }
     }
-    relayoutMasonry();
 }
 
-// Masonry packing — places sections absolutely into the column with the smallest
-// running height. `.sec-fields` spans 2 columns when at least 2 columns fit.
-let _masonryPending = false;
-function relayoutMasonry() {
-    if (_masonryPending) return;
-    _masonryPending = true;
-    requestAnimationFrame(() => {
-        _masonryPending = false;
-        _doRelayout();
-    });
-}
-// Apply per-section visibility from DashState.hiddenSections. Called on
-// initial render and after user toggles a section in Settings. Sections
-// with display:none are excluded from masonry layout below.
+// Per-section visibility from DashState.hiddenSections. Called on initial
+// render and after the user toggles a section in Settings.
 function applyHiddenSections() {
     const hidden = new Set(DashState.get(DashState.KEYS.hiddenSections, []) || []);
     document.querySelectorAll('#masonry .section').forEach(s => {
         s.style.display = hidden.has(s.id) ? 'none' : '';
     });
-    relayoutMasonry();
 }
 window.applyHiddenSections = applyHiddenSections;
 
-function _doRelayout() {
-    const container = document.getElementById('masonry');
-    if (!container) return;
-    const sections = [...container.children].filter(c =>
-        c.classList && c.classList.contains('section') && c.style.display !== 'none');
-    if (!sections.length) return;
-
-    const containerW = container.clientWidth;
-    const gap = 12;
-    // Smaller minColW on narrow viewports so tablets get 2 columns instead of
-    // forcing 1. Below ~480px we still fall back to 1 column naturally.
-    const minColW = containerW < 900 ? 360 : 440;
-    let ncols = Math.max(1, Math.floor((containerW + gap) / (minColW + gap)));
-    const colW = (containerW - gap * (ncols - 1)) / ncols;
-
-    container.classList.add('laid-out');
-
-    // Pass 1: set widths so each section's measured height is at its final width.
-    sections.forEach(s => {
-        const wide = s.classList.contains('sec-fields') && ncols >= 2;
-        s._span = wide ? 2 : 1;
-        s.style.width = (colW * s._span + gap * (s._span - 1)) + 'px';
+// CSS Grid "masonry hack": .masonry has grid-auto-rows: 8px. Each section
+// gets `grid-row: span N` where N is the section's content height divided
+// by the 8 px row unit (+ accounting for the 12 px gap between rows). The
+// row-flow algorithm then treats short sections as taking fewer cells, so
+// columns flow independently and there are no vertical gaps below shorter
+// neighbours of sec-fields. Called after every render that might have
+// changed section heights (WS tick that bypassed the memo, drag end, etc.)
+function applyMasonrySpans() {
+    const grid = document.getElementById('masonry');
+    if (!grid) return;
+    // Keep these in sync with .masonry { grid-auto-rows / gap } in style.css.
+    const rowH = 2;
+    const gap  = 5;
+    grid.querySelectorAll(':scope > .section').forEach(section => {
+        if (section.style.display === 'none') return;
+        // Strip the inline span so the natural height can be measured.
+        section.style.gridRow = '';
+        const h = section.getBoundingClientRect().height;
+        if (!h) return;
+        const span = Math.ceil((h + gap) / (rowH + gap));
+        section.style.gridRow = 'span ' + span;
     });
-
-    // Pass 2: compute positions.
-    const colY = new Array(ncols).fill(0);
-    sections.forEach(s => {
-        const span = s._span;
-        let bestCol = 0, bestY = Infinity;
-        for (let i = 0; i <= ncols - span; i++) {
-            const maxY = Math.max(...colY.slice(i, i + span));
-            if (maxY < bestY) { bestY = maxY; bestCol = i; }
-        }
-        s.style.left = (bestCol * (colW + gap)) + 'px';
-        s.style.top = bestY + 'px';
-        const h = s.offsetHeight;
-        const newY = bestY + h + gap;
-        for (let i = bestCol; i < bestCol + span; i++) colY[i] = newY;
-    });
-
-    container.style.height = (Math.max(...colY) - gap) + 'px';
 }
 
-window.addEventListener('resize', relayoutMasonry);
+// Existing call sites still invoke relayoutMasonry — alias it to the new
+// span-application pass.
+function relayoutMasonry() { applyMasonrySpans(); }
+
+// ResizeObserver — when a section's height drifts (e.g. a WS tick added a
+// row to fields), refresh its span. Coalesced via rAF so we never thrash.
+let _spansPending = false;
+function scheduleMasonrySpans() {
+    if (_spansPending) return;
+    _spansPending = true;
+    requestAnimationFrame(() => {
+        _spansPending = false;
+        applyMasonrySpans();
+    });
+}
+if (typeof ResizeObserver !== 'undefined') {
+    const ro = new ResizeObserver(scheduleMasonrySpans);
+    const grid = document.getElementById('masonry');
+    if (grid) grid.querySelectorAll(':scope > .section').forEach(s => ro.observe(s));
+    // Re-observe any section added later (Sortable moves don't add new
+    // sections, but a reset-to-default in Settings might).
+    new MutationObserver(muts => {
+        for (const m of muts) {
+            for (const n of m.addedNodes) {
+                if (n.nodeType === 1 && n.classList && n.classList.contains('section')) {
+                    ro.observe(n);
+                }
+            }
+        }
+        scheduleMasonrySpans();
+    }).observe(grid || document.body, { childList: true });
+}
 
 window.addEventListener('DOMContentLoaded', () => {
     FS25App.connect(render);
@@ -1456,12 +1510,14 @@ window.addEventListener('DOMContentLoaded', () => {
 
     applySectionOrder();
     applyHiddenSections();   // hide sections the user toggled off in Settings → Sekce
+    applyKpiState();
 
     relayoutMasonry();
 
     // Register TableTools render callbacks (defer scripts are now loaded).
     if (window.TableTools) {
         TableTools.onChange('sections', applySectionOrder);
+        TableTools.onChange('kpi',         () => { applyKpiState(); relayoutMasonry(); });
         TableTools.onChange('fields',      () => { if (window.__lastData) { renderFields(window.__lastData.fields || []); relayoutMasonry(); } });
         TableTools.onChange('vehicles',    () => { if (window.__lastData) { renderVehicles(window.__lastData.vehicles || []); relayoutMasonry(); } });
         TableTools.onChange('animals',     () => { if (window.__lastData) { renderAnimals(window.__lastData.animals || []); relayoutMasonry(); } });
@@ -1471,6 +1527,29 @@ window.addEventListener('DOMContentLoaded', () => {
         TableTools.onChange('priceItems',  () => { if (window.__lastData) { renderPrices(window.__lastData.prices || []); relayoutMasonry(); } });
     }
 });
+
+// KPI cards are static markup (the four .kpi-card divs in #kpi-row are
+// declared in HTML). Persisted order + hide state is applied by MOVING
+// the existing DOM nodes between #kpi-row and #kpi-hidden-row, never by
+// rebuilding HTML — that way live data attached to inner spans (balance,
+// weather, etc.) doesn't need to be re-stamped on every drop.
+function applyKpiState() {
+    if (!window.TableTools) return;
+    const row = document.getElementById('kpi-row');
+    if (!row) return;
+
+    // KPI cards can be reordered via drag but not hidden — the hide
+    // drop zone was removed at the user's request. Just apply the saved
+    // order by re-arranging the existing DOM nodes.
+    const order = TableTools.getOrder('kpi') || ['balance', 'weather', 'day', 'time'];
+    const byKey = new Map(
+        [...row.querySelectorAll('.kpi-card[data-tt-key]')].map(c => [c.dataset.ttKey, c])
+    );
+    for (const k of order) {
+        const card = byKey.get(k);
+        if (card) row.appendChild(card);
+    }
+}
 </script>
 </body>
 </html>

@@ -20,6 +20,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Nunito+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js" defer></script>
 <script src="theme.js" defer></script>
 <script src="notifications.js" defer></script>
 <script src="bell.js" defer></script>
@@ -445,17 +446,15 @@ function renderGantt(allFields) {
         fruitMeta[fr.name] = fr;
     }
 
-    // Render a single Gantt row. `isHidden` switches the hide button to an
-    // unhide button and applies a muted/strikethrough style.
+    // Render a single Gantt row. `isHidden` adds a muted/strikethrough style;
+    // hide/unhide is now handled by dragging the row in or out of the
+    // "Skrytá pole" zone below the gantt.
     const renderRow = (f, isHidden) => {
         const fruitDisplay = f.fruitTypeId
             ? CropIcons.iconWithName(f.fruitTypeId, esc(f.fruitName), 14)
             : esc(f.needsSowing ? 'Bez plodiny' : '—');
         const fertInLabel = f.fruitTypeId ? fertBadge(f.fertilizationLevel) : '';
         const needsHTML   = needsCells(f, settings, fruitMeta);
-        const toggleBtn   = isHidden
-            ? TableTools.unhideBtn('fields', f.id, 'Zobrazit pole')
-            : TableTools.hideBtn('fields', f.id, 'Skrýt pole');
         const rowLabel = `<div class="gantt-label">
             <span class="field-id">#${f.id}</span>${fruitDisplay}
             <div class="field-name"${f.farmlandAreaHa != null && f.farmlandAreaHa !== f.area ? ` title="Pole: ${f.area} ha · Parcela: ${f.farmlandAreaHa} ha"` : ''}>${f.area} ha${fertInLabel}</div>
@@ -498,43 +497,32 @@ function renderGantt(allFields) {
                 onclick="openModal(this)">Sít</div>`;
         }
 
-        return `<div class="gantt-row${isHidden ? ' cal-hidden-row' : ''}">
+        return `<div class="gantt-row${isHidden ? ' cal-hidden-row' : ''}" ${TableTools.dndAttrs('fields', f.id)}>
             ${rowLabel}
             ${needsHTML}
             <div class="gantt-timeline" style="width:${viewDays * PX_PER_DAY}px">
                 <div class="gantt-today" style="left:0"></div>
                 ${bars}
             </div>
-            <span class="cal-hide-slot">${toggleBtn}</span>
         </div>`;
     };
 
-    html += list.map(f => renderRow(f, false)).join('');
+    const visibleHtml = list.length
+        ? list.map(f => renderRow(f, false)).join('')
+        : '<div class="gantt-row gantt-empty">Žádná pole.</div>';
+    const hiddenHtml = hiddenList.length
+        ? hiddenList.map(f => renderRow(f, true)).join('')
+        : '<div class="gantt-row gantt-empty tt-hidden-empty">Přetáhni sem pole pro skrytí.</div>';
 
-    if (hiddenList.length) {
-        html += `<div class="gantt-row cal-hidden-sep" onclick="toggleHiddenSection()">
-            <div class="gantt-label" style="color:var(--muted)">
-                <span class="group-toggle" id="cal-hidden-toggle">▶</span>
-                Skryté pole <span class="count">${hiddenList.length}</span>
-            </div>
-            <div class="gantt-needs"></div>
-            <div class="gantt-timeline" style="width:${viewDays * PX_PER_DAY}px"></div>
-        </div>`;
-        html += `<div id="cal-hidden-wrap" style="display:none">`;
-        html += hiddenList.map(f => renderRow(f, true)).join('');
-        html += `</div>`;
-    }
+    html += `<div class="gantt-rows" id="gantt-rows-visible" data-tt-container="fields">${visibleHtml}</div>`;
+    html += `<div class="tt-hidden-zone gantt-hidden-zone" id="gantt-hidden-wrap">
+        <div class="subgroup-header">
+            <span class="tt-hidden-icon">📥</span> Skrytá pole <span class="count">${hiddenList.length}</span>
+        </div>
+        <div id="gantt-rows-hidden" data-tt-container="fields" data-tt-hidden>${hiddenHtml}</div>
+    </div>`;
 
     $('gantt-container').innerHTML = html;
-}
-
-function toggleHiddenSection() {
-    const wrap = $('cal-hidden-wrap');
-    const tog  = $('cal-hidden-toggle');
-    if (!wrap || !tog) return;
-    const open = wrap.style.display !== 'none';
-    wrap.style.display = open ? 'none' : '';
-    tog.textContent    = open ? '▶'   : '▼';
 }
 
 // ─── Modal ────────────────────────────────────────────────────────────────────

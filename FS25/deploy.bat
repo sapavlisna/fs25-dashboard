@@ -41,7 +41,7 @@ if exist "%FS25_MODS_DIR%\FS25_Dashboard\" rmdir /s /q "%FS25_MODS_DIR%\FS25_Das
 if exist "%DEST%" del /q "%DEST%"
 
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-  "Compress-Archive -Path '%SRC%modDesc.xml','%SRC%DashboardExport.lua' -DestinationPath '%DEST%' -CompressionLevel Optimal"
+  "Compress-Archive -Path '%SRC%modDesc.xml','%SRC%DashboardExport.lua','%SRC%icon_dashboard.dds' -DestinationPath '%DEST%' -CompressionLevel Optimal"
 
 if errorlevel 1 (
     echo.

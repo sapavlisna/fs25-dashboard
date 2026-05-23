@@ -116,9 +116,13 @@ let animalFood = {
 let animalCounts = { cow: 14, pig: 24, sheep: 10, chicken: 40 };
 // Stateful production items — drift each tick to trigger flash testing
 let productionState = [
-    { name: 'Pekárna',    cap: 20000, items: { 'Mouka': 5200, 'Voda': 8500, 'Chléb': 1100 } },
-    { name: 'Pila',       cap: 30000, items: { 'Klády': 14800, 'Řezivo': 2300 } },
-    { name: 'Krmivárna',  cap: 25000, items: { 'Pšenice': 8200, 'Ječmen': 6100, 'Krmivo': 1600 } },
+    { name: 'Pekárna',     cap: 20000, items: { 'Mouka': 5200, 'Voda': 8500, 'Chléb': 1100 } },
+    { name: 'Pila',        cap: 30000, items: { 'Klády': 14800, 'Řezivo': 2300 } },
+    { name: 'Krmivárna',   cap: 25000, items: { 'Pšenice': 8200, 'Ječmen': 6100, 'Krmivo': 1600 } },
+    { name: 'Řeznictví',   cap: 18000, items: { 'Vepř': 320, 'Hovězí': 145, 'Maso': 820 } },
+    { name: 'Mlékárna',    cap: 22000, items: { 'Mléko': 9400, 'Máslo': 720, 'Sýr': 410 } },
+    { name: 'Olejárna',    cap: 24000, items: { 'Slunečnice': 6300, 'Řepka': 4100, 'Olej': 1850 } },
+    { name: 'Větrný mlýn', cap: 16000, items: { 'Pšenice': 3800, 'Mouka': 1200 } },
 ];
 
 function generateData() {
