@@ -422,7 +422,8 @@ function handleIngest(ws, req) {
                 break;
 
             case 'delta':
-                if (state.snapshot && msg.changed) {
+                if (msg.changed) {
+                    if (!state.snapshot) state.snapshot = {};
                     for (const [k, v] of Object.entries(msg.changed)) {
                         if (v === null) delete state.snapshot[k];
                         else            state.snapshot[k] = v;

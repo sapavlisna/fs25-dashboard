@@ -83,7 +83,11 @@ class BridgeClient {
         if (!this.welcomed || !data) return;
 
         const now = Date.now();
-        const forceFull = (now - this.lastFullSyncAt) >= FULL_SYNC_MS;
+        // First payload after a (re)connect with a null bootstrap → force a
+        // full snapshot so the cloud has a complete baseline before any
+        // deltas land. Also enforce the periodic refresh.
+        const noBaseline = Object.keys(this.lastSnapshotMap).length === 0;
+        const forceFull  = noBaseline || (now - this.lastFullSyncAt) >= FULL_SYNC_MS;
 
         if (forceFull) {
             this._sendFullSnapshot(data);
