@@ -8,8 +8,16 @@ const db       = require('./db');
 const savegame = require('./savegame');
 const config   = require('./config');
 const pkg      = require('./package.json');
+const { DashboardState } = require('./dashboardState');
+const { BridgeClient }   = require('./bridge-client');
 
-const { PORT, HOST, DATA_FILE, PUBLIC_DIR } = config;
+const { PORT, HOST, DATA_FILE, PUBLIC_DIR, DATA_DIR } = config;
+
+// ─── Dashboard preferences (theme, hidden, order, …) ──────────────────────────
+// Shared across every device connecting to this server. Frontend mirrors
+// the keys into localStorage for offline access; the server is the source
+// of truth for cross-device sync.
+const dashState = new DashboardState(path.join(DATA_DIR, 'dashboard-state.json'));
 
 // ─── Schema compatibility ────────────────────────────────────────────────────
 // The mod stamps `schemaVersion` on every payload. Bump these bounds when the
@@ -43,6 +51,35 @@ const app    = express();
 const server = http.createServer(app);
 
 app.use(express.static(PUBLIC_DIR));
+app.use(express.json({ limit: '256kb' }));   // state blobs are tiny
+
+// ─── Dashboard preferences sync ──────────────────────────────────────────────
+//
+//   GET   /api/dashboard-state          → full state blob
+//   PUT   /api/dashboard-state          → replace entire state (rare; UI reset)
+//   PATCH /api/dashboard-state          → partial update; body shape:
+//                                          { "<key>": <value>, ... }
+//                                          Null value deletes the key.
+//
+// After a successful PUT/PATCH, the server broadcasts the diff to every
+// connected WS client as `{ __dashboardStatePatch: { ... } }` so other
+// devices update without polling.
+
+app.get('/api/dashboard-state', (_req, res) => {
+    res.json(dashState.getAll());
+});
+
+app.put('/api/dashboard-state', (req, res) => {
+    const next = dashState.replaceAll(req.body || {});
+    broadcastStatePatch(next, { fullReplace: true });
+    res.json(next);
+});
+
+app.patch('/api/dashboard-state', (req, res) => {
+    const changed = dashState.patch(req.body || {});
+    if (Object.keys(changed).length) broadcastStatePatch(changed);
+    res.json({ changed });
+});
 
 app.get('/api/current', (_req, res) => {
     try {
@@ -160,6 +197,19 @@ function broadcast(rawString) {
     });
 }
 
+// Send a dashboard-state diff (or full replace) to every connected client.
+// Wrapped in a dedicated envelope so the frontend can tell it apart from a
+// regular game-data payload without a heuristic.
+function broadcastStatePatch(patch, opts = {}) {
+    const msg = JSON.stringify({
+        __dashboardStatePatch: patch,
+        fullReplace: !!opts.fullReplace,
+    });
+    wss.clients.forEach(client => {
+        if (client.readyState === 1 /* OPEN */) client.send(msg);
+    });
+}
+
 wss.on('connection', ws => {
     console.log(`[WS] +1 client (total: ${wss.clients.size})`);
     // Send current state immediately so page doesn't wait up to 5s
@@ -182,6 +232,31 @@ const watcher = chokidar.watch(DATA_FILE, {
     awaitWriteFinish: { stabilityThreshold: 150, pollInterval: 50 },
 });
 
+// ─── Optional cloud bridge (push deltas to a remote relay) ──────────────────
+// Activated when BRIDGE_UPSTREAM_URL is set. The bridge runs as a parallel
+// WebSocket *client*; it does not affect local broadcast or REST endpoints.
+let bridge = null;
+let lastPayload = null;
+
+const BRIDGE_UPSTREAM_URL = process.env.BRIDGE_UPSTREAM_URL || '';
+const INGEST_TOKEN        = process.env.INGEST_TOKEN || '';
+
+if (BRIDGE_UPSTREAM_URL) {
+    if (!INGEST_TOKEN) {
+        console.warn('[Bridge] BRIDGE_UPSTREAM_URL set but INGEST_TOKEN missing — bridge disabled.');
+    } else {
+        bridge = new BridgeClient({
+            upstreamUrl:    BRIDGE_UPSTREAM_URL,
+            ingestToken:    INGEST_TOKEN,
+            db,
+            dashState,
+            getLastPayload: () => lastPayload,
+            serverVersion:  SERVER_VERSION,
+        });
+        bridge.start();
+    }
+}
+
 watcher.on('add',    f => console.log('[Watch] Watching:', f));
 watcher.on('change', f => {
     try {
@@ -189,6 +264,14 @@ watcher.on('change', f => {
         const data = JSON.parse(raw);
         db.saveSnapshot(data);
         broadcast(raw);
+        // Enriched copy is what we ship upstream (so cloud viewers see the
+        // same farmBalanceDeltaDay / saveMeta / save-derived field props as
+        // local viewers).
+        lastPayload = enrich(data);
+        if (bridge) {
+            bridge.modVersion = data.modVersion || bridge.modVersion;
+            bridge.pushPayload(lastPayload);
+        }
         process.stdout.write('.');
     } catch (e) {
         console.warn('\n[Watch] Parse error:', e.message);

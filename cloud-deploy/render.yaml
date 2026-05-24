@@ -1,0 +1,34 @@
+# render.yaml — Render.com Blueprint for the FS25 Dashboard cloud relay.
+#
+# Used in two ways:
+#   1) "Deploy to Render" button in README. Render parses this file, asks
+#      the user for the secret values, then creates the service.
+#   2) deploy.ps1 reads the same fields and creates the service via the
+#      Render REST API (for users who prefer CLI).
+#
+# Free tier notes (verified 2026-05):
+#   • "starter" instance is $7/mo and never sleeps — recommended once you
+#     share the URL widely. We default to "free" so the deploy is truly
+#     zero-cost out of the box.
+#   • free instances sleep after 15 min of no incoming traffic. The local
+#     bridge poking it every 2 s keeps it awake while the game runs.
+
+services:
+  - type:    web
+    name:    fs25-dashboard
+    runtime: node
+    plan:    free                    # change to "starter" for no-sleep ($7/mo)
+    region:  frankfurt               # closest to CZ users; or oregon/singapore/etc.
+    rootDir: src/Dashboard/Server
+    buildCommand: npm install
+    startCommand: node cloud-server.js
+    healthCheckPath: /login
+    envVars:
+      - key:   INGEST_TOKEN
+        sync:  false                 # prompts user during deploy
+      - key:   DASHBOARD_PASSWORD
+        sync:  false                 # prompts user during deploy (can be empty)
+      - key:   SESSION_SECRET
+        generateValue: true          # Render generates a random 32-byte value
+      - key:   NODE_ENV
+        value: production

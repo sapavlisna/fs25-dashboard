@@ -23,6 +23,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Nunito+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
 <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js" defer></script>
+<script src="serverSync.js" defer></script>
 <script src="state.js" defer></script>
 <script src="theme.js" defer></script>
 <script src="notifications.js" defer></script>
@@ -1525,6 +1526,37 @@ window.addEventListener('DOMContentLoaded', () => {
         TableTools.onChange('productions', () => { if (window.__lastData) { renderProductions(window.__lastData.productions || []); relayoutMasonry(); } });
         TableTools.onChange('prices',      () => { if (window.__lastData) { renderPrices(window.__lastData.prices || []); relayoutMasonry(); } });
         TableTools.onChange('priceItems',  () => { if (window.__lastData) { renderPrices(window.__lastData.prices || []); relayoutMasonry(); } });
+    }
+
+    // Server-sync replay — fires when ServerSync writes incoming patches
+    // (or the initial GET) into localStorage. Re-apply every affected
+    // scope so the user sees the change without a manual refresh.
+    if (window.ServerSync) {
+        window.ServerSync.onReplay(keys => {
+            const touched = new Set(keys);
+            // Theme — re-applied via theme.js
+            if (touched.has('theme')) {
+                try {
+                    const t = JSON.parse(localStorage.getItem('fs25.dash.v1.theme') || '"dark-green"');
+                    document.documentElement.setAttribute('data-theme', t);
+                } catch (_) {}
+            }
+            // Sections, KPI, table-scope orders + hide sets
+            if (touched.has('order:sections') || [...touched].some(k => k.startsWith('hidden:sections'))) {
+                applySectionOrder();
+                applyHiddenSections();
+            }
+            if (touched.has('hiddenSections')) applyHiddenSections();
+            if (touched.has('order:kpi') || touched.has('hidden:kpi')) applyKpiState();
+            const SCOPES = ['fields', 'vehicles', 'animals', 'storages', 'productions', 'prices', 'priceItems'];
+            for (const scope of SCOPES) {
+                if (touched.has('order:' + scope) || touched.has('hidden:' + scope)
+                    || touched.has('hidden' + scope[0].toUpperCase() + scope.slice(1))) {
+                    if (window.TableTools) TableTools.trigger(scope);
+                }
+            }
+            relayoutMasonry();
+        });
     }
 });
 

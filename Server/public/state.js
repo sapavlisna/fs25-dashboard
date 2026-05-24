@@ -17,6 +17,10 @@
 
     function set(key, value) {
         try { localStorage.setItem(NS + key, JSON.stringify(value)); } catch (_) {}
+        // Mirror the write to the server so other devices pick it up.
+        // ServerSync swallows local-only keys and respects the user's
+        // "sync off" toggle, so we don't need any check here.
+        if (window.ServerSync) window.ServerSync.syncWrite(key, value);
     }
 
     function setHas(key, item) {

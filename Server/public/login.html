@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FS25 Dashboard — Přihlášení</title>
+<script>
+    // Pre-paint theme (matches the rest of the dashboard)
+    try {
+        const t = localStorage.getItem('fs25.dash.v1.theme') || 'dark-green';
+        document.documentElement.setAttribute('data-theme', t);
+    } catch (_) {}
+</script>
+<link rel="stylesheet" href="style.css">
+<style>
+    body {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 100vh;
+        margin: 0;
+        font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+        background: var(--bg);
+        color: var(--text);
+    }
+    .login-card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: 32px;
+        width: 100%;
+        max-width: 360px;
+        box-shadow: 0 4px 24px rgba(0,0,0,0.3);
+    }
+    .login-card h1 {
+        margin: 0 0 4px 0;
+        font-size: 22px;
+        color: var(--accent);
+    }
+    .login-card p {
+        margin: 0 0 20px 0;
+        color: var(--muted);
+        font-size: 13px;
+    }
+    .login-card label {
+        display: block;
+        margin-bottom: 6px;
+        font-size: 13px;
+        color: var(--muted);
+    }
+    .login-card input[type=password] {
+        width: 100%;
+        box-sizing: border-box;
+        padding: 10px 12px;
+        background: var(--bg);
+        color: var(--text);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        font-size: 14px;
+    }
+    .login-card input[type=password]:focus {
+        outline: 1px solid var(--accent);
+        border-color: var(--accent);
+    }
+    .login-card button {
+        margin-top: 16px;
+        width: 100%;
+        padding: 10px;
+        background: var(--accent);
+        color: var(--bg);
+        border: none;
+        border-radius: var(--radius);
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+    }
+    .login-card button:hover {
+        filter: brightness(1.1);
+    }
+    .login-card button:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+    }
+    .login-error {
+        margin-top: 12px;
+        padding: 8px 10px;
+        background: rgba(224, 82, 82, 0.15);
+        color: var(--red);
+        border-radius: var(--radius);
+        font-size: 13px;
+        display: none;
+    }
+    .login-footer {
+        margin-top: 24px;
+        text-align: center;
+        font-size: 11px;
+        color: var(--muted);
+    }
+</style>
+</head>
+<body>
+    <form class="login-card" id="login-form" autocomplete="off">
+        <h1>🚜 FS25 Dashboard</h1>
+        <p>Zadej heslo pro přístup ke vzdálenému dashboardu.</p>
+
+        <label for="password">Heslo</label>
+        <input type="password" id="password" name="password" autofocus required>
+
+        <button type="submit" id="submit-btn">Přihlásit</button>
+
+        <div class="login-error" id="error"></div>
+
+        <div class="login-footer">FS25 Dashboard Cloud Relay</div>
+    </form>
+
+<script>
+    const form  = document.getElementById('login-form');
+    const btn   = document.getElementById('submit-btn');
+    const err   = document.getElementById('error');
+    const input = document.getElementById('password');
+
+    form.addEventListener('submit', async e => {
+        e.preventDefault();
+        err.style.display = 'none';
+        btn.disabled = true;
+        btn.textContent = 'Přihlašuji…';
+        try {
+            const res = await fetch('/api/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ password: input.value }),
+            });
+            if (res.ok) {
+                location.replace('/');
+                return;
+            }
+            const body = await res.json().catch(() => ({}));
+            err.textContent = body.error === 'invalid password' ? 'Nesprávné heslo.' : 'Přihlášení selhalo.';
+            err.style.display = 'block';
+            input.select();
+        } catch (e) {
+            err.textContent = 'Chyba spojení: ' + e.message;
+            err.style.display = 'block';
+        } finally {
+            btn.disabled = false;
+            btn.textContent = 'Přihlásit';
+        }
+    });
+</script>
+</body>
+</html>

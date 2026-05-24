@@ -45,6 +45,13 @@
     }
     function writeJSON(key, value) {
         try { localStorage.setItem(key, JSON.stringify(value)); } catch (_) {}
+        // Mirror to server. ServerSync.syncWrite strips the NS prefix
+        // internally so we can pass the full localStorage key directly.
+        if (window.ServerSync) window.ServerSync.syncWrite(key, value);
+    }
+    function deleteKey(key) {
+        try { localStorage.removeItem(key); } catch (_) {}
+        if (window.ServerSync) window.ServerSync.syncDelete(key);
     }
 
     function getHidden(stateKey) {
@@ -68,10 +75,10 @@
         return Array.isArray(arr) ? arr : null;
     }
     function saveOrder(stateKey, arr) { writeJSON(KEY_ORDER(stateKey), arr); }
-    function clearOrder(stateKey)  { try { localStorage.removeItem(KEY_ORDER(stateKey));  } catch (_) {} }
+    function clearOrder(stateKey)  { deleteKey(KEY_ORDER(stateKey)); }
     function clearHidden(stateKey) {
-        try { localStorage.removeItem(KEY_HIDDEN(stateKey)); } catch (_) {}
-        if (LEGACY_KEY[stateKey]) { try { localStorage.removeItem(LEGACY_KEY[stateKey]); } catch (_) {} }
+        deleteKey(KEY_HIDDEN(stateKey));
+        if (LEGACY_KEY[stateKey]) deleteKey(LEGACY_KEY[stateKey]);
     }
 
     function hide(stateKey, itemKey) {
@@ -526,8 +533,8 @@
         const collapsed = wrap.classList.toggle('collapsed');
         if (wrap.id) {
             try {
-                if (collapsed) localStorage.setItem(NS + 'collapsed:' + wrap.id, '1');
-                else           localStorage.removeItem(NS + 'collapsed:' + wrap.id);
+                if (collapsed) writeJSON(NS + 'collapsed:' + wrap.id, '1');
+                else           deleteKey(NS + 'collapsed:' + wrap.id);
             } catch (_) {}
         }
     });

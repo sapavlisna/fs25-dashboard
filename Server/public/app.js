@@ -54,6 +54,7 @@
                     <button type="button" data-tab="notif" class="active">🔔 Notifikace</button>
                     <button type="button" data-tab="sections">📋 Sekce</button>
                     <button type="button" data-tab="theme">🎨 Vzhled</button>
+                    <button type="button" data-tab="sync">☁ Sync</button>
                 </nav>
 
                 <div class="settings-panels">
@@ -94,6 +95,30 @@
                 <section class="settings-panel" data-panel="theme" hidden>
                     <label style="margin-bottom:8px;display:block">Téma vzhledu</label>
                     <div class="theme-grid">${themeButtons}</div>
+                </section>
+
+                <section class="settings-panel" data-panel="sync" hidden>
+                    <label style="margin-bottom:8px;display:block">Synchronizace se serverem</label>
+                    <p class="settings-hint">
+                        Téma, pořadí sekcí, skryté položky a další nastavení se ukládají na server.
+                        Když si dashboard otevřeš na jiném zařízení (mobil, druhý počítač), uvidíš stejné rozložení.
+                        Při změně na jednom zařízení se ostatní automaticky aktualizují.
+                    </p>
+                    <label class="section-row" style="cursor:default">
+                        <span class="section-row-label">Synchronizovat s serverem</span>
+                        <span class="section-row-toggle">
+                            <input type="checkbox" id="sync-enabled">
+                            <span class="switch-knob"></span>
+                        </span>
+                    </label>
+                    <p class="settings-hint" style="margin-top:10px">
+                        Pokud vypneš, toto zařízení bude mít vlastní lokální layout. Změny se nebudou propisovat
+                        na ostatní zařízení (ani naopak).
+                    </p>
+                    <div class="section-reset-row">
+                        <button class="secondary" id="sync-pull" type="button"
+                                title="Stáhne aktuální nastavení ze serveru a přepíše lokální">↺ Načíst ze serveru</button>
+                    </div>
                 </section>
                 </div>
 
@@ -168,6 +193,26 @@
                 if (typeof window.applySectionOrder === 'function') window.applySectionOrder();
             });
         }
+
+        // Sync panel — toggle + manual pull from server.
+        const syncCb   = document.getElementById('sync-enabled');
+        const syncPull = document.getElementById('sync-pull');
+        if (syncCb && window.ServerSync) {
+            syncCb.checked = window.ServerSync.isEnabled();
+            syncCb.onchange = () => window.ServerSync.setEnabled(syncCb.checked);
+        }
+        if (syncPull && window.ServerSync) {
+            syncPull.onclick = async () => {
+                syncPull.disabled = true;
+                syncPull.textContent = 'Načítám…';
+                await window.ServerSync.pullFromServer({ force: true });
+                syncPull.textContent = '✓ Načteno';
+                setTimeout(() => {
+                    syncPull.disabled = false;
+                    syncPull.textContent = '↺ Načíst ze serveru';
+                }, 1500);
+            };
+        }
     }
 
     function renderSectionList() {
@@ -211,6 +256,7 @@
     function applyTheme(id) {
         document.documentElement.setAttribute('data-theme', id);
         try { localStorage.setItem(THEME_KEY, id); } catch (_) {}
+        if (window.ServerSync) window.ServerSync.syncWrite('theme', id);
         // Keep the standalone theme-picker (cycle button) icon + tooltip in sync
         const picker = document.getElementById('theme-picker');
         if (picker) {
@@ -272,15 +318,68 @@
         });
     }
 
+    // ─── Cloud mode + bridge-offline overlay ─────────────────────────────────
+    // When the dashboard is served by cloud-server.js, the server publishes
+    // a `bridge-status` envelope on every viewer connect AND whenever the
+    // bridge connects/disconnects. We surface that as a full-screen overlay
+    // so the user knows "the game/local server isn't running" — distinct
+    // from "WebSocket itself is broken" (handled by the existing dot).
+
+    let bridgeStatusKnown = false;     // have we received any bridge-status yet?
+    let bridgeOnline      = true;       // local mode default: true, no overlay needed
+
+    function ensureOfflineOverlay() {
+        let el = document.getElementById('bridge-offline-overlay');
+        if (el) return el;
+        el = document.createElement('div');
+        el.id = 'bridge-offline-overlay';
+        el.innerHTML = `
+            <div class="bridge-offline-card">
+                <div class="bridge-offline-icon">🌾</div>
+                <h2>FS25 server je offline</h2>
+                <p>Hra možná není spuštěná, nebo lokální dashboard server neběží.</p>
+                <p class="bridge-offline-last" id="bridge-offline-last"></p>
+                <p class="bridge-offline-hint">Stránka se obnoví automaticky, jakmile se data znovu objeví.</p>
+            </div>`;
+        document.body.appendChild(el);
+        return el;
+    }
+
+    function setBridgeStatus(connected, lastSeenAt) {
+        bridgeOnline = !!connected;
+        bridgeStatusKnown = true;
+        const el = ensureOfflineOverlay();
+        if (bridgeOnline) {
+            el.classList.remove('open');
+        } else {
+            el.classList.add('open');
+            const lastEl = document.getElementById('bridge-offline-last');
+            if (lastEl) lastEl.textContent = lastSeenAt ? formatLastSeen(lastSeenAt) : '';
+        }
+    }
+
+    function formatLastSeen(ts) {
+        const d = new Date(ts);
+        if (isNaN(d.getTime())) return '';
+        const diff = Date.now() - d.getTime();
+        const mins = Math.floor(diff / 60000);
+        if (mins < 1)  return 'Naposledy aktivní: před chvílí';
+        if (mins < 60) return `Naposledy aktivní: před ${mins} min`;
+        const hrs = Math.floor(mins / 60);
+        if (hrs < 24)  return `Naposledy aktivní: před ${hrs} h`;
+        return 'Naposledy aktivní: ' + d.toLocaleString('cs-CZ');
+    }
+
     // ─── WebSocket connect (single shared logic) ──────────────────────────────
 
     function connect(onData) {
         const dot     = document.getElementById('ws-dot');
         const wsLabel = document.getElementById('ws-label');
         let ws, reconnectTimer;
+        const proto = location.protocol === 'https:' ? 'wss' : 'ws';
 
         function open() {
-            ws = new WebSocket(`ws://${location.host}`);
+            ws = new WebSocket(`${proto}://${location.host}`);
             ws.onopen = () => {
                 dot.className = 'dot live';
                 wsLabel.textContent = 'Live';
@@ -289,6 +388,16 @@
             ws.onmessage = e => {
                 try {
                     const data = JSON.parse(e.data);
+                    // Bridge status envelope — cloud-only. Shows / hides the
+                    // "FS25 is offline" overlay independent of WS health.
+                    if (data && data.type === 'bridge-status') {
+                        setBridgeStatus(data.connected, data.lastSeenAt);
+                        return;
+                    }
+                    // Settings sync envelope — handled by ServerSync; not a
+                    // real game-data payload, so short-circuit before the
+                    // regular renderers run.
+                    if (window.ServerSync && window.ServerSync.handleWsMessage(data)) return;
                     if (window.CropIcons && Array.isArray(data.availableFruits)) {
                         window.CropIcons.setCatalog(data.availableFruits);
                     }

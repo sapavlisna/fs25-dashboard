@@ -1796,3 +1796,51 @@ body.tt-drag-active .tt-hidden-zone [data-tt-hidden] {
     thead th, tbody td { padding: 5px 6px; }
     .nav-brand { display: none; }
 }
+
+/* ─── Bridge-offline overlay (cloud relay) ───────────────────────────── */
+#bridge-offline-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.72);
+    z-index: 999;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    backdrop-filter: blur(3px);
+}
+#bridge-offline-overlay.open {
+    display: flex;
+}
+.bridge-offline-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 32px 36px;
+    max-width: 460px;
+    text-align: center;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+.bridge-offline-icon {
+    font-size: 56px;
+    margin-bottom: 12px;
+}
+.bridge-offline-card h2 {
+    margin: 0 0 12px 0;
+    color: var(--orange);
+    font-size: 22px;
+}
+.bridge-offline-card p {
+    margin: 8px 0;
+    color: var(--text);
+    font-size: 14px;
+    line-height: 1.5;
+}
+.bridge-offline-last {
+    color: var(--muted);
+    font-size: 13px;
+}
+.bridge-offline-hint {
+    color: var(--muted);
+    font-size: 12px;
+    margin-top: 16px;
+}

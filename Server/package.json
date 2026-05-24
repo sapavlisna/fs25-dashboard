@@ -19,6 +19,7 @@
   },
   "scripts": {
     "start": "node index.js",
+    "cloud": "node cloud-server.js",
     "validate": "node scripts/validate-json.js",
     "mock": "node scripts/mock-data.js",
     "smoke": "playwright test --config=test/smoke/playwright.config.js --reporter=list",

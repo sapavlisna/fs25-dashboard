@@ -21,6 +21,17 @@ function watchForErrors(page) {
 }
 
 test.describe('Dashboard pages', () => {
+    // Disable cross-device server sync inside the smoke run — tests share a
+    // single server process and would otherwise pick up state written by an
+    // earlier test (a previous theme switch overwriting this one's URL
+    // override, etc.). Local mode keeps every test isolated to its own
+    // localStorage.
+    test.beforeEach(async ({ page }) => {
+        await page.addInitScript(() => {
+            try { localStorage.setItem('fs25.dash.v1.syncMode', 'local'); } catch (_) {}
+        });
+    });
+
     test('index (main dashboard)', async ({ page }) => {
         const errors = watchForErrors(page);
         await page.goto('/');
