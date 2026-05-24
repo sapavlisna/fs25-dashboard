@@ -10,6 +10,7 @@ const config   = require('./config');
 const pkg      = require('./package.json');
 const { DashboardState } = require('./dashboardState');
 const { BridgeClient }   = require('./bridge-client');
+const { CloudAuthStore } = require('./cloudAuthStore');
 
 const { PORT, HOST, DATA_FILE, PUBLIC_DIR, DATA_DIR } = config;
 
@@ -18,6 +19,11 @@ const { PORT, HOST, DATA_FILE, PUBLIC_DIR, DATA_DIR } = config;
 // the keys into localStorage for offline access; the server is the source
 // of truth for cross-device sync.
 const dashState = new DashboardState(path.join(DATA_DIR, 'dashboard-state.json'));
+
+// ─── Cloud-relay auth config ─────────────────────────────────────────────────
+// Stored separately from dashState so it can NEVER accidentally leak through
+// the cross-device sync surface. Holds only hash+salt, never plaintext.
+const cloudAuth = new CloudAuthStore(path.join(DATA_DIR, 'cloud-auth.json'));
 
 // ─── Schema compatibility ────────────────────────────────────────────────────
 // The mod stamps `schemaVersion` on every payload. Bump these bounds when the
@@ -79,6 +85,38 @@ app.patch('/api/dashboard-state', (req, res) => {
     const changed = dashState.patch(req.body || {});
     if (Object.keys(changed).length) broadcastStatePatch(changed);
     res.json({ changed });
+});
+
+// ─── Cloud-relay auth control ────────────────────────────────────────────────
+//
+//   GET  /api/cloud-auth        → { enabled, hasPassword, version }
+//                                  (NEVER returns the hash or plaintext)
+//   POST /api/cloud-auth        → body { enabled: bool, password?: string }
+//                                  Plaintext is hashed locally + pushed
+//                                  upstream as { hash, salt, version }.
+
+app.get('/api/cloud-auth', (_req, res) => {
+    const cfg = cloudAuth.get();
+    res.json({
+        enabled:     !!cfg.passwordHash,
+        hasPassword: !!cfg.passwordHash,
+        version:     cfg.version,
+    });
+});
+
+app.post('/api/cloud-auth', (req, res) => {
+    const enabled   = !!(req.body && req.body.enabled);
+    const plaintext = (req.body && typeof req.body.password === 'string') ? req.body.password : '';
+    if (enabled && !plaintext) {
+        return res.status(400).json({ ok: false, error: 'password required when enabled=true' });
+    }
+    if (enabled && plaintext.length < 4) {
+        return res.status(400).json({ ok: false, error: 'password too short (min 4 chars)' });
+    }
+    const next = cloudAuth.set({ enabled, plaintext });
+    if (bridge) bridge.pushAuthConfig();
+    console.log(`[CloudAuth] ${enabled ? 'password set' : 'password disabled'} (version=${next.version})`);
+    res.json({ ok: true, enabled, version: next.version });
 });
 
 app.get('/api/current', (_req, res) => {
@@ -251,6 +289,7 @@ if (BRIDGE_UPSTREAM_URL) {
             db,
             dashState,
             getLastPayload: () => lastPayload,
+            getAuthConfig:  () => cloudAuth.get(),
             serverVersion:  SERVER_VERSION,
         });
         bridge.start();

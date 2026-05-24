@@ -55,6 +55,7 @@
                     <button type="button" data-tab="sections">📋 Sekce</button>
                     <button type="button" data-tab="theme">🎨 Vzhled</button>
                     <button type="button" data-tab="sync">☁ Sync</button>
+                    <button type="button" data-tab="cloud">🌐 Vzdálený přístup</button>
                 </nav>
 
                 <div class="settings-panels">
@@ -95,6 +96,31 @@
                 <section class="settings-panel" data-panel="theme" hidden>
                     <label style="margin-bottom:8px;display:block">Téma vzhledu</label>
                     <div class="theme-grid">${themeButtons}</div>
+                </section>
+
+                <section class="settings-panel" data-panel="cloud" hidden>
+                    <label style="margin-bottom:8px;display:block">Heslo pro vzdálený dashboard</label>
+                    <p class="settings-hint">
+                        Když chceš, aby tvůj sdílený cloud-URL byl chráněný heslem,
+                        zapni přepínač a zadej heslo. Pošle se zašifrovaně do cloudu
+                        (jen otisk SHA-256, plaintext nikdy disk neopouští).
+                        Heslo můžeš kdykoliv změnit — staré přihlášení viewerů ztratí platnost.
+                    </p>
+                    <label class="section-row" style="cursor:default">
+                        <span class="section-row-label">Vyžadovat heslo pro přístup</span>
+                        <span class="section-row-toggle">
+                            <input type="checkbox" id="cloud-auth-enabled">
+                            <span class="switch-knob"></span>
+                        </span>
+                    </label>
+                    <label style="margin-top:12px;display:block">Nové heslo (min. 4 znaky)</label>
+                    <input type="password" id="cloud-auth-password"
+                           autocomplete="new-password" placeholder="(prázdné = ponechá stávající)">
+                    <div id="cloud-auth-status" class="settings-hint" style="margin-top:8px"></div>
+                    <div class="section-reset-row">
+                        <button class="primary" id="cloud-auth-save" type="button"
+                                style="margin-left:auto">Uložit</button>
+                    </div>
                 </section>
 
                 <section class="settings-panel" data-panel="sync" hidden>
@@ -193,6 +219,56 @@
                 if (typeof window.applySectionOrder === 'function') window.applySectionOrder();
             });
         }
+
+        // ─── Cloud auth panel ─────────────────────────────────────────────
+        const cloudCb     = document.getElementById('cloud-auth-enabled');
+        const cloudPwd    = document.getElementById('cloud-auth-password');
+        const cloudSave   = document.getElementById('cloud-auth-save');
+        const cloudStatus = document.getElementById('cloud-auth-status');
+
+        async function refreshCloudAuthStatus() {
+            try {
+                const res = await fetch('/api/cloud-auth');
+                if (!res.ok) throw new Error('GET /api/cloud-auth → ' + res.status);
+                const cfg = await res.json();
+                cloudCb.checked = !!cfg.enabled;
+                cloudStatus.textContent = cfg.enabled
+                    ? `✓ Heslo aktivní (verze ${cfg.version}) — vzdálený dashboard ho vyžaduje.`
+                    : `○ Bez hesla — kdokoliv s URL vidí dashboard.`;
+            } catch (e) {
+                cloudStatus.textContent = '⚠ Chyba: ' + e.message;
+            }
+        }
+        refreshCloudAuthStatus();
+
+        if (cloudSave) cloudSave.onclick = async () => {
+            const enabled  = cloudCb.checked;
+            const password = cloudPwd.value || '';
+            if (enabled && password.length < 4) {
+                cloudStatus.textContent = '⚠ Heslo musí mít alespoň 4 znaky.';
+                return;
+            }
+            cloudSave.disabled = true;
+            cloudSave.textContent = 'Ukládám…';
+            try {
+                const res = await fetch('/api/cloud-auth', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ enabled, password: enabled ? password : '' }),
+                });
+                const body = await res.json().catch(() => ({}));
+                if (!res.ok) throw new Error(body.error || ('HTTP ' + res.status));
+                cloudPwd.value = '';
+                cloudStatus.textContent = enabled
+                    ? `✓ Uloženo (verze ${body.version}). Stávající viewery byly odhlášeny.`
+                    : `✓ Heslo odstraněno (verze ${body.version}). Cloud je opět veřejný.`;
+            } catch (e) {
+                cloudStatus.textContent = '⚠ ' + e.message;
+            } finally {
+                cloudSave.disabled = false;
+                cloudSave.textContent = 'Uložit';
+            }
+        };
 
         // Sync panel — toggle + manual pull from server.
         const syncCb   = document.getElementById('sync-enabled');

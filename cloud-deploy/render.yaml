@@ -24,10 +24,10 @@ services:
     startCommand: node cloud-server.js
     healthCheckPath: /login
     envVars:
+      # Tajný token, kterým se ověří lokální bridge proti tomuto cloudu.
+      # Heslo do dashboardu se z UI lokálního serveru — viz README.
       - key:   INGEST_TOKEN
         sync:  false                 # prompts user during deploy
-      - key:   DASHBOARD_PASSWORD
-        sync:  false                 # prompts user during deploy (can be empty)
       - key:   SESSION_SECRET
         generateValue: true          # Render generates a random 32-byte value
       - key:   NODE_ENV

@@ -119,6 +119,34 @@
     const err   = document.getElementById('error');
     const input = document.getElementById('password');
 
+    // If the relay is in open mode (no password required), skip the form
+    // entirely — fetch /api/version, see hasPassword=false, log the user in,
+    // and bounce to the dashboard. The /api/login endpoint accepts an empty
+    // body in that mode and returns a session cookie.
+    (async () => {
+        try {
+            const ver = await fetch('/api/version').then(r => r.json());
+            if (!ver.hasPassword) {
+                btn.disabled = true;
+                btn.textContent = 'Vstupuji…';
+                input.disabled = true;
+                const r = await fetch('/api/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({}),
+                });
+                if (r.ok) {
+                    location.replace('/');
+                    return;
+                }
+                // Fall through to normal form if open-mode login failed
+                btn.disabled = false;
+                btn.textContent = 'Přihlásit';
+                input.disabled = false;
+            }
+        } catch (_) { /* show form normally */ }
+    })();
+
     form.addEventListener('submit', async e => {
         e.preventDefault();
         err.style.display = 'none';

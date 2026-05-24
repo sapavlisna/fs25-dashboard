@@ -32,7 +32,7 @@ const PING_MS              = parseInt(process.env.BRIDGE_PING_MS || '25000', 10)
 const RECONNECT_BACKOFF_MS = [1000, 2000, 5000, 10000, 30000];
 
 class BridgeClient {
-    constructor({ upstreamUrl, ingestToken, db, dashState, getLastPayload, modVersion, serverVersion }) {
+    constructor({ upstreamUrl, ingestToken, db, dashState, getLastPayload, getAuthConfig, modVersion, serverVersion }) {
         if (!upstreamUrl) throw new Error('BridgeClient: upstreamUrl is required');
         if (!ingestToken) throw new Error('BridgeClient: ingestToken is required');
 
@@ -41,6 +41,7 @@ class BridgeClient {
         this.db              = db;
         this.dashState       = dashState;
         this.getLastPayload  = getLastPayload || (() => null);
+        this.getAuthConfig   = getAuthConfig  || (() => null);
         this.modVersion      = modVersion;
         this.serverVersion   = serverVersion;
 
@@ -188,22 +189,38 @@ class BridgeClient {
     }
 
     _sendBootstrap() {
-        const payload = this.getLastPayload();
-        const history = this._collectHistory();
+        const payload        = this.getLastPayload();
+        const history        = this._collectHistory();
         const dashboardState = this.dashState ? this.dashState.getAll() : {};
+        const authConfig     = this.getAuthConfig();
 
         this._send({
             type:           'bootstrap',
             snapshot:       payload,
             history,
             dashboardState,
+            authConfig,
         });
 
         this._captureSnapshotMap(payload);
         this.lastFullSyncAt = Date.now();
         this.lastHistoryAt  = Date.now();
         this.fullCount++;
-        console.log('[Bridge] Bootstrap sent (snapshot + history + dashboard-state)');
+        console.log('[Bridge] Bootstrap sent (snapshot + history + dashboard-state + auth-config)');
+    }
+
+    // Called by the local server when the user toggles cloud-auth in the UI.
+    // The plaintext never reaches this method — only the hash/salt/version.
+    pushAuthConfig() {
+        const cfg = this.getAuthConfig();
+        if (!cfg) return;
+        this._send({
+            type:         'auth-config',
+            passwordHash: cfg.passwordHash || null,
+            salt:         cfg.salt         || null,
+            version:      cfg.version      || 0,
+        });
+        console.log(`[Bridge] auth-config pushed (passwordRequired=${!!cfg.passwordHash}, version=${cfg.version})`);
     }
 
     _sendFullSnapshot(data) {
