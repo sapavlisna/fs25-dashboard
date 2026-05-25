@@ -23,6 +23,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Nunito+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
 <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js" defer></script>
+<script src="serverSync.js" defer></script>
 <script src="state.js" defer></script>
 <script src="theme.js" defer></script>
 <script src="notifications.js" defer></script>
@@ -430,7 +431,12 @@ function renderKPI(d) {
     document.querySelectorAll('.cur-unit').forEach(el => { el.textContent = sym; });
 
     const balance = d.farmBalance ?? 0;
-    $('kpi-balance').textContent = fmtMoney(balance);
+    const balEl = $('kpi-balance');
+    balEl.textContent = fmtMoney(balance);
+    // Apply balance flash class (set by noteBalanceFlash, gated by user flash toggle for sec-balance)
+    balEl.classList.remove('flash-up', 'flash-down');
+    const balFlashCls = getFlashCls('balance', 'main');
+    if (balFlashCls) balEl.classList.add(balFlashCls.trim());
 
     // Delta vs. most-recent earlier game-day balance (server-injected).
     const deltaEl = $('kpi-balance-sub');
@@ -556,6 +562,82 @@ function getFlashCls(section, rowKey) {
     return f.dir === 'up' ? ' flash-up' : ' flash-down';
 }
 
+// Balance gets its own tracker because:
+//   - one value (not a list), no per-row keying
+//   - threshold gate: ignore noise below max(1000 €, 0.1 %) to avoid
+//     flashing on every tick when production placeables drip a few euros
+function noteBalanceFlash(balance) {
+    if (balance == null || !Number.isFinite(balance)) return;
+    const now = Date.now();
+    const k = 'balance::main';
+    const prev = flashPrev.get(k);
+    if (prev != null && prev !== balance) {
+        const delta = balance - prev;
+        const threshold = Math.max(1000, Math.abs(prev) * 0.001);
+        if (Math.abs(delta) >= threshold) {
+            const existing = flashes.get(k);
+            if (!existing || existing.expiresAt <= now) {
+                flashes.set(k, { dir: delta > 0 ? 'up' : 'down', expiresAt: now + 10000 });
+            }
+        }
+    }
+    flashPrev.set(k, balance);
+    for (const [key, f] of flashes) if (f.expiresAt < now) flashes.delete(key);
+    scheduleFlashCleanup();
+}
+
+// Implement-boundary flash. Tracks per-fillUnit percent under
+// `vehicles::impl::<vName>::<implName>::<unitIdx>` and fires a 10 s
+// flash when the percent crosses into 100 (full) or 0 (empty). Reads
+// back via getImplFlashCls below to tint the vehicle row.
+function noteImplementBoundaryFlashes(vehicles) {
+    const now = Date.now();
+    for (const v of (vehicles || [])) {
+        for (const impl of (v.implements || [])) {
+            const units = impl.fillUnits || [];
+            for (let i = 0; i < units.length; i++) {
+                const pct = Math.round(units[i].percent ?? 0);
+                const fuKey = `vehicles::impl::${v.name}::${impl.name}::${i}`;
+                const prev = flashPrev.get(fuKey);
+                if (prev != null && prev !== pct) {
+                    const reachedFull  = prev < 100 && pct >= 100;
+                    const reachedEmpty = prev > 0   && pct === 0;
+                    if (reachedFull || reachedEmpty) {
+                        const existing = flashes.get(fuKey);
+                        if (!existing || existing.expiresAt <= now) {
+                            flashes.set(fuKey, {
+                                dir: reachedFull ? 'up' : 'down',
+                                expiresAt: now + 10000,
+                            });
+                        }
+                    }
+                }
+                flashPrev.set(fuKey, pct);
+            }
+        }
+    }
+    for (const [k, f] of flashes) if (f.expiresAt < now) flashes.delete(k);
+    scheduleFlashCleanup();
+}
+
+// Aggregate any live implement-boundary flash for a given vehicle.
+// Returns ' flash-up' / ' flash-down' / '' so it composes the same way
+// as getFlashCls. Impl flash WINS over fuel flash — reaching full /
+// empty is more noteworthy than a 1 l fuel tick.
+function getImplFlashCls(vName) {
+    if (!isFlashEnabled('vehicles')) return '';
+    const now = Date.now();
+    const prefix = `vehicles::impl::${vName}::`;
+    let dir = null;
+    for (const [k, f] of flashes) {
+        if (!k.startsWith(prefix)) continue;
+        if (f.expiresAt <= now) continue;
+        dir = f.dir;  // last-wins is fine; we just want SOME flash class
+    }
+    if (!dir) return '';
+    return dir === 'up' ? ' flash-up' : ' flash-down';
+}
+
 // Stable snapshot of every still-live flash for a given section. Used as
 // part of the per-renderer memo key — if no flash entered or expired since
 // the last call, the renderer can safely no-op. We DO NOT include the
@@ -619,10 +701,19 @@ function storageFlashKey(st) {
 // section name as the UI toggle key. Storage and productions use `header::`
 // and `item::` row-key prefixes so one toggle controls both granularities.
 function noteAllChanges(d) {
+    // Balance — single-value flash with threshold (see noteBalanceFlash)
+    noteBalanceFlash(d.farmBalance);
     // Vehicles — fuelLiters per name (skip wheelbarrows w/ no fuel tank)
     noteFlashRows('vehicles', d.vehicles || [],
         v => v.name,
         v => (v.fuelCapacity > 0 ? v.fuelLiters : null));
+    // Implement boundary flashes — when an attached fillUnit transitions
+    // into 100 % (full) or 0 % (empty), tint the vehicle row green / red
+    // so the user notices "loaded trailer ready to drive" / "trailer
+    // unloaded, send the tractor back". Tracked per fillUnit so multi-
+    // bin implements don't smear; the per-vehicle aggregate gets read
+    // back by getImplFlashCls() below.
+    noteImplementBoundaryFlashes(d.vehicles || []);
     // Animals — count per husbandry
     noteFlashRows('animals', d.animals || [],
         a => a.husbandryName,
@@ -670,6 +761,78 @@ function noteAllChanges(d) {
         f => f.growthState);
 }
 
+// AI / Courseplay / AutoDrive task → compact CZ description.
+// `aiTask` shape comes from the Lua mod (see DashboardExport.lua getAITask).
+// Returns { text, tooltip } or null when there's no active task.
+const AI_JOB_CS = {
+    // FS25 returns the runtime enum name (FIELDWORK, DELIVER, …) via
+    // jobTypeManager:getJobTypeByIndex(idx).name. Documentation hinted at
+    // class names (AIJobFieldWork, …) — we map both, runtime values win.
+    FIELDWORK:            'Pole',
+    DELIVER:              'Doručení',
+    CONVEYORBELT:         'Dopravník',
+    GOTO:                 'Cesta',
+    LOAD_AND_DELIVER:     'Nakládá',
+    AIJobFieldWork:       'Pole',
+    AIJobDeliver:         'Doručení',
+    AIJobConveyor:        'Dopravník',
+    AIJobGoTo:            'Cesta',
+    AIJobLoadAndDeliver:  'Nakládá',
+    Courseplay:           'Courseplay',
+    AutoDrive:            'AutoDrive',
+};
+const AD_MODE_CS = {
+    1: 'jede',           // DRIVETO
+    2: 'pickup+deliver', // PICKUPANDDELIVER
+    3: 'doručuje',       // DELIVERTO
+    4: 'nakládá',        // LOAD
+    5: 'vykládá',        // UNLOAD
+    6: 'BGA',            // BGA
+};
+function fmtEta(sec) {
+    if (sec == null || sec <= 0) return null;
+    const m = Math.floor(sec / 60);
+    if (m < 1)  return `${sec} s`;
+    if (m < 60) return `${m} min`;
+    const h = Math.floor(m / 60), mm = m % 60;
+    return `${h} h ${mm} min`;
+}
+function aiTaskBadge(t) {
+    if (!t) return null;
+    const job = AI_JOB_CS[t.jobClass] || t.jobClass || '?';
+    // Remaining time: AutoDrive sends raw seconds, Courseplay sends a
+    // preformatted string ("1h 29min") on its CpStatus.
+    const etaText = t.remainingText || fmtEta(t.etaSeconds);
+    let parts = [];
+    if (t.progress != null) parts.push(`${t.progress} %`);
+    if (t.source === 'autodrive') {
+        const modeLabel = AD_MODE_CS[t.mode] || 'AD';
+        parts.push(modeLabel);
+        if (t.destination) parts.push(t.destination);
+    } else {
+        parts.push(job);
+        if (t.helper)    parts.push(t.helper);
+    }
+    if (etaText) parts.push('⏱ ' + etaText);
+    const text = '🤖 ' + parts.filter(Boolean).join(' · ');
+
+    // Build tooltip in a separate, fuller format
+    const tipParts = [
+        t.source === 'vanilla'    ? 'Vanilla AI helper' :
+        t.source === 'courseplay' ? 'Courseplay'         :
+        t.source === 'autodrive'  ? 'AutoDrive'          : t.source,
+        t.progress != null ? `${t.progress}% hotovo` : null,
+        etaText ? `Zbývá: ${etaText}` : null,
+        (t.currentWp != null && t.totalWps != null)
+            ? `Waypoint ${t.currentWp} / ${t.totalWps}` : null,
+        t.helper ? `Pracovník: ${t.helper}` : null,
+        t.destination ? `Cíl: ${t.destination}` : null,
+        t.taskIndex === 1 ? 'fáze: jede na pole' :
+        t.taskIndex === 2 ? 'fáze: práce' : null,
+    ].filter(Boolean);
+    return { text, tooltip: tipParts.join(' · ') };
+}
+
 function vehicleCardHTML(v, opts) {
     const fp = v.fuelPercent ?? 0;
     const adblue = v.adBlueCapacity
@@ -681,7 +844,15 @@ function vehicleCardHTML(v, opts) {
     // truncated). Per user feedback: keep only the short name visible
     // and put the full type + motor hours + AdBlue in the tooltip.
     const rowTitle = `${v.typeName || v.name} · ${v.motorHours ?? 0} mh${adblue}`;
-    const flashCls = getFlashCls('vehicles', v.name);
+    // Impl-boundary flash wins over fuel flash — a trailer reaching 100 %
+    // or 0 % is more important to surface than a 1 l fuel tick.
+    const flashCls = getImplFlashCls(v.name) || getFlashCls('vehicles', v.name);
+    const ai = aiTaskBadge(v.aiTask);
+    const aiHTML = ai
+        ? `<span class="vc-ai" title="${esc(ai.tooltip)}">${esc(ai.text)}</span>`
+        : '';
+    const implHTML    = implementsHTML(v.implements, v.name);
+    const implSummary = implementsSummary(v.implements, v.name);
     return `<div class="vehicle-row ${v.isInUse ? 'in-use' : ''}${flashCls}" ${TableTools.dndAttrs('vehicles', v.name)} title="${esc(rowTitle)}">
         <span class="${dotCls}"></span>
         <span class="vc-name">${esc(v.name)}</span>
@@ -689,8 +860,84 @@ function vehicleCardHTML(v, opts) {
             ${bar(fp)}
             <span class="vc-fuel-num">${fmt(v.fuelLiters)}/${fmt(v.fuelCapacity)} l</span>
         </div>
+        ${aiHTML}
         <span class="vc-mh" title="Motohodiny">${v.motorHours ?? 0} mh</span>
+        ${implSummary}
+        ${implHTML}
     </div>`;
+}
+
+// Compact one-line summary of attached implements that currently carry
+// something. Shown in basic view (where the full implementsHTML block
+// is hidden) so the user still sees the wagon filling up during work.
+// CSS hides .vc-impl-summary when .expanded-vehicles is on — the full
+// sub-rows take over there.
+//
+// Each entry reads "<implName> · <fill> <pct>%" — the implement name is
+// suppressed when it duplicates the parent vehicle (integrated parts of
+// the same machine).
+function implementsSummary(implements, vehicleName) {
+    if (!implements || implements.length === 0) return '';
+    const showEmpty = !!DashState.get('vehicleShowEmptyImplements', false);
+    const parts = [];
+    for (const impl of implements) {
+        const showImplName = impl.name && impl.name !== '' && impl.name !== vehicleName;
+        for (const u of (impl.fillUnits || [])) {
+            const pct = u.percent ?? 0;
+            const lvl = u.levelL ?? 0;
+            const isEmpty = lvl <= 0 || pct <= 0;
+            if (isEmpty && !showEmpty) continue;
+            const noFill = !u.fillType || u.fillType === 'EMPTY';
+            const label  = noFill ? '—' : (u.typeTitle || u.fillType);
+            const cls    = isEmpty ? 'c-muted vc-impl-empty'
+                          : (pct >= 90 ? 'c-green' : (pct >= 50 ? '' : 'c-muted'));
+            const implPrefix = showImplName
+                ? `<span class="vi-impl">${esc(impl.name)}</span> · `
+                : '';
+            parts.push(`<span class="vc-impl-line ${cls}">${implPrefix}${esc(label)} ${pct}%</span>`);
+        }
+    }
+    if (parts.length === 0) return '';
+    return `<span class="vc-impl-summary" title="Naplnění připojeného nářadí">${parts.join('')}</span>`;
+}
+
+// Render attached implements (trailers, harvester body, seeders, sprayers)
+// as a small block of sub-rows below the vehicle line. Each fillUnit gets
+// its own line: "Pšenice  ▓▓▓░  18.4t / 24.0t · 77%".
+// `vehicleName` is passed in so we can suppress the implement name when it
+// duplicates the parent (e.g. integrated parts that share the vehicle's
+// own name — "součást stroje" in user-speak).
+function implementsHTML(implements, vehicleName) {
+    if (!implements || implements.length === 0) return '';
+    const rows = [];
+    for (const impl of implements) {
+        const showImplName = impl.name && impl.name !== '' && impl.name !== vehicleName;
+        for (const u of (impl.fillUnits || [])) {
+            // "EMPTY" comes from the Lua side when a trailer has no current
+            // and no historical fillType — show it as a soft em-dash so the
+            // row reads "Pickup wagon — 0 / 50 t" rather than "EMPTY 0 / 50 t".
+            const isEmpty = !u.fillType || u.fillType === 'EMPTY';
+            const fillLabel = isEmpty ? '—' : (u.typeTitle || u.fillType);
+            // Liters → tonnes if > 1000 for readability
+            const lv  = u.levelL    || 0;
+            const cap = u.capacityL || 0;
+            const fmtUnit = cap > 1000
+                ? `${(lv / 1000).toFixed(1)}t / ${(cap / 1000).toFixed(1)}t`
+                : `${fmt(lv)} / ${fmt(cap)} l`;
+            const pct = u.percent ?? 0;
+            const cls = pct >= 90 ? 'c-green' : (pct >= 50 ? '' : 'c-muted');
+            const implPrefix = showImplName
+                ? `<span class="vi-impl">${esc(impl.name)}</span><span class="vi-sep"> · </span>`
+                : '';
+            rows.push(`<div class="vi-row" title="${esc(impl.name)}">
+                <span class="vi-label">${implPrefix}${esc(fillLabel)}</span>
+                <span class="vi-bar">${bar(pct)}</span>
+                <span class="vi-num ${cls}">${esc(fmtUnit)}</span>
+            </div>`);
+        }
+    }
+    if (rows.length === 0) return '';
+    return `<div class="v-implements">${rows.join('')}</div>`;
 }
 
 let _vehiclesMemo = null;
@@ -766,12 +1013,30 @@ function animalCardHTML(a, opts) {
     const inputsHTML  = inputs.map(barPair).join('');
     const outputsHTML = outputs.map(barPair).join('');
 
-    // Reproduction badge — max % across clusters. Tinted green ≥90 % so the
-    // user can spot a herd about to birth at a glance. Empty pens (count==0)
-    // and husbandries that don't expose reproduction get no badge.
+    // Reproduction badge — uses the husbandry-level status enum from the mod
+    // so the icon + colour reflects *why* the counter is or isn't moving.
+    // Empty pens get no badge.
     const reproPct = a.reproductionPercent;
+    const reproStatus = a.reproductionStatus;        // may be undefined on old mod
+    // Color encodes "can this herd reproduce right now (or imminently)?":
+    //   green  — yes (ready / cycling / paused-awaiting-trigger)
+    //   orange — not yet (too young)
+    //   red    — gated by conditions (health/food/partner)
+    //   muted  — species doesn't support reproduction
+    // Icon still encodes the specific state inside that bucket.
+    const REPRO_DISPLAY = {
+        ready:       { icon: '🟢', cls: 'c-green',  hint: 'Připraveno — porod se chystá (100 %)' },
+        cycling:     { icon: '🟡', cls: 'c-green',  hint: 'V cyklu — counter roste směrem ke 100 %' },
+        paused:      { icon: '⏸',  cls: 'c-green',  hint: 'Reprodukce možná — splňuje podmínky, jen čeká na spuštění (např. ruční reprodukce)' },
+        blocked:     { icon: '🔴', cls: 'c-red',    hint: 'Blokováno — nesplňuje podmínky (zdraví / krmivo / partner)' },
+        young:       { icon: '🟠', cls: 'c-orange', hint: 'Mladá — ještě nedospělá pro reprodukci' },
+        unsupported: { icon: '⚪', cls: 'c-muted',  hint: 'Druh nepodporuje reprodukci' },
+    };
+    const rd = reproStatus ? REPRO_DISPLAY[reproStatus] : null;
     const reproBadge = (a.count > 0 && reproPct != null)
-        ? ` · <span class="${reproPct >= 90 ? 'c-green' : ''}" title="Reprodukce — nejvyšší % napříč plemeny (100 % = nové mládě)">🐣 ${reproPct}%</span>`
+        ? (rd
+            ? ` · <span class="${rd.cls}" title="${rd.hint}. Nejvyšší cluster: ${reproPct} %.">${rd.icon} ${reproPct} %</span>`
+            : ` · <span class="${reproPct >= 90 ? 'c-green' : ''}" title="Reprodukce — nejvyšší % napříč plemeny (100 % = nové mládě)">🐣 ${reproPct} %</span>`)
         : '';
 
     const flashCls = getFlashCls('animals', a.husbandryName);
@@ -839,6 +1104,34 @@ function openAnimalModal(name) {
             </tbody>
         </table>`;
 
+    // Per-cluster reproduction state. Same enum the compact row uses, but
+    // shown explicitly as a cell so the user can see *which* cluster is
+    // ready vs which is still young.
+    // Same colour bucketing as REPRO_DISPLAY: green = can reproduce now/soon,
+    // orange = waiting to mature, red = blocked by conditions, muted = N/A.
+    const REPRO_CELL = {
+        ready:       { icon: '🟢', label: 'Připraveno',   cls: 'c-green'  },
+        cycling:     { icon: '🟡', label: 'V cyklu',      cls: 'c-green'  },
+        paused:      { icon: '⏸',  label: 'Možná',        cls: 'c-green'  },
+        blocked:     { icon: '🔴', label: 'Blokováno',    cls: 'c-red'    },
+        young:       { icon: '🟠', label: 'Mladá',        cls: 'c-orange' },
+        unsupported: { icon: '⚪', label: 'Bez reprod.',  cls: 'c-muted'  },
+    };
+    const reproCell = c => {
+        const d = REPRO_CELL[c.reproStatus] || null;
+        if (!d) return `<td class="num ${c.reproduction >= 90 ? 'c-green' : ''}">${c.reproduction} %</td>`;
+        // Tooltip explains why this cluster has this state, with the raw numbers.
+        const detail = c.reproStatus === 'young'
+            ? `čeká na věk ${c.minAgeMonth} m (nyní ${c.age} m)`
+            : c.reproStatus === 'blocked'
+                ? `zdraví ${c.health} % (min ${c.minHealth} %)`
+                : c.reproStatus === 'paused'
+                    ? `cyklus pozastaven (factor ${(c.reproFactor || 0).toFixed(2)})`
+                    : '';
+        const title = `${d.label}${detail ? ' — ' + detail : ''}. Counter: ${c.reproduction} %.`;
+        return `<td class="num ${d.cls}" title="${esc(title)}">${d.icon} ${c.reproduction} %</td>`;
+    };
+
     const clusters = (data.clusters && data.clusters.length) ? `
         <h4>Stáda (${data.clusters.length})</h4>
         <table class="amodal-clusters">
@@ -852,7 +1145,7 @@ function openAnimalModal(name) {
                     <td class="num">${c.count}</td>
                     <td class="num">${c.age} m</td>
                     <td class="num">${c.health} %</td>
-                    <td class="num ${c.reproduction >= 90 ? 'c-green' : ''}">${c.reproduction} %</td>
+                    ${reproCell(c)}
                     <td class="num">${fmtMoney(c.sellPrice || 0)}</td>
                 </tr>`).join('')}
             </tbody>
@@ -911,15 +1204,16 @@ function renderAnimals(animals) {
 // #vehicles-hidden-body. The previous HTML5-DnD listeners that lived here
 // conflicted with Sortable's forceFallback pointer-event drag.
 
-// Subgroup-header collapse toggle. Only applies to subgroups that ship a
-// .group-toggle indicator (▶/▼) — that's "Prázdné chovy" under Zvířata.
-// The drag-to-hide zones use .tt-hidden-zone (no .group-toggle inside) and
-// must stay visible so they're always a valid drop target.
+// Subgroup-header collapse toggle for "Prázdné chovy" under Zvířata.
+// Drag-to-hide zones (.tt-hidden-zone) have their own collapse mechanism
+// in tabletools.js — skip them here, otherwise both handlers fight and
+// the hidden content stays invisible after toggle.
 document.addEventListener('click', e => {
     const sub = e.target.closest('.subgroup-header');
     if (!sub) return;
+    if (sub.parentElement && sub.parentElement.classList.contains('tt-hidden-zone')) return;
     const toggle = sub.querySelector('.group-toggle');
-    if (!toggle) return;   // no indicator → not a collapsible subgroup
+    if (!toggle) return;
     const body = sub.nextElementSibling;
     if (!body) return;
     const collapsed = body.classList.toggle('hidden-row');
@@ -1511,6 +1805,7 @@ window.addEventListener('DOMContentLoaded', () => {
     applySectionOrder();
     applyHiddenSections();   // hide sections the user toggled off in Settings → Sekce
     applyKpiState();
+    if (typeof window.applyVehiclesExpanded === 'function') window.applyVehiclesExpanded();
 
     relayoutMasonry();
 
@@ -1525,6 +1820,41 @@ window.addEventListener('DOMContentLoaded', () => {
         TableTools.onChange('productions', () => { if (window.__lastData) { renderProductions(window.__lastData.productions || []); relayoutMasonry(); } });
         TableTools.onChange('prices',      () => { if (window.__lastData) { renderPrices(window.__lastData.prices || []); relayoutMasonry(); } });
         TableTools.onChange('priceItems',  () => { if (window.__lastData) { renderPrices(window.__lastData.prices || []); relayoutMasonry(); } });
+    }
+
+    // Server-sync replay — fires when ServerSync writes incoming patches
+    // (or the initial GET) into localStorage. Re-apply every affected
+    // scope so the user sees the change without a manual refresh.
+    if (window.ServerSync) {
+        window.ServerSync.onReplay(keys => {
+            const touched = new Set(keys);
+            // Theme — re-applied via theme.js
+            if (touched.has('theme')) {
+                try {
+                    const t = JSON.parse(localStorage.getItem('fs25.dash.v1.theme') || '"dark-green"');
+                    document.documentElement.setAttribute('data-theme', t);
+                } catch (_) {}
+            }
+            // Sections, KPI, table-scope orders + hide sets
+            if (touched.has('order:sections') || [...touched].some(k => k.startsWith('hidden:sections'))) {
+                applySectionOrder();
+                applyHiddenSections();
+            }
+            if (touched.has('hiddenSections')) applyHiddenSections();
+            if (touched.has('vehiclesExpanded') && typeof window.applyVehiclesExpanded === 'function') {
+                window.applyVehiclesExpanded();
+                relayoutMasonry();
+            }
+            if (touched.has('order:kpi') || touched.has('hidden:kpi')) applyKpiState();
+            const SCOPES = ['fields', 'vehicles', 'animals', 'storages', 'productions', 'prices', 'priceItems'];
+            for (const scope of SCOPES) {
+                if (touched.has('order:' + scope) || touched.has('hidden:' + scope)
+                    || touched.has('hidden' + scope[0].toUpperCase() + scope.slice(1))) {
+                    if (window.TableTools) TableTools.trigger(scope);
+                }
+            }
+            relayoutMasonry();
+        });
     }
 });
 

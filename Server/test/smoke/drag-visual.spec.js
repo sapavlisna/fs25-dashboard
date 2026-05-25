@@ -20,6 +20,14 @@ const { test, expect } = require('@playwright/test');
 
 test.use({ viewport: { width: 1900, height: 1400 } });
 
+test.beforeEach(async ({ page }) => {
+    // Disable server sync so the test isn't perturbed by state PATCHed by
+    // an earlier spec (the smoke suite shares one server process).
+    await page.addInitScript(() => {
+        try { localStorage.setItem('fs25.dash.v1.syncMode', 'local'); } catch (_) {}
+    });
+});
+
 test('section dropped on the right stays on the right', async ({ page }) => {
     await page.goto('/');
     await page.locator('#kpi-balance').waitFor();

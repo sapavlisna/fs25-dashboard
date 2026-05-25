@@ -53,7 +53,9 @@
                 <nav class="settings-tabs" id="settings-tabs">
                     <button type="button" data-tab="notif" class="active">🔔 Notifikace</button>
                     <button type="button" data-tab="sections">📋 Sekce</button>
+                    <button type="button" data-tab="vehicles">🚜 Vozidla</button>
                     <button type="button" data-tab="theme">🎨 Vzhled</button>
+                    <button type="button" data-tab="sync">☁ Sync</button>
                 </nav>
 
                 <div class="settings-panels">
@@ -91,9 +93,57 @@
                     </div>
                 </section>
 
+                <section class="settings-panel" data-panel="vehicles" hidden>
+                    <label style="margin-bottom:8px;display:block">Sekce vozidel</label>
+                    <p class="settings-hint">
+                        V rozšířeném zobrazení vidíš pod každým vozidlem i jeho
+                        nářadí (vlečky, semenovody, sila kombajnu) s aktuálním
+                        naplněním. Sekce se taky roztáhne přes dva sloupce, ať
+                        je víc místa pro detail.
+                    </p>
+                    <label class="section-row" style="cursor:default">
+                        <span class="section-row-label">Rozšířené zobrazení (nářadí + 2 sloupce)</span>
+                        <span class="section-row-toggle">
+                            <input type="checkbox" id="vehicles-expanded">
+                            <span class="switch-knob"></span>
+                        </span>
+                    </label>
+                    <label class="section-row" style="cursor:default">
+                        <span class="section-row-label">Zobrazit i prázdné nářadí v základním pohledu</span>
+                        <span class="section-row-toggle">
+                            <input type="checkbox" id="vehicles-show-empty-impl">
+                            <span class="switch-knob"></span>
+                        </span>
+                    </label>
+                </section>
+
                 <section class="settings-panel" data-panel="theme" hidden>
                     <label style="margin-bottom:8px;display:block">Téma vzhledu</label>
                     <div class="theme-grid">${themeButtons}</div>
+                </section>
+
+                <section class="settings-panel" data-panel="sync" hidden>
+                    <label style="margin-bottom:8px;display:block">Synchronizace se serverem</label>
+                    <p class="settings-hint">
+                        Téma, pořadí sekcí, skryté položky a další nastavení se ukládají na server.
+                        Když si dashboard otevřeš na jiném zařízení (mobil, druhý počítač), uvidíš stejné rozložení.
+                        Při změně na jednom zařízení se ostatní automaticky aktualizují.
+                    </p>
+                    <label class="section-row" style="cursor:default">
+                        <span class="section-row-label">Synchronizovat s serverem</span>
+                        <span class="section-row-toggle">
+                            <input type="checkbox" id="sync-enabled">
+                            <span class="switch-knob"></span>
+                        </span>
+                    </label>
+                    <p class="settings-hint" style="margin-top:10px">
+                        Pokud vypneš, toto zařízení bude mít vlastní lokální layout. Změny se nebudou propisovat
+                        na ostatní zařízení (ani naopak).
+                    </p>
+                    <div class="section-reset-row">
+                        <button class="secondary" id="sync-pull" type="button"
+                                title="Stáhne aktuální nastavení ze serveru a přepíše lokální">↺ Načíst ze serveru</button>
+                    </div>
                 </section>
                 </div>
 
@@ -168,7 +218,63 @@
                 if (typeof window.applySectionOrder === 'function') window.applySectionOrder();
             });
         }
+
+        // Sync panel — toggle + manual pull from server.
+        const syncCb   = document.getElementById('sync-enabled');
+        const syncPull = document.getElementById('sync-pull');
+        if (syncCb && window.ServerSync) {
+            syncCb.checked = window.ServerSync.isEnabled();
+            syncCb.onchange = () => window.ServerSync.setEnabled(syncCb.checked);
+        }
+        if (syncPull && window.ServerSync) {
+            syncPull.onclick = async () => {
+                syncPull.disabled = true;
+                syncPull.textContent = 'Načítám…';
+                await window.ServerSync.pullFromServer({ force: true });
+                syncPull.textContent = '✓ Načteno';
+                setTimeout(() => {
+                    syncPull.disabled = false;
+                    syncPull.textContent = '↺ Načíst ze serveru';
+                }, 1500);
+            };
+        }
+
+        // ─── Vehicles panel — basic vs expanded toggle ────────────────────
+        const vehExp = document.getElementById('vehicles-expanded');
+        if (vehExp && window.DashState) {
+            const KEY = window.DashState.KEYS.vehiclesExpanded;
+            vehExp.checked = !!window.DashState.get(KEY, false);
+            vehExp.onchange = () => {
+                window.DashState.set(KEY, vehExp.checked);
+                if (window.ServerSync) window.ServerSync.syncWrite(KEY, vehExp.checked);
+                applyVehiclesExpanded();
+            };
+        }
+        // ─── Vehicles panel — show empty implements in basic view ─────────
+        const vehShowEmpty = document.getElementById('vehicles-show-empty-impl');
+        if (vehShowEmpty && window.DashState) {
+            const KEY = 'vehicleShowEmptyImplements';
+            vehShowEmpty.checked = !!window.DashState.get(KEY, false);
+            vehShowEmpty.onchange = () => {
+                window.DashState.set(KEY, vehShowEmpty.checked);
+                if (window.ServerSync) window.ServerSync.syncWrite(KEY, vehShowEmpty.checked);
+                // Re-render vehicles to pick up the new filter; uses the
+                // last live data cached on FS25App.
+                if (window.FS25App && window.FS25App.rerender) window.FS25App.rerender();
+            };
+        }
     }
+
+    // Toggle the .expanded-vehicles class on the vehicles section based on
+    // DashState. Re-applied on load, on user toggle, and on cross-device
+    // sync (handled by serverSync.js patches).
+    function applyVehiclesExpanded() {
+        if (!window.DashState) return;
+        const on  = !!window.DashState.get(window.DashState.KEYS.vehiclesExpanded, false);
+        const sec = document.querySelector('.section[data-tt-key="vehicles"]');
+        if (sec) sec.classList.toggle('expanded-vehicles', on);
+    }
+    window.applyVehiclesExpanded = applyVehiclesExpanded;
 
     function renderSectionList() {
         const wrap = document.getElementById('section-list');
@@ -211,6 +317,7 @@
     function applyTheme(id) {
         document.documentElement.setAttribute('data-theme', id);
         try { localStorage.setItem(THEME_KEY, id); } catch (_) {}
+        if (window.ServerSync) window.ServerSync.syncWrite('theme', id);
         // Keep the standalone theme-picker (cycle button) icon + tooltip in sync
         const picker = document.getElementById('theme-picker');
         if (picker) {
@@ -274,10 +381,14 @@
 
     // ─── WebSocket connect (single shared logic) ──────────────────────────────
 
+    let lastData = null;
+    let onDataCb = null;
+
     function connect(onData) {
         const dot     = document.getElementById('ws-dot');
         const wsLabel = document.getElementById('ws-label');
         let ws, reconnectTimer;
+        onDataCb = onData;
 
         function open() {
             ws = new WebSocket(`ws://${location.host}`);
@@ -289,6 +400,10 @@
             ws.onmessage = e => {
                 try {
                     const data = JSON.parse(e.data);
+                    // Settings sync envelope — handled by ServerSync; not a
+                    // real game-data payload, so short-circuit before the
+                    // regular renderers run.
+                    if (window.ServerSync && window.ServerSync.handleWsMessage(data)) return;
                     if (window.CropIcons && Array.isArray(data.availableFruits)) {
                         window.CropIcons.setCatalog(data.availableFruits);
                     }
@@ -296,6 +411,7 @@
                     if (data.saveMeta) updateSaveMeta(data.saveMeta);
                     if (window.Notifier) window.Notifier.process(data);
                     if (window.FS25Bell) window.FS25Bell.update(data);
+                    lastData = data;
                     onData && onData(data);
                 } catch (_) {}
             };
@@ -307,6 +423,13 @@
         }
 
         open();
+    }
+
+    // Re-run the page's render callback against the last received payload —
+    // used when a settings toggle (e.g. "show empty implements") needs to
+    // refresh the UI without waiting for the next WS tick.
+    function rerender() {
+        if (lastData && onDataCb) onDataCb(lastData);
     }
 
     // ─── Save metadata in nav ─────────────────────────────────────────────────
@@ -330,9 +453,41 @@
         if (meta.saveDateFormatted) el.title = 'Uloženo ' + meta.saveDateFormatted;
     }
 
+    // ─── Server version badge in nav ─────────────────────────────────────────
+    // /api/version returns { server, schema, mod: { schemaVersion, modVersion } }.
+    // We surface this as a small "v1.1.2" tag next to the brand, with a
+    // tooltip showing the matching mod version once it's been seen.
+
+    async function showServerVersion() {
+        const brand = document.querySelector('.nav-brand');
+        if (!brand) return;
+        let el = document.getElementById('nav-version');
+        if (!el) {
+            el = document.createElement('span');
+            el.id = 'nav-version';
+            el.className = 'nav-version';
+            brand.insertAdjacentElement('afterend', el);
+        }
+        try {
+            const v = await fetch('/api/version').then(r => r.json());
+            const srv = v.server || '?';
+            const mod = (v.mod && (v.mod.modVersion || v.mod.schemaVersion))
+                ? `mod ${v.mod.modVersion || '?'}`
+                : 'mod není připojen';
+            el.textContent = `v${srv}`;
+            el.title = `server v${srv} · ${mod}`;
+        } catch (e) {
+            el.textContent = 'v?';
+            el.title = 'verze serveru se nepodařilo načíst: ' + e.message;
+        }
+    }
+
     // ─── Init ─────────────────────────────────────────────────────────────────
 
-    document.addEventListener('DOMContentLoaded', injectNotifUI);
+    document.addEventListener('DOMContentLoaded', () => {
+        injectNotifUI();
+        showServerVersion();
+    });
 
-    window.FS25App = { connect };
+    window.FS25App = { connect, rerender };
 })();

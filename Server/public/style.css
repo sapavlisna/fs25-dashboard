@@ -131,6 +131,14 @@ nav {
     max-width: 240px;
     overflow: hidden; text-overflow: ellipsis;
 }
+.nav-version {
+    font-size: 11px; color: var(--accent);
+    margin-right: 10px; white-space: nowrap;
+    padding: 2px 6px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
 .nav-links { display: flex; gap: 4px; flex: 1; }
 .nav-links a {
     padding: 6px 14px;
@@ -814,8 +822,10 @@ tr.flash-down > td { background-color: rgba(224, 82, 82, .35)                   
 .vehicle-row {
     display: grid;
     /* dot · name(flex) · fuel block · motor-hours. The full vehicle type
-       name is in the row's title attribute (tooltip on hover). */
-    grid-template-columns: 10px minmax(120px, 1fr) 180px 70px;
+       name is in the row's title attribute (tooltip on hover).
+       Sized so the row fits inside the narrowest masonry track (~340 px)
+       — wider tracks let the 1fr name column absorb the slack. */
+    grid-template-columns: 10px minmax(80px, 1fr) 150px 60px;
     align-items: center;
     gap: 8px;
     padding: 6px 10px 6px 7px;
@@ -844,7 +854,7 @@ tr.flash-down > td { background-color: rgba(224, 82, 82, .35)                   
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .vc-fuel { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.vc-fuel .bar-wrap { width: 70px; min-width: 70px; flex: 0 0 70px; }
+.vc-fuel .bar-wrap { width: 60px; min-width: 60px; flex: 0 0 60px; }
 .vc-fuel-num { font-size: 11px; color: var(--muted); white-space: nowrap; flex-shrink: 0; }
 .vc-mh {
     font-size: 11px;
@@ -852,6 +862,111 @@ tr.flash-down > td { background-color: rgba(224, 82, 82, .35)                   
     text-align: right;
     white-space: nowrap;
     font-variant-numeric: tabular-nums;
+}
+.vc-ai {
+    /* Sit on a dedicated second row of the row's grid, spanning from the
+       name column to the end (no dot offset) so the badge has room and
+       reads as a sub-line of the same vehicle. */
+    grid-column: 2 / -1;
+    grid-row: 2;
+    justify-self: start;
+    margin-top: 1px;
+    font-size: 11px;
+    color: var(--accent);
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1px 6px;
+    white-space: nowrap;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    cursor: help;
+}
+
+/* Compact implement fill summary — visible in basic view so the user can
+   see a wagon filling up without enabling the expanded layout. Hidden
+   when .expanded-vehicles is on (the full sub-rows take over there).
+   Sits on row 3 so it stacks below the AI badge when both are present;
+   row 2 collapses to zero height when no AI badge is rendered. */
+.vc-impl-summary {
+    grid-column: 2 / -1;
+    grid-row: 3;
+    justify-self: stretch;
+    margin-top: 1px;
+    font-size: 11px;
+    color: var(--muted);
+    max-width: 100%;
+    display: flex;
+    flex-direction: column;
+    cursor: help;
+}
+.vc-impl-line {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.vc-impl-summary .c-green { color: #4ade80; }
+.expanded-vehicles .vc-impl-summary { display: none; }
+
+/* Implements sub-block — one line per fillUnit, indented under the vehicle.
+   Hidden by default; the user enables it via Settings → 🚜 Vozidla →
+   "Rozšířené zobrazení". When enabled, the parent .section gets the
+   .expanded-vehicles class which both reveals these sub-rows and lets
+   the section span two masonry columns (room for the wider info).
+
+   Spans ALL grid columns (1/-1) — the vehicle-row's grid-template-columns
+   add up to ~324 px; pinning the sub-row to columns 2..-1 made it inherit
+   that min-width and pushed numbers off the right edge. With 1/-1 plus
+   a small padding-left, we get the visual "indent under name" without
+   stealing room from .vi-num. */
+.v-implements {
+    display: none;
+    grid-column: 1 / -1;
+    grid-row: 3;
+    margin-top: 2px;
+    padding-left: 18px;            /* dot 10 + gap 8 → aligns under .vc-name */
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+.expanded-vehicles .v-implements {
+    display: flex;
+}
+.expanded-vehicles {
+    /* Take two masonry columns so the wider sub-rows breathe. */
+    grid-column: span 2;
+}
+.vi-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+    color: var(--muted);
+    min-width: 0;
+}
+.vi-row .bar-wrap { width: 70px; min-width: 70px; flex: 0 0 70px; }
+.vi-label {
+    flex: 1 1 auto;
+    min-width: 0;            /* lets the ellipsis kick in when truly narrow */
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: var(--text);
+}
+.vi-bar  { flex: 0 0 70px; }
+.vi-num  { flex: 0 0 auto; }
+.vi-impl { color: var(--muted); }
+.vi-sep  { color: var(--muted); opacity: 0.6; }
+.vi-num {
+    /* `flex: 0 0 max-content` forces the box to its natural content width,
+       even inside a constrained flex track. The label is the one that
+       shrinks (it has flex:1 + min-width:0). Without this `.vi-num` would
+       collapse and its text would overflow the parent .v-implements
+       which has overflow:hidden, making the value invisible. */
+    flex: 0 0 max-content;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
 }
 
 /* Vehicle drag-and-drop zone highlight */
@@ -1006,6 +1121,7 @@ tr.flash-down > td { background-color: rgba(224, 82, 82, .35)                   
 /* ─── Colours ────────────────────────────────────────────────────────── */
 .c-green  { color: var(--accent); }
 .c-yellow { color: var(--accent2); }
+.c-orange { color: var(--orange); }
 .c-red    { color: var(--red); }
 .c-muted  { color: var(--muted); }
 

@@ -1,13 +1,50 @@
 #!/usr/bin/env node
 // Generates realistic mock dashboard_data.json every 5s (simulates the FS25 mod).
 // Use to test server + frontend WITHOUT running FS25.
-// Run: npm run mock
+//
+// Usage:
+//   npm run mock                              → default random scenario
+//   node mock-data.js --scenario=harvest-ready
+//   node mock-data.js --scenario=low-fuel /path/to/output.json
+//
+// Runtime scenario switching (no restart):
+//   Write the scenario name to  <DATA_DIR>/mock-scenario.txt
+//   The process polls that file every ~1 s and switches on change.
+//   Server's  POST /mock/scenario  writes to the same file.
+//
+// Available scenarios:  default | empty-farm | harvest-ready | low-fuel |
+//   animal-needs | wagon-filling | plan-3-years | withered-crops |
+//   multi-fruit-types | mixed-ai-tasks
 
 const fs   = require('fs');
 const path = require('path');
 const config = require('../config');
+const { getScenario, listScenarios } = require('./mock-scenarios');
 
-const OUTPUT = process.argv[2] || config.DATA_FILE;
+// ─── CLI argument parsing ─────────────────────────────────────────────────────
+// Accepts an optional positional output path AND --scenario=<name> flag.
+// argv[2] could be either the output path or a --scenario flag; handle both.
+
+let OUTPUT        = config.DATA_FILE;
+let initialScenario = 'default';
+
+for (const arg of process.argv.slice(2)) {
+    if (arg.startsWith('--scenario=')) {
+        initialScenario = arg.slice('--scenario='.length).trim();
+    } else if (!arg.startsWith('--')) {
+        OUTPUT = arg;
+    }
+}
+
+// Validate scenario name early
+if (!listScenarios().includes(initialScenario)) {
+    console.error(`[mock] Unknown scenario "${initialScenario}". Available: ${listScenarios().join(', ')}`);
+    process.exit(1);
+}
+
+// ─── Scenario switch file ────────────────────────────────────────────────────
+// The server's POST /mock/scenario writes the name here.  We poll every 1 s.
+const SCENARIO_FILE = path.join(path.dirname(OUTPUT), 'mock-scenario.txt');
 
 const ri = (a, b) => Math.floor(Math.random() * (b - a + 1)) + a;
 const rf = (a, b) => Math.random() * (b - a) + a;
@@ -270,23 +307,71 @@ function generateData() {
     };
 }
 
+// ─── Active scenario state ────────────────────────────────────────────────────
+let activeScenario  = initialScenario;
+let scenarioTick    = 0;           // increments only for the active scenario
+let lastScenarioMod = 0;           // mtime of SCENARIO_FILE when we last read it
+
+function readScenarioFile() {
+    try {
+        const stat = fs.statSync(SCENARIO_FILE);
+        if (stat.mtimeMs === lastScenarioMod) return;   // unchanged
+        lastScenarioMod = stat.mtimeMs;
+        const name = fs.readFileSync(SCENARIO_FILE, 'utf8').trim();
+        if (name && listScenarios().includes(name) && name !== activeScenario) {
+            activeScenario = name;
+            scenarioTick   = 0;
+            console.log(`\n[mock] Switched to scenario: ${activeScenario}`);
+            // Write immediately so the server picks up the new scenario without
+            // waiting up to 5 s for the next scheduled tick.
+            tick();
+        }
+    } catch (_) { /* file may not exist yet */ }
+}
+
 // Write immediately, then every 5s
 function tick() {
-    const data = generateData();
+    readScenarioFile();
+
+    let data;
+    if (activeScenario === 'default') {
+        data = generateData();
+    } else {
+        const payload = getScenario(activeScenario, scenarioTick);
+        if (payload === null) {
+            data = generateData();       // scenario returned null → use default
+        } else {
+            data = payload;
+        }
+        scenarioTick++;
+    }
+
     fs.writeFileSync(OUTPUT, JSON.stringify(data));
-    process.stdout.write(`\r[mock] Day ${data.gameDay} | ${new Date().toLocaleTimeString('cs-CZ')} | fuel[0]=${data.vehicles[0].fuelPercent}%    `);
+    const fuelPct = data.vehicles && data.vehicles[0] ? data.vehicles[0].fuelPercent + '%' : 'n/a';
+    process.stdout.write(`\r[mock] scenario=${activeScenario} | Day ${data.gameDay} | ${new Date().toLocaleTimeString('cs-CZ')} | fuel[0]=${fuelPct}    `);
 }
 
 // Ensure output directory exists
 const outDir = path.dirname(OUTPUT);
 if (!fs.existsSync(outDir)) {
-    console.error('Output directory does not exist:', outDir);
-    process.exit(1);
+    fs.mkdirSync(outDir, { recursive: true });
 }
 
 tick();
 const interval = setInterval(tick, 5000);
-console.log('\n[mock] Writing to:', OUTPUT);
-console.log('[mock] Ctrl+C to stop.\n');
+// Poll scenario file every 1 s (lightweight, no chokidar dependency here)
+const scenarioPoll = setInterval(readScenarioFile, 1000);
 
-process.on('SIGINT', () => { clearInterval(interval); console.log('\n[mock] Stopped.'); process.exit(0); });
+console.log('\n[mock] Writing to:', OUTPUT);
+console.log(`[mock] Active scenario: ${activeScenario}`);
+console.log('[mock] Ctrl+C to stop.\n');
+console.log('[mock] To switch scenario at runtime:');
+console.log(`[mock]   Write name to ${SCENARIO_FILE}`);
+console.log('[mock]   Or POST { "scenario": "<name>" } to /mock/scenario\n');
+
+process.on('SIGINT', () => {
+    clearInterval(interval);
+    clearInterval(scenarioPoll);
+    console.log('\n[mock] Stopped.');
+    process.exit(0);
+});

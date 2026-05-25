@@ -8,8 +8,16 @@ const db       = require('./db');
 const savegame = require('./savegame');
 const config   = require('./config');
 const pkg      = require('./package.json');
+const log      = require('./logger');
+const { DashboardState } = require('./dashboardState');
 
-const { PORT, HOST, DATA_FILE, PUBLIC_DIR } = config;
+const { PORT, HOST, DATA_FILE, PUBLIC_DIR, DATA_DIR } = config;
+
+// ─── Dashboard preferences (theme, hidden, order, …) ──────────────────────────
+// Shared across every device connecting to this server. Frontend mirrors
+// the keys into localStorage for offline access; the server is the source
+// of truth for cross-device sync.
+const dashState = new DashboardState(path.join(DATA_DIR, 'dashboard-state.json'));
 
 // ─── Schema compatibility ────────────────────────────────────────────────────
 // The mod stamps `schemaVersion` on every payload. Bump these bounds when the
@@ -18,22 +26,26 @@ const SERVER_VERSION    = pkg.version;
 const MIN_MOD_SCHEMA    = 1;
 const MAX_MOD_SCHEMA    = 1;
 
-const seenMod = { schemaVersion: null, modVersion: null, warnedAt: 0 };
+// Track what mod version + schema we've seen so we warn only on change.
+// We normalise undefined → null so the comparison below doesn't fire every
+// single tick when a key is simply missing from the payload.
+const seenMod = { schemaVersion: null, modVersion: null };
 
 function trackModVersion(data) {
     if (!data || typeof data !== 'object') return;
-    const schema = data.schemaVersion;
-    const modVer = data.modVersion;
-    if (schema !== seenMod.schemaVersion || modVer !== seenMod.modVersion) {
-        seenMod.schemaVersion = schema ?? null;
-        seenMod.modVersion    = modVer ?? null;
-        if (schema == null) {
-            console.warn(`[Schema] Mod sent no schemaVersion — assuming legacy (<1). Server expects ${MIN_MOD_SCHEMA}..${MAX_MOD_SCHEMA}. Update the Lua mod.`);
-        } else if (schema < MIN_MOD_SCHEMA || schema > MAX_MOD_SCHEMA) {
-            console.warn(`[Schema] Mod schemaVersion=${schema} outside supported range ${MIN_MOD_SCHEMA}..${MAX_MOD_SCHEMA} (mod ${modVer ?? '?'}). See COMPATIBILITY.md.`);
-        } else {
-            console.log(`[Schema] Mod ${modVer ?? '?'} schemaVersion=${schema} OK (server ${SERVER_VERSION}).`);
-        }
+    const schema = data.schemaVersion ?? null;
+    const modVer = data.modVersion    ?? null;
+    if (schema === seenMod.schemaVersion && modVer === seenMod.modVersion) return;
+
+    seenMod.schemaVersion = schema;
+    seenMod.modVersion    = modVer;
+
+    if (schema === null) {
+        log.warn('schema', `mod sent no schemaVersion — assuming legacy (<1). Server expects ${MIN_MOD_SCHEMA}..${MAX_MOD_SCHEMA}. Update the Lua mod.`);
+    } else if (schema < MIN_MOD_SCHEMA || schema > MAX_MOD_SCHEMA) {
+        log.warn('schema', `mod schemaVersion=${schema} outside supported range ${MIN_MOD_SCHEMA}..${MAX_MOD_SCHEMA} (mod ${modVer ?? '?'}). See COMPATIBILITY.md.`);
+    } else {
+        log.ok('schema', `mod ${modVer ?? '?'} schemaVersion=${schema} OK (server ${SERVER_VERSION})`);
     }
 }
 
@@ -43,6 +55,35 @@ const app    = express();
 const server = http.createServer(app);
 
 app.use(express.static(PUBLIC_DIR));
+app.use(express.json({ limit: '256kb' }));   // state blobs are tiny
+
+// ─── Dashboard preferences sync ──────────────────────────────────────────────
+//
+//   GET   /api/dashboard-state          → full state blob
+//   PUT   /api/dashboard-state          → replace entire state (rare; UI reset)
+//   PATCH /api/dashboard-state          → partial update; body shape:
+//                                          { "<key>": <value>, ... }
+//                                          Null value deletes the key.
+//
+// After a successful PUT/PATCH, the server broadcasts the diff to every
+// connected WS client as `{ __dashboardStatePatch: { ... } }` so other
+// devices update without polling.
+
+app.get('/api/dashboard-state', (_req, res) => {
+    res.json(dashState.getAll());
+});
+
+app.put('/api/dashboard-state', (req, res) => {
+    const next = dashState.replaceAll(req.body || {});
+    broadcastStatePatch(next, { fullReplace: true });
+    res.json(next);
+});
+
+app.patch('/api/dashboard-state', (req, res) => {
+    const changed = dashState.patch(req.body || {});
+    if (Object.keys(changed).length) broadcastStatePatch(changed);
+    res.json({ changed });
+});
 
 app.get('/api/current', (_req, res) => {
     try {
@@ -98,6 +139,61 @@ app.get('/api/savegame', (_req, res) => {
     });
 });
 
+// ─── Mock scenario switcher ──────────────────────────────────────────────────
+//
+//   POST /mock/scenario    { "scenario": "<name>" }
+//
+// Only active when DASHBOARD_MOCK=1 is set (set automatically by the Playwright
+// smoke config, not in production).  Writes the scenario name to
+// <DATA_DIR>/mock-scenario.txt which mock-data.js polls every 1 s.
+//
+// Returns:
+//   200  { "scenario": "harvest-ready", "file": "/path/to/mock-scenario.txt" }
+//   400  { "error": "Missing scenario name" }
+//   404  { "error": "Not available outside mock mode" }   (if not in mock mode)
+
+if (process.env.DASHBOARD_MOCK === '1') {
+    const { listScenarios } = require('./scripts/mock-scenarios');
+    // mock-data.js derives SCENARIO_FILE as  path.dirname(OUTPUT) + '/mock-scenario.txt'
+    // where OUTPUT = DASHBOARD_DATA_FILE (the .json file path, not DATA_DIR).
+    // We must write to the same directory as the JSON file, not DATA_DIR.
+    const SCENARIO_FILE = path.join(path.dirname(DATA_FILE), 'mock-scenario.txt');
+
+    app.post('/mock/scenario', (req, res) => {
+        const name = (req.body && req.body.scenario) ? String(req.body.scenario).trim() : '';
+        if (!name) {
+            return res.status(400).json({ error: 'Missing scenario name' });
+        }
+        const known = listScenarios();
+        if (!known.includes(name)) {
+            return res.status(400).json({ error: `Unknown scenario "${name}". Known: ${known.join(', ')}` });
+        }
+        try {
+            fs.writeFileSync(SCENARIO_FILE, name, 'utf8');
+            log.info('mock', `scenario switched to "${name}"`);
+            res.json({ scenario: name, file: SCENARIO_FILE });
+        } catch (e) {
+            res.status(500).json({ error: e.message });
+        }
+    });
+
+    app.get('/mock/scenario', (_req, res) => {
+        let current = 'default';
+        try { current = fs.readFileSync(SCENARIO_FILE, 'utf8').trim() || 'default'; } catch (_) {}
+        res.json({ scenario: current, available: listScenarios() });
+    });
+
+    log.info('mock', `POST /mock/scenario habilitován (scenario file: ${SCENARIO_FILE})`);
+} else {
+    // Stub — return 404 so Playwright knows the server isn't in mock mode.
+    app.post('/mock/scenario', (_req, res) => {
+        res.status(404).json({ error: 'Not available outside mock mode. Start server with DASHBOARD_MOCK=1.' });
+    });
+    app.get('/mock/scenario', (_req, res) => {
+        res.status(404).json({ error: 'Not available outside mock mode.' });
+    });
+}
+
 // ─── WebSocket ───────────────────────────────────────────────────────────────
 
 const wss = new WebSocketServer({ server });
@@ -144,7 +240,7 @@ function enrich(data) {
             }
         }
     } catch (e) {
-        console.warn('[Enrich] error:', e.message);
+        log.warn('enrich', e.message);
     }
     return data;
 }
@@ -160,17 +256,41 @@ function broadcast(rawString) {
     });
 }
 
-wss.on('connection', ws => {
-    console.log(`[WS] +1 client (total: ${wss.clients.size})`);
-    // Send current state immediately so page doesn't wait up to 5s
+// Send a dashboard-state diff (or full replace) to every connected client.
+// Wrapped in a dedicated envelope so the frontend can tell it apart from a
+// regular game-data payload without a heuristic.
+function broadcastStatePatch(patch, opts = {}) {
+    const msg = JSON.stringify({
+        __dashboardStatePatch: patch,
+        fullReplace: !!opts.fullReplace,
+    });
+    wss.clients.forEach(client => {
+        if (client.readyState === 1 /* OPEN */) client.send(msg);
+    });
+}
+
+wss.on('connection', (ws, req) => {
+    const ip = (req.socket.remoteAddress || '?').replace(/^::ffff:/, '');
+    const ua = req.headers['user-agent'] || '';
+    const browser = ua.includes('Edg/')     ? 'Edge'
+                  : ua.includes('Chrome/')  ? 'Chrome'
+                  : ua.includes('Firefox/') ? 'Firefox'
+                  : ua.includes('Safari/')  ? 'Safari'
+                  : 'unknown';
+    log.add('client', `${browser} (${ip}) → ${wss.clients.size} klient${wss.clients.size === 1 ? '' : (wss.clients.size < 5 ? 'i' : 'ů')}`);
+
+    // Send current state immediately so the page doesn't wait up to 5s.
     try {
         const raw = fs.readFileSync(DATA_FILE, 'utf8');
         let data; try { data = JSON.parse(raw); } catch (_) {}
         ws.send(data ? JSON.stringify(enrich(data)) : raw);
     } catch (_) { /* file not yet written – that's fine */ }
 
-    ws.on('close', () => console.log(`[WS] -1 client (total: ${wss.clients.size})`));
-    ws.on('error', err => console.error('[WS] Error:', err.message));
+    ws.on('close', () => {
+        const n = wss.clients.size;
+        log.drop('client', `${browser} (${ip}) disconnect → ${n} klient${n === 1 ? '' : (n < 5 ? 'i' : 'ů')}`);
+    });
+    ws.on('error', err => log.error('client', `WS error: ${err.message}`));
 });
 
 // ─── File watcher ────────────────────────────────────────────────────────────
@@ -182,31 +302,118 @@ const watcher = chokidar.watch(DATA_FILE, {
     awaitWriteFinish: { stabilityThreshold: 150, pollInterval: 50 },
 });
 
-watcher.on('add',    f => console.log('[Watch] Watching:', f));
+// ─── Per-tick stats — what came in, what we wrote, what surfaced ───────────
+// We deliberately do NOT log every tick at INFO level (would scroll the
+// terminal away). Instead we summarise:
+//   * The very first payload (which proves "everything connected up").
+//   * Every event/snapshot we actually persist to disk.
+//   * A 1-minute heartbeat with totals.
+//   * Anything that materially changed (new event types, new field counts).
+
+const stats = {
+    ticks:        0,
+    bytes:        0,
+    errors:       0,
+    eventsSaved:  0,
+    daysSaved:    0,
+    firstPayload: false,
+    lastDay:      null,
+    lastFieldN:   null,
+    lastVehN:     null,
+    sinceLast:    Date.now(),
+};
+let lastEventsSnapshot = 0; // count we've seen so we can detect new ones
+
+watcher.on('add',    f => log.info('watch', `sleduji ${f}`));
 watcher.on('change', f => {
     try {
         const raw  = fs.readFileSync(f, 'utf8');
         const data = JSON.parse(raw);
+
+        stats.ticks++;
+        stats.bytes += raw.length;
+
+        // First-ever payload → narrate the connection coming up.
+        if (!stats.firstPayload) {
+            stats.firstPayload = true;
+            const kb = (raw.length / 1024).toFixed(1);
+            log.ok('data', `první payload — mod ${data.modVersion ?? '?'}, schema ${data.schemaVersion ?? '<1'}, ${kb} KB`);
+            log.tick('data', `${(data.fields||[]).length} polí · ${(data.vehicles||[]).length} vozidel · ${(data.storage||[]).length} skladů · €${(data.farmBalance ?? 0).toLocaleString('cs-CZ')}`);
+        }
+
+        // Surface structural shifts in payload shape — useful for noticing the
+        // mod restarted or a savegame switched mid-session.
+        const fN = (data.fields  || []).length;
+        const vN = (data.vehicles|| []).length;
+        if (stats.lastFieldN !== null && (fN !== stats.lastFieldN || vN !== stats.lastVehN)) {
+            log.tick('data', `payload shape changed → ${fN} polí · ${vN} vozidel (bylo ${stats.lastFieldN}/${stats.lastVehN})`);
+        }
+        stats.lastFieldN = fN;
+        stats.lastVehN   = vN;
+
+        // db.saveSnapshot writes daily/event rows. Log only when it actually wrote.
+        const prevEv = lastEventsSnapshot;
+        const prevDay = stats.lastDay;
         db.saveSnapshot(data);
+        // Detect new events by comparing the events-array contents we just received.
+        const evNow = (data.events || []).length;
+        if (evNow > prevEv) {
+            const newOnes = (data.events || []).slice(prevEv);
+            for (const e of newOnes) {
+                log.write('events', `${e.type} field ${e.fieldId} (${e.fruitName ?? e.fruitTypeId ?? '?'})`);
+                stats.eventsSaved++;
+            }
+        }
+        lastEventsSnapshot = evNow;
+
+        if (data.gameDay != null && data.gameDay !== prevDay) {
+            if (prevDay !== null) {
+                log.write('db', `denní snapshot — game day ${data.gameDay}, €${(data.farmBalance ?? 0).toLocaleString('cs-CZ')}`);
+                stats.daysSaved++;
+            }
+            stats.lastDay = data.gameDay;
+        }
+
         broadcast(raw);
-        process.stdout.write('.');
     } catch (e) {
-        console.warn('\n[Watch] Parse error:', e.message);
+        stats.errors++;
+        log.error('watch', `parse selhal: ${e.message}`);
     }
 });
-watcher.on('error', e => console.error('[Watch] Error:', e));
+watcher.on('error', e => {
+    stats.errors++;
+    log.error('watch', e.message || String(e));
+});
+
+// 1-minute heartbeat. Shows you the server is alive and processing data,
+// without spamming a line per tick.
+setInterval(() => {
+    if (!stats.firstPayload && stats.ticks === 0) return;   // nothing to report yet
+    const since = Math.round((Date.now() - stats.sinceLast) / 1000);
+    const avgKb = stats.ticks ? (stats.bytes / stats.ticks / 1024).toFixed(1) : '0';
+    const peers = wss.clients.size;
+    log.info('stats', `za ${since}s — ${stats.ticks} ticků · ${stats.errors} chyb · Ø ${avgKb} KB · ${peers} klient${peers === 1 ? '' : (peers < 5 ? 'i' : 'ů')}`);
+    stats.ticks      = 0;
+    stats.bytes      = 0;
+    stats.errors     = 0;
+    stats.sinceLast  = Date.now();
+}, 60_000).unref();
 
 // ─── Start ───────────────────────────────────────────────────────────────────
 
 server.listen(PORT, HOST, () => {
-    console.log('\n╔══════════════════════════════════════╗');
-    console.log(`║   FS25 Dashboard Server  v${SERVER_VERSION.padEnd(10)} ║`);
-    console.log(`║   Expects mod schema ${String(MIN_MOD_SCHEMA).padEnd(2)}..${String(MAX_MOD_SCHEMA).padEnd(11)} ║`);
-    console.log('╠══════════════════════════════════════╣');
-    console.log(`║  Dashboard:  http://localhost:${PORT}    ║`);
-    console.log(`║  Bound:      ${HOST.padEnd(24)} ║`);
-    console.log(`║  Data file:                          ║`);
-    console.log(`║  ${DATA_FILE.slice(0, 36).padEnd(36)} ║`);
-    console.log('╚══════════════════════════════════════╝\n');
-    console.log('Waiting for FS25 data (dots = update received)...');
+    // Shorten the data-file path so the banner stays narrow.
+    const home = process.env.USERPROFILE || process.env.HOME || '';
+    const dataDisplay = home && DATA_FILE.startsWith(home)
+        ? '~' + DATA_FILE.slice(home.length).replace(/\\/g, '/')
+        : DATA_FILE.replace(/\\/g, '/');
+
+    log.banner([
+        `FS25 Dashboard Server v${SERVER_VERSION}`,
+        `▸ http://localhost:${PORT}`,
+        `▸ Schema:    ${MIN_MOD_SCHEMA}..${MAX_MOD_SCHEMA}`,
+        `▸ Data file: ${dataDisplay}`,
+        `▸ History:   ${DATA_DIR.replace(/\\/g, '/')}`,
+    ]);
+    log.info('boot', 'čekám až FS25 začne psát data…');
 });

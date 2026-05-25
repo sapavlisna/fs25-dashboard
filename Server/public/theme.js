@@ -20,6 +20,8 @@
     function applyTheme(id) {
         document.documentElement.setAttribute('data-theme', id);
         try { localStorage.setItem(STORAGE_KEY, id); } catch (_) {}
+        // Mirror theme choice to the server so other devices follow.
+        if (window.ServerSync) window.ServerSync.syncWrite('theme', id);
         const btn = document.getElementById('theme-picker');
         if (btn) {
             btn.textContent = ICONS[id] || '🎨';

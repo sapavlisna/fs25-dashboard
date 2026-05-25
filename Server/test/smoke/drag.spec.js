@@ -50,6 +50,16 @@ test.describe('Drag interactions', () => {
     // bounding-box coordinates stay inside the visible page.
     test.use({ viewport: { width: 1440, height: 1600 } });
 
+    // Disable cross-device server sync — see dashboard.spec.js for the
+    // rationale. Tests assert per-test localStorage state which would
+    // otherwise be clobbered by patches the previous test PATCHed to the
+    // shared server.
+    test.beforeEach(async ({ page }) => {
+        await page.addInitScript(() => {
+            try { localStorage.setItem('fs25.dash.v1.syncMode', 'local'); } catch (_) {}
+        });
+    });
+
     // ─── Sections ────────────────────────────────────────────────────────────
     test('section drag by header (not just by ⠿ handle)', async ({ page }) => {
         await page.goto('/');

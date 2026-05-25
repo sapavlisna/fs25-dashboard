@@ -5,6 +5,7 @@
 const fs   = require('fs');
 const path = require('path');
 const { DATA_DIR } = require('./config');
+const log = require('./logger');
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 
 const FILES = {
@@ -93,7 +94,7 @@ function saveSnapshot(data) {
             }
         }
     } catch (e) {
-        console.error('[DB] Save error:', e.message);
+        log.error('db', `save: ${e.message}`);
     }
 }
 

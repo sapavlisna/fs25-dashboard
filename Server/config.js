@@ -18,6 +18,7 @@
 
 const fs   = require('fs');
 const path = require('path');
+const log  = require('./logger');
 
 // When packaged with `pkg`, __dirname points inside a virtual /snapshot/.
 // We want config.local.json + data/ next to the .exe on the real filesystem,
@@ -32,7 +33,7 @@ try {
         local = JSON.parse(fs.readFileSync(LOCAL_PATH, 'utf8'));
     }
 } catch (e) {
-    console.warn(`[config] Failed to read ${LOCAL_PATH}: ${e.message}`);
+    log.warn('config', `failed to read ${LOCAL_PATH}: ${e.message}`);
 }
 
 function pick(envName, localKey, fallback) {

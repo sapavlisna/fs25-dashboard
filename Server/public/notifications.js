@@ -93,9 +93,11 @@
         // Vehicles use DashState (drag-and-drop zone); animals/fields use TableTools.
         const tt = window.TableTools;
         const ds = window.DashState;
-        const hiddenVehicles = ds
-            ? new Set((ds.get(ds.KEYS.hiddenVehicles, []) || []).map(String))
-            : new Set();
+        // Prefer TT which unions new (hidden:vehicles) + legacy (hiddenVehicles)
+        // keys; DashState only sees the legacy key and may miss recently-hidden items.
+        const hiddenVehicles = tt
+            ? tt.getHidden('vehicles')
+            : (ds ? new Set((ds.get(ds.KEYS.hiddenVehicles, []) || []).map(String)) : new Set());
         const hiddenAnimals  = tt ? tt.getHidden('animals') : new Set();
         const hiddenFields   = tt ? tt.getHidden('fields')  : new Set();
 

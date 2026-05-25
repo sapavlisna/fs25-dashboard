@@ -103,10 +103,15 @@
         // hide zone on the Dashboard) and ones with no fuel tank (wheelbarrows,
         // rest-station placeables — they report fuelCapacity=0, which would
         // otherwise pin fuelPercent at 0 and trip the threshold spuriously).
+        // Prefer TableTools — it unions the new (hidden:vehicles) and legacy
+        // (hiddenVehicles) keys so the bell never misses a vehicle the user
+        // hid via the newer drag zone. Fall back to DashState only if TT
+        // isn't loaded on this page.
+        const tt = window.TableTools;
         const ds = window.DashState;
-        const hiddenVehicles = ds
-            ? new Set((ds.get(ds.KEYS.hiddenVehicles, []) || []).map(String))
-            : new Set();
+        const hiddenVehicles = tt
+            ? tt.getHidden('vehicles')
+            : (ds ? new Set((ds.get(ds.KEYS.hiddenVehicles, []) || []).map(String)) : new Set());
         const lowFuel = vehicles.filter(v =>
             (v.fuelCapacity || 0) > 0 &&
             !hiddenVehicles.has(String(v.name)) &&
@@ -194,9 +199,10 @@
             if (e.key === 'Escape' && !panelEl.hidden) closePanel();
         });
 
-        // Click on alert row → scroll to target section + pulse.
-        // Click on the ✕ on a row → dismiss just that alert (badge count
-        // drops, panel rerenders without it; underlying condition stays).
+        // Click on alert row → scroll to target section AND dismiss that
+        // alert (user has acknowledged it by clicking — the badge should
+        // drop, matching what most "inbox" UIs do). Click on the ✕ on a
+        // row → just dismiss, no scroll.
         listEl.addEventListener('click', e => {
             const dismissBtn = e.target.closest('[data-dismiss-fp]');
             if (dismissBtn) {
@@ -209,7 +215,10 @@
             if (!li) return;
             const targetId = li.dataset.target;
             const target = document.getElementById(targetId);
+            const fp = li.dataset.fp;
+            if (fp) dismissed.add(fp);
             closePanel();
+            update(lastData);
             if (target) {
                 scrollAndFlash(target);
             } else {
@@ -288,7 +297,7 @@
         listEl.innerHTML = alerts.map(a => {
             const fp = fingerprint(a);
             return `
-            <li class="bell-item bell-${a.severity}" data-target="${a.target}">
+            <li class="bell-item bell-${a.severity}" data-target="${a.target}" data-fp="${escapeAttr(fp)}">
                 <span class="bell-item-icon">${a.icon}</span>
                 <div class="bell-item-text">
                     <div class="bell-item-title">${escapeHtml(a.title)}</div>

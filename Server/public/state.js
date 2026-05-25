@@ -17,6 +17,10 @@
 
     function set(key, value) {
         try { localStorage.setItem(NS + key, JSON.stringify(value)); } catch (_) {}
+        // Mirror the write to the server so other devices pick it up.
+        // ServerSync swallows local-only keys and respects the user's
+        // "sync off" toggle, so we don't need any check here.
+        if (window.ServerSync) window.ServerSync.syncWrite(key, value);
     }
 
     function setHas(key, item) {
@@ -44,6 +48,7 @@
             collapsedGroups:        'collapsedGroups',         // array of group keys (silo/sell)
             flashEnabled:           'flashEnabled',            // map<sectionKey, bool> — change-flash on/off per section
             hiddenSections:         'hiddenSections',          // array of section element ids (e.g. ['sec-storage']) — hidden on main dashboard
+            vehiclesExpanded:       'vehiclesExpanded',        // bool, default false — show implements sub-rows + 2-column layout for vehicles section
         },
     };
 })();

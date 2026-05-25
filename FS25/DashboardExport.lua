@@ -22,7 +22,7 @@ DashboardExport.MOD_NAME       = g_currentModName or "FS25_Dashboard"
 DashboardExport.MOD_DIR        = g_currentModDirectory or ""
 -- MOD_VERSION is kept in sync with modDesc.xml by scripts/build-mod-generic.ps1.
 -- Do not edit by hand; bump via the build script.
-DashboardExport.MOD_VERSION    = "1.1.2.0"
+DashboardExport.MOD_VERSION    = "1.1.2.11"
 -- SCHEMA_VERSION tracks the dashboard_data.json shape — bump ONLY on breaking
 -- changes (renamed/removed fields). Server has MIN/MAX bounds and warns on
 -- mismatch. See src/Dashboard/docs/COMPATIBILITY.md.
@@ -143,11 +143,36 @@ function DashboardExport:collectAvailableFruits()
     local out = {}
     if g_fruitTypeManager == nil then return out end
 
+    -- Sowing / harvesting windows are season-period-aware. The mission's
+    -- growthMode setting (SEASONAL vs NON_SEASONAL) decides whether
+    -- ft:getIsPlantableInPeriod returns true outside the natural sowing
+    -- window. Must be passed in or the API returns false for everything
+    -- mid-summer / mid-winter.
+    -- See knowledge/fs25-crop-calendar-api.md
+    local growthMode = (g_currentMission and g_currentMission.missionInfo
+                         and g_currentMission.missionInfo.growthMode) or 1
+
     local seen = {}
     for _, ft in pairs(g_fruitTypeManager.fruitTypes or {}) do
         if type(ft) == "table" and ft.name and not seen[ft.name] then
             seen[ft.name] = true
             local fillTitle = (ft.fillType and (ft.fillType.title or ft.fillType.name)) or nil
+
+            -- Bitmask-style arrays (1..12) for sowing + harvest windows.
+            -- The two FruitTypeDesc methods are the only public API for this
+            -- — there's no array of months on the descriptor itself.
+            local plantable, harvestable = {}, {}
+            for p = 1, 12 do
+                local okPlant = (ft.getIsPlantableInPeriod
+                                  and safeCall(function() return ft:getIsPlantableInPeriod(growthMode, p) end))
+                                  or false
+                local okHarv  = (ft.getIsHarvestableInPeriod
+                                  and safeCall(function() return ft:getIsHarvestableInPeriod(growthMode, p) end))
+                                  or false
+                plantable[p]   = okPlant   and true or false
+                harvestable[p] = okHarv    and true or false
+            end
+
             table.insert(out, {
                 name      = tostring(ft.name),
                 title     = ft.title and tostring(ft.title) or "",
@@ -158,7 +183,17 @@ function DashboardExport:collectAvailableFruits()
                 -- rice, sugarcane) override it to false.
                 needsRolling          = ft.needsRolling ~= false,
                 consumesLime          = ft.consumesLime ~= false,
+                growthRequiresLime    = ft.growthRequiresLime == true,
                 isCultivationAllowed  = ft.isCultivationAllowed ~= false,
+                allowsSeeding         = ft.allowsSeeding ~= false,
+                -- Calendar planning data
+                plantableMonths       = plantable,    -- bool[1..12]
+                harvestableMonths     = harvestable,  -- bool[1..12]
+                regrows               = ft.regrows == true,
+                firstRegrowthState    = ft.firstRegrowthState or 1,
+                startSprayLevel       = ft.startSprayLevel or 0,
+                numGrowthStates       = ft.numGrowthStates or 0,
+                minHarvestingGrowthState = ft.minHarvestingGrowthState or 0,
             })
         end
     end
@@ -453,7 +488,11 @@ function DashboardExport:collectPriceForecast()
                 factors[period] = ft.economy.factors[period] or 1
             end
             -- pricePerTon = pricePerLiter / massPerLiter   (mass-per-liter * 1000 gives kg/m³)
-            local massPerLiter = ft.massPerLiter or 0.001
+            -- `ft.massPerLiter` can be 0 in mods (the `or` fallback doesn't
+            -- catch it because 0 is truthy in Lua) — guard explicitly to
+            -- avoid a hard divide-by-zero that aborts the whole tick.
+            local massPerLiter = ft.massPerLiter
+            if not massPerLiter or massPerLiter <= 0 then massPerLiter = 0.001 end
             local pricePerTonBase = ft.pricePerLiter / massPerLiter
             -- name = canonical filltype name (matches what collectPrices emits as item.name title)
             table.insert(out.fillTypes, {
@@ -923,6 +962,213 @@ local function vehicleStoreTitle(v)
     return model ~= "" and model or nil
 end
 
+-- ─── Implements / fillUnit ──────────────────────────────────────────────────
+-- For each vehicle we surface its attached implements that *carry something*
+-- (trailers, harvester body, seeders, sprayers). Tools without storage (plows,
+-- cultivators) get filtered out via `capacity > 100 L`.
+--
+-- See knowledge/fs25-implements-fillunits.md for source-of-truth API refs.
+
+-- "Is this fillUnit real storage worth showing?"
+-- Just capacity > 100 L. Anything bigger than a plow's LIME pseudo-tank
+-- is a real bin (trailer / harvester body / seed hopper / sprayer tank).
+-- We deliberately do NOT require showOnHud or a populated supportedFill-
+-- Types table — many implement mods omit those, and we'd rather show an
+-- empty grass pickup wagon (label = "—", level = 0 / 50t) than hide it.
+local function isStorageFillUnit(unit)
+    return (unit.capacity or 0) > 100
+end
+
+-- Resolve a display label for the unit's current contents. Falls back
+-- through: current fillType → last carried type → "EMPTY" (frontend
+-- renders that as an em-dash). We deliberately do NOT guess from
+-- supportedFillTypes: tanks that support many types (front-loader
+-- buckets, pickup wagons, multi-purpose trailers) would pick an
+-- arbitrary one (e.g. WHEAT for a bucket that could hold anything).
+-- The implement's own name already conveys what bin it is — the label
+-- only needs to say what's currently in it, or that it's empty.
+local function resolveFillTypeLabel(unit)
+    local function lookup(idx)
+        if idx == 0 or not g_fillTypeManager then return nil, nil end
+        local ft = safeCall(function() return g_fillTypeManager:getFillTypeByIndex(idx) end)
+        if ft and ft.name and ft.name ~= "" and ft.name ~= "UNKNOWN" then
+            return ft.name, (ft.title and ft.title ~= "Unknown") and ft.title or ft.name
+        end
+        return nil, nil
+    end
+
+    local n, t = lookup(unit.fillType or 0)
+    if n then return n, t end
+    n, t = lookup(unit.lastValidFillType or 0)
+    if n then return n, t end
+    return "EMPTY", "—"
+end
+
+local function getImplementFillUnits(impl)
+    local obj = impl.object
+    if not (obj and obj.spec_fillUnit and obj.spec_fillUnit.fillUnits) then return nil end
+    local result = {}
+    for _, unit in ipairs(obj.spec_fillUnit.fillUnits) do
+        if isStorageFillUnit(unit) then
+            local ftName, ftTitle = resolveFillTypeLabel(unit)
+            table.insert(result, {
+                fillType  = ftName,
+                typeTitle = ftTitle,
+                levelL    = math.floor(unit.fillLevel or 0),
+                capacityL = math.floor(unit.capacity or 0),
+                percent   = pctOf(unit.fillLevel or 0, unit.capacity or 0),
+            })
+        end
+    end
+    return #result > 0 and result or nil
+end
+
+local function collectImplements(vehicle, depth)
+    depth = depth or 0
+    if depth > 3 then return {} end                      -- anti-loop guard
+    if not (vehicle and vehicle.getAttachedImplements) then return {} end
+    local result = {}
+    for _, impl in pairs(safeCall(function() return vehicle:getAttachedImplements() end) or {}) do
+        if impl.object then
+            local fillUnits = getImplementFillUnits(impl)
+            if fillUnits then
+                table.insert(result, {
+                    name      = (impl.object.getName and safeCall(function() return impl.object:getName() end)) or "",
+                    fillUnits = fillUnits,
+                })
+            end
+            -- Recurse: trailer-with-trailer, header on combine, etc.
+            local sub = collectImplements(impl.object, depth + 1)
+            for _, s in ipairs(sub) do table.insert(result, s) end
+        end
+    end
+    return result
+end
+
+-- ─── AI task detection ──────────────────────────────────────────────────────
+-- Three sources, in priority order — first one that says "active" wins:
+--   1. AutoDrive   — richest data (ETA + waypoint progress + destinations)
+--   2. Courseplay  — fieldwork progress 0..1 (nil during drive-to)
+--   3. Vanilla AI  — job class name + helper name; no progress / ETA
+--
+-- Each helper returns nil if its mod isn't installed or the vehicle has no
+-- active task — so the caller can fall through cleanly without crashes.
+-- See src/Dashboard/docs/RESEARCH-NEXT.md (Bod 1) for the source-of-truth
+-- field paths and gotchas.
+
+local function getVanillaAITask(v)
+    local spec = v.spec_aiJobVehicle
+    if spec == nil or spec.job == nil then return nil end
+    -- Some jobs expose `isRunning`; ignore the brief window between stop
+    -- and `aiJobFinished` where job is still non-nil but already done.
+    if spec.job.isRunning ~= nil and not spec.job.isRunning then return nil end
+
+    local jobType = nil
+    if g_currentMission and g_currentMission.aiJobTypeManager then
+        jobType = safeCall(function()
+            return g_currentMission.aiJobTypeManager:getJobTypeByIndex(spec.job.jobTypeIndex)
+        end)
+    end
+    local helperName
+    if spec.job.getHelperName then
+        helperName = safeCall(function() return spec.job:getHelperName() end)
+    end
+    return {
+        source    = "vanilla",
+        jobClass  = (jobType and jobType.name) or "AIJob",
+        helper    = helperName,
+        taskIndex = spec.job.currentTaskIndex,   -- 1 = driving to field, 2 = working
+    }
+end
+
+local function getCourseplayTask(v)
+    -- CP injects methods on the vehicle metatable at load time. If CP isn't
+    -- installed, these are simply nil — guard everything.
+    if v.getIsCpActive == nil then return nil end
+    local active = safeCall(function() return v:getIsCpActive() end)
+    if not active then return nil end
+
+    local progress = nil
+    if v.getCpFieldWorkProgress then
+        local p = safeCall(function() return v:getCpFieldWorkProgress() end)
+        if p ~= nil then progress = math.floor(p * 100 + 0.5) end
+    end
+    local hasCourse = false
+    if v.hasCpCourse then
+        hasCourse = safeCall(function() return v:hasCpCourse() end) or false
+    end
+
+    -- Remaining time. CP keeps a preformatted string ("1h 29min" / "12min")
+    -- on its CpStatus instance — synced to clients via streamReadString, so
+    -- it's safe to read here. Pipeline:
+    --   CpRemainingTime.lua → AIDriveStrategyFieldWorkCourse:setWaypointData()
+    --   → CpStatus.remainingTimeText → :getTimeRemainingText().
+    local remainingText, currentWp, totalWps = nil, nil, nil
+    if v.getCpStatus then
+        local status = safeCall(function() return v:getCpStatus() end)
+        if status then
+            if status.getTimeRemainingText then
+                local t = safeCall(function() return status:getTimeRemainingText() end)
+                if t ~= nil and t ~= "" then remainingText = t end
+            end
+            -- Waypoint indices (also on CpStatus) — fallback progress source
+            currentWp = status.currentWaypointIx
+            totalWps  = status.numberOfWaypoints
+        end
+    end
+
+    return {
+        source         = "courseplay",
+        jobClass       = "Courseplay",
+        progress       = progress,         -- 0..100 or nil during drive-to phase
+        remainingText  = remainingText,    -- preformatted string from CpStatus
+        currentWp      = currentWp,
+        totalWps       = totalWps,
+        hasCourse      = hasCourse,
+    }
+end
+
+local function getAutoDriveTask(v)
+    if not (v.ad and v.ad.stateModule) then return nil end
+    local sm = v.ad.stateModule
+    local active = safeCall(function() return sm:isActive() end)
+    if not active then return nil end
+
+    local mode = sm.getMode      and safeCall(function() return sm:getMode() end) or nil
+    local dest1 = sm.getFirstMarkerName  and safeCall(function() return sm:getFirstMarkerName()  end) or nil
+    local dest2 = sm.getSecondMarkerName and safeCall(function() return sm:getSecondMarkerName() end) or nil
+    local remainSec = sm.getRemainingDriveTime
+                      and safeCall(function() return sm:getRemainingDriveTime() end) or nil
+
+    -- Waypoint progress: pcall directly (safeCall drops 2nd return).
+    local progress
+    if v.ad.drivePathModule and v.ad.drivePathModule.getWayPoints then
+        local ok, wps, wpIdx = pcall(function() return v.ad.drivePathModule:getWayPoints() end)
+        if ok and type(wps) == "table" and wpIdx and #wps > 0 then
+            progress = math.floor(wpIdx / #wps * 100 + 0.5)
+        end
+    end
+
+    -- Compose a single human-friendly destination string.
+    local destination
+    if dest1 and dest2 then destination = dest1 .. " → " .. dest2
+    elseif dest1 then        destination = dest1
+    elseif dest2 then        destination = dest2 end
+
+    return {
+        source      = "autodrive",
+        jobClass    = "AutoDrive",
+        mode        = mode,           -- 1=DRIVETO, 2=PICKUPANDDELIVER, 3=DELIVERTO, 4=LOAD, 5=UNLOAD, 6=BGA
+        destination = destination,
+        etaSeconds  = (remainSec and remainSec > 0) and remainSec or nil,
+        progress    = progress,
+    }
+end
+
+local function getAITask(v)
+    return getAutoDriveTask(v) or getCourseplayTask(v) or getVanillaAITask(v)
+end
+
 function DashboardExport:collectVehicles()
     local out = {}
     if not (g_currentMission and g_currentMission.vehicleSystem) then return out end
@@ -982,8 +1228,17 @@ function DashboardExport:collectVehicles()
             end
             rec.fuelPercent = pctOf(rec.fuelLiters, rec.fuelCapacity)
 
-            -- in-use: AI active, controlled by player, or moving
-            rec.isInUse = (v.spec_aiVehicle and v.spec_aiVehicle.isActive)
+            -- Pull in AI / Courseplay / AutoDrive state (nil if vehicle idle)
+            rec.aiTask = getAITask(v)
+
+            -- Attached implements with storage (trailers / harvesters / seeders).
+            -- Tools without capacity (plows etc.) are filtered inside the helper.
+            local impls = collectImplements(v)
+            if impls and #impls > 0 then rec.implements = impls end
+
+            -- in-use: AI active, controlled by player, or moving. Note:
+            -- spec_aiVehicle was the FS22 path; FS25 uses spec_aiJobVehicle.
+            rec.isInUse = (rec.aiTask ~= nil)
                        or (v == g_currentMission.controlledVehicle)
                        or (v.getLastSpeed and v:getLastSpeed() > 0.5)
                        or false
@@ -1072,38 +1327,91 @@ function DashboardExport:collectAnimals()
                 local clusterList = {}
                 for _, c in ipairs(clusters) do
                     local subTypeName, subTypeTitle = "", ""
+                    local subType = nil
                     if c.subTypeIndex and g_currentMission.animalSystem then
-                        local sub = safeCall(function() return g_currentMission.animalSystem:getSubTypeByIndex(c.subTypeIndex) end)
-                        if sub then
-                            subTypeName  = sub.name or ""
-                            subTypeTitle = localizeAnimalName(sub)
+                        subType = safeCall(function() return g_currentMission.animalSystem:getSubTypeByIndex(c.subTypeIndex) end)
+                        if subType then
+                            subTypeName  = subType.name or ""
+                            subTypeTitle = localizeAnimalName(subType)
                         end
                     end
+
+                    -- Reproduction state — we want to tell the user *why* the
+                    -- reproduction counter is or isn't moving. Engine values:
+                    --   subType.supportsReproduction  → bool (some species can't breed at all)
+                    --   subType.reproductionMinAgeMonth, reproductionMinHealth
+                    --   cluster:getCanReproduce()      → bool, all gates passed right now
+                    --   cluster:getReproductionFactor()→ float, 0 = paused, >0 = active rate
+                    --   cluster.reproduction           → 0-100 progress counter
+                    local supportsRepro = subType and (subType.supportsReproduction ~= false) or false
+                    local minAge        = (subType and subType.reproductionMinAgeMonth) or 0
+                    local minHealth     = (subType and subType.reproductionMinHealth)   or 0
+                    local canRepro      = (c.getCanReproduce       and safeCall(function() return c:getCanReproduce()       end)) or false
+                    local repFactor     = (c.getReproductionFactor and safeCall(function() return c:getReproductionFactor() end)) or 0
+                    local reproPct      = math.floor((c.reproduction or 0) + 0.5)
+                    local age           = c.age or 0
+
+                    -- Derive a single status enum the frontend can render directly.
+                    --   unsupported — species/subtype doesn't reproduce at all
+                    --   young       — not old enough yet (waiting to mature)
+                    --   blocked     — old enough but engine says can't reproduce
+                    --                 (health too low, missing partner, manual-hold mod, …)
+                    --   ready       — at 100 %, birth imminent next tick
+                    --   cycling     — actively progressing toward 100 %
+                    --   paused      — gated by factor=0 (e.g. manual-reproduction mod)
+                    local status
+                    if not supportsRepro then
+                        status = 'unsupported'
+                    elseif age < minAge then
+                        status = 'young'
+                    elseif reproPct >= 100 then
+                        status = 'ready'
+                    elseif not canRepro then
+                        status = 'blocked'
+                    elseif repFactor <= 0 then
+                        status = 'paused'
+                    else
+                        status = 'cycling'
+                    end
+
                     total = total + (c.numAnimals or 0)
                     healthSum = healthSum + (c.health or 0)
                     n = n + 1
                     table.insert(clusterList, {
-                        subType       = subTypeName,
-                        subTypeTitle  = subTypeTitle,
-                        count         = c.numAnimals or 0,
-                        health        = math.floor((c.health or 0) + 0.5),
-                        age           = c.age or 0,
-                        reproduction  = math.floor((c.reproduction or 0) + 0.5),
-                        sellPrice     = (c.getSellPrice and math.floor(safeCall(function() return c:getSellPrice() end) or 0)) or 0,
+                        subType         = subTypeName,
+                        subTypeTitle    = subTypeTitle,
+                        count           = c.numAnimals or 0,
+                        health          = math.floor((c.health or 0) + 0.5),
+                        age             = age,
+                        reproduction    = reproPct,
+                        reproStatus     = status,
+                        canReproduce    = canRepro,
+                        reproFactor     = repFactor,
+                        minAgeMonth     = minAge,
+                        minHealth       = minHealth,
+                        supportsRepro   = supportsRepro,
+                        sellPrice       = (c.getSellPrice and math.floor(safeCall(function() return c:getSellPrice() end) or 0)) or 0,
                     })
                 end
                 rec.count = total
                 if n > 0 then rec.productivity = math.floor(healthSum / n + 0.5) end
                 if #clusterList > 0 then rec.clusters = clusterList end
 
-                -- Reproduction summary: highest cluster %. The cluster closest
-                -- to 100 % is the one that will birth next, so max is the right
-                -- aggregate for an "is the herd close to a new animal?" badge.
-                local maxRepro = 0
+                -- Husbandry-level summary for the compact row:
+                --   reproductionPercent — highest cluster %
+                --   reproductionStatus  — "best" status across clusters, in priority
+                --   ready > cycling > paused > blocked > young > unsupported
+                -- so the badge reflects "the most promising cluster" rather than
+                -- being dragged down by a single young/blocked one.
+                local STATUS_RANK = { ready=5, cycling=4, paused=3, blocked=2, young=1, unsupported=0 }
+                local maxRepro, bestStatus, bestRank = 0, 'unsupported', -1
                 for _, c in ipairs(clusterList) do
                     if c.reproduction and c.reproduction > maxRepro then maxRepro = c.reproduction end
+                    local r = STATUS_RANK[c.reproStatus] or -1
+                    if r > bestRank then bestRank = r; bestStatus = c.reproStatus end
                 end
                 rec.reproductionPercent = maxRepro
+                rec.reproductionStatus  = bestStatus
             end
 
             -- Food (overall)
@@ -1527,6 +1835,7 @@ function DashboardExport:buildPayload()
         schemaVersion   = DashboardExport.SCHEMA_VERSION,
         modVersion      = DashboardExport.MOD_VERSION,
         gameDay         = time.gameDay,
+        gameYear        = time.gameYear,
         gameMonth       = time.gameMonth,
         dayInMonth      = time.dayInMonth,
         daysPerMonth    = time.daysPerMonth,
