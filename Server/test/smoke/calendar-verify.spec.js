@@ -433,6 +433,60 @@ test.describe('Calendar verification', () => {
 
     // ─── Sticky frozen columns ────────────────────────────────────────────────
 
+    test('REQ-26: timeline extends to the longest plan, custom scrollbar appears', async ({ page }) => {
+        // Plant a multi-year plan on the first field. Plan stores the
+        // LOCALIZED fruit name (matching availableFruits[].name) — that's
+        // what the editor dropdown saves and what computeFieldTasksInView
+        // looks up.
+        const fid = await page.locator('#gantt-rows-visible tr[data-field-id]').first().getAttribute('data-field-id');
+        const fruitNames = await page.evaluate(() => {
+            const d = (window.currentData || (window.FS25App && window.FS25App.lastData));
+            // Pull the localized names directly from the live payload
+            return (d && d.availableFruits || []).map(f => f.name);
+        });
+        // Fallback to known mock fruits if currentData isn't exposed (which it isn't)
+        const fruits = fruitNames.length >= 5 ? fruitNames : ['Pšenice', 'Řepka', 'Ječmen', 'Kukuřice', 'Slunečnice'];
+
+        await page.evaluate(({ id, names }) => {
+            const plans = { [id]: {
+                4: { fruit: names[0] }, 5: { fruit: names[1] },
+                6: { fruit: names[2] }, 7: { fruit: names[3] }, 8: { fruit: names[4] },
+            }};
+            localStorage.setItem('fs25.dash.v1.fieldPlans', JSON.stringify(plans));
+        }, { id: fid, names: fruits });
+        await page.reload();
+        await expect(page.locator('#kpi-owned')).not.toHaveText('—', { timeout: 12_000 });
+        await page.waitForTimeout(1500);
+
+        const widthWithPlan = await page.locator('.gantt-table thead .gantt-days').first()
+            .evaluate(el => parseInt(el.style.width));
+
+        // Clear plans and re-render
+        await page.evaluate(() => localStorage.removeItem('fs25.dash.v1.fieldPlans'));
+        await page.reload();
+        await expect(page.locator('#kpi-owned')).not.toHaveText('—', { timeout: 12_000 });
+        await page.waitForTimeout(1500);
+
+        const widthWithoutPlan = await page.locator('.gantt-table thead .gantt-days').first()
+            .evaluate(el => parseInt(el.style.width));
+
+        expect(widthWithPlan,
+            `timeline must extend further with multi-year plan: ${widthWithPlan} > ${widthWithoutPlan}`)
+            .toBeGreaterThan(widthWithoutPlan);
+
+        // With plan, scrollbar must be visible (timeline overflows viewport)
+        await page.evaluate(({ id, names }) => {
+            const plans = { [id]: { 4: { fruit: names[0] }, 8: { fruit: names[4] } }};
+            localStorage.setItem('fs25.dash.v1.fieldPlans', JSON.stringify(plans));
+        }, { id: fid, names: fruits });
+        await page.reload();
+        await expect(page.locator('#kpi-owned')).not.toHaveText('—', { timeout: 12_000 });
+        await page.waitForTimeout(1500);
+
+        const trackVisible = await page.locator('#gantt-scroll-track').isVisible();
+        expect(trackVisible, 'custom scrollbar visible when plan exceeds viewport').toBe(true);
+    });
+
     test('REQ-25: Pole + Co potřebuje columns have position:sticky', async ({ page }) => {
         const labelTH = page.locator('.gantt-table thead th.g-th-label').first();
         const needsTH = page.locator('.gantt-table thead th.g-th-needs').first();

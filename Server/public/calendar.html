@@ -655,6 +655,32 @@ function computeFieldTasksInView(fid) {
     return out;
 }
 
+// Convert a day-offset from "today" into FS25 calendar coordinates
+// (year / month / day-in-month). FS25 periods are 1-indexed and 1 = March.
+function gameDayToCalendar(offsetFromToday, baseYear, baseMonth, baseDayInM, dpM) {
+    const newDayIdx = (baseDayInM - 1) + offsetFromToday;
+    const monthDelta = Math.floor(newDayIdx / dpM);
+    const finalDayInM = ((newDayIdx % dpM) + dpM) % dpM + 1;
+    const newMonthIdx = (baseMonth - 1) + monthDelta;
+    const yearDelta = Math.floor(newMonthIdx / 12);
+    const finalMonth = ((newMonthIdx % 12) + 12) % 12 + 1;
+    return { year: baseYear + yearDelta, month: finalMonth, dayInM: finalDayInM };
+}
+
+// Walk every visible field's plan and find the day-offset of the latest task.
+// Used to size the Gantt timeline so all planned work — even years in the
+// future — is reachable via horizontal scroll.
+function computeMaxPlanEndDayOffset(fieldList) {
+    let maxOffset = 0;
+    for (const f of fieldList) {
+        const tasks = computeFieldTasksInView(f.id);
+        for (const t of tasks) {
+            if (t.endDayOffset > maxOffset) maxOffset = t.endDayOffset;
+        }
+    }
+    return maxOffset;
+}
+
 // Collect the field's current "needs" as a prioritised list of pills.
 // Order = urgency (severe → mild). The renderer shows the first 3
 // pills and folds the rest into a "+N" badge with the full list in
@@ -762,20 +788,41 @@ function renderGantt(allFields) {
         return;
     }
 
-    const startDay = gameDay;
-    const endDay   = gameDay + viewDays;
-    // Frozen-cell widths: label 260 + needs 240 = 500 px (plus a tiny
-    // scrollbar buffer). The timeline gets the rest of the viewport.
+    // viewDays = ZOOM: how many days fit into the visible viewport at once.
+    // totalDays = TIMELINE EXTENT: as long as the furthest plan task across
+    // all fields, capped at PLAN_MAX_YEARS in-game years. The timeline cell
+    // is `totalDays * pxPerDay` wide and the wrap's overflow gives us the
+    // horizontal scroll for free; the custom scrollbar below mirrors it.
     const PX_PER_DAY = Math.max(20, Math.floor(($('gantt-wrap').clientWidth - 510) / viewDays));
-    const timelineW  = viewDays * PX_PER_DAY;
+    const dpM = (currentData && currentData.daysPerMonth) || 10;
+    const curYear  = (currentData && currentData.gameYear)  || 1;
+    const curMonth = (currentData && currentData.gameMonth) || 1;
+    const curDayInM = (currentData && currentData.dayInMonth) || 1;
+    const HARD_CAP_DAYS = PLAN_MAX_YEARS * 12 * dpM;
+    const maxPlanEnd = computeMaxPlanEndDayOffset([...list, ...hiddenList]);
+    // +5 days of breathing room past the last task so the bar doesn't end
+    // flush against the right edge.
+    const totalDays = Math.min(HARD_CAP_DAYS, Math.max(viewDays, maxPlanEnd + 5));
+    const startDay  = gameDay;
+    const endDay    = gameDay + totalDays;
+    const timelineW = totalDays * PX_PER_DAY;
 
-    // Day-tick header
+    // Day-tick header — show calendar date (day.month, year-on-change) every
+    // 5 game-days instead of "D29 D34 D39…", which doesn't tell the user
+    // when the tick lands in the in-game calendar.
     let headerDays = '';
+    let lastShownYear = null;
     for (let d = startDay; d <= endDay; d++) {
         const x = (d - startDay) * PX_PER_DAY;
-        if ((d - startDay) % 5 === 0) {
-            headerDays += `<div class="gantt-day-tick" style="left:${x}px">D${d}</div>`;
+        if ((d - startDay) % 5 !== 0) continue;
+        const cal = gameDayToCalendar(d - startDay, curYear, curMonth, curDayInM, dpM);
+        const monthAbbr = MONTHS_CS[cal.month - 1] || ('M' + cal.month);
+        let label = `${cal.dayInM}.&nbsp;${monthAbbr}`;
+        if (cal.year !== lastShownYear) {
+            label = `R${cal.year} ${label}`;
+            lastShownYear = cal.year;
         }
+        headerDays += `<div class="gantt-day-tick" style="left:${x}px" title="Herní den ${d}">${label}</div>`;
     }
 
     const settings  = (currentData && currentData.gameSettings) || {};
@@ -1330,11 +1377,12 @@ function renderPlanYears(fruits) {
     const byYear = planFor(fid);
     let years   = Object.keys(byYear).map(Number).sort((a, b) => a - b);
 
-    // Default first year = NEXT in-game year (not the current one — by the
-    // time the player thinks about planning, the current year is already
-    // mid-rotation, so the realistic next decision is "what next year").
+    // Default first year = CURRENT in-game year. Late-season crops (winter
+    // wheat, late maize) can still be sown in the current year before it
+    // rolls, so we want the editor to offer year N first, with the user
+    // adding N+1, N+2, … explicitly.
     if (years.length === 0) {
-        const startYear = planCurrentGameYear() + 1;
+        const startYear = planCurrentGameYear();
         years = [startYear];
     }
 
@@ -1540,11 +1588,12 @@ document.addEventListener('DOMContentLoaded', () => {
             const byYear = planFor(fid);
             const years  = Object.keys(byYear).map(Number);
             const maxAllowed = planCurrentGameYear() + PLAN_MAX_YEARS;
-            // First row defaults to "next year"; subsequent rows continue
-            // by +1 from the highest existing year. Bail out if we'd cross
-            // the gameYear + PLAN_MAX_YEARS ceiling.
+            // First row = current in-game year (player may still want to
+            // plant something this year). Subsequent rows continue by +1
+            // from the highest existing year. Bail out if we'd cross the
+            // gameYear + PLAN_MAX_YEARS ceiling.
             const next = years.length === 0
-                ? planCurrentGameYear() + 1
+                ? planCurrentGameYear()
                 : Math.max(...years) + 1;
             if (next > maxAllowed) {
                 alert(`Maximální plán je ${PLAN_MAX_YEARS} let dopředu (do roku ${maxAllowed}).`);
