@@ -863,10 +863,12 @@ function renderGantt(allFields) {
             // "what am I planting?"). Everything else shows the task
             // type (orba / hnojení / válení / vápnění / sklizeň).
             const labelText = (t.type === 'sow' && t.cropName) ? t.cropName : taskLabel;
-            // Drop the inline label on narrow bars — ellipsis can't render
-            // meaningful text below ~3 visible chars, so it's just noise.
-            // The tooltip still carries the full info on hover.
-            const showLabel = labelText && w >= 60;
+            // Sow bars carry the crop name (which can be long — "Slunečnice");
+            // hide the label on narrow sow bars where ellipsis would just be
+            // noise. Other task types (orba/hnojení/válcování/vápnění/sklizeň)
+            // are short — let them render even at 30 px, CSS ellipsis handles
+            // overflow gracefully.
+            const showLabel = labelText && (t.type !== 'sow' || w >= 60);
             const innerText = showLabel
                 ? `<span class="gantt-plan-task-label">${esc(labelText)}</span>`
                 : '';

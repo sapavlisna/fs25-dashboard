@@ -206,8 +206,8 @@ test.describe('Calendar verification', () => {
         expect(style, 'plan task has inline background color').toMatch(/background:\s*[#rgb]/);
     });
 
-    test('REQ-13: plan-task narrow bars (w < 60) hide their label', async ({ page }) => {
-        // Set a very narrow view (10 days) so plan tasks compress
+    test('REQ-13: narrow SOW bars (long crop name) hide label; other tasks keep theirs', async ({ page }) => {
+        // Set a narrow view so bars compress
         await page.locator('#range-days').fill('10');
         await page.waitForTimeout(400);
 
@@ -217,7 +217,7 @@ test.describe('Calendar verification', () => {
 
         const taskBars = await page.locator('.gantt-plan-task').all();
         if (taskBars.length === 0) {
-            test.info().annotations.push({ type: 'note', description: 'no plan tasks to test narrow-label heuristic' });
+            test.info().annotations.push({ type: 'note', description: 'no plan tasks' });
             return;
         }
         for (const b of taskBars) {
@@ -225,10 +225,18 @@ test.describe('Calendar verification', () => {
             const widthMatch = style && style.match(/width:\s*(\d+(?:\.\d+)?)px/);
             if (!widthMatch) continue;
             const w = parseFloat(widthMatch[1]);
+            const cls = await b.getAttribute('class');
+            const isSow = await b.getAttribute('style').then(s => s && /background:\s*(rgb\(250,\s*204,\s*21\)|#facc15)/i.test(s));
             const labelCount = await b.locator('.gantt-plan-task-label').count();
-            if (w < 60) {
+            if (isSow && w < 60) {
+                // Sow with long crop name + narrow bar → label hidden, tooltip carries info
                 expect(labelCount,
-                    `bar with width ${w}px should not show label (only tooltip)`).toBe(0);
+                    `narrow sow bar (${w}px) should hide label`).toBe(0);
+            } else if (!isSow) {
+                // Non-sow tasks (orba/hnojení/válcování/vápnění/sklizeň) keep label
+                // at any width — CSS ellipsis handles overflow
+                expect(labelCount,
+                    `non-sow task bar (${w}px, ${cls}) should keep label`).toBe(1);
             }
         }
     });
