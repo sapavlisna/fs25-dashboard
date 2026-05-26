@@ -92,23 +92,10 @@ test.describe('Dashboard pages', () => {
         await expect(page.locator('#help-toc')).toBeVisible();
 
         // All section anchors should be present.
-        for (const id of ['uvod', 'dashboard', 'kalendar', 'historie', 'zisk',
+        for (const id of ['uvod', 'dashboard', 'kalendar', 'historie',
                           'nastaveni', 'zvonecek', 'flash', 'motivy', 'faq']) {
             await expect(page.locator(`#${id}`)).toBeAttached();
         }
-
-        expect(errors, errors.join('\n')).toEqual([]);
-    });
-
-    test('profit (per-field)', async ({ page }) => {
-        const errors = watchForErrors(page);
-        await page.goto('/profit.html');
-
-        // Two tables on the page (profit-per-field + recent-events). Pin to
-        // the profit table specifically — it must render either rows or an
-        // empty-state message ("Žádná data – mod zatím nezachytil…").
-        await expect(page.locator('#profit-body')).toBeVisible({ timeout: 10_000 });
-        await expect(page.locator('#cnt-fields')).toBeAttached();
 
         expect(errors, errors.join('\n')).toEqual([]);
     });

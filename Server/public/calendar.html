@@ -245,14 +245,12 @@
 }
 .gantt-bar:hover { filter: brightness(1.15); }
 
-/* Plan-task bars — two visual strips total in the timeline cell.
-   Strip 1 (top:10 height:18): the growth bar's strip — plan-task
-   row-0 sits at the same y, slightly smaller height than the growth
-   bar (22 px) so when the two overlap in x the plan-task reads as
-   a chip inside the growth bar. In the common case plan tasks are
-   in future x (beyond the growth bar's window) so they don't overlap
-   visually at all. Strip 2 (top:34 height:18): plan-task row-1 for
-   stagger when two plan tasks touch in time. */
+/* Plan-task bars — laid out in N vertical lanes per field row.
+   Lane 0 (top:10 height:18) sits inside the growth bar's strip (top:8
+   height:22) so the plan-task reads as a chip inside it when they
+   overlap in x. Every additional lane (1, 2, …) is +24 px below for
+   stagger when N tasks touch in time. The lane index is set via the
+   inline `top` style; the timeline td grows to fit the tallest field. */
 .gantt-plan-task {
     position: absolute;
     height: 18px;
@@ -267,8 +265,6 @@
     align-items: center;
     overflow: hidden;
 }
-.gantt-plan-task.row-0 { top: 10px; }
-.gantt-plan-task.row-1 { top: 34px; }
 .gantt-plan-task:hover { opacity: 1; z-index: 5; }
 .gantt-plan-task-label {
     font-size: 11px;
@@ -313,13 +309,23 @@
 }
 .cal-hidden-row td { opacity: .55; }
 
-/* Day-tick header bar */
+/* Day-tick header bar — split into two stacked strips: top row carries
+   game-year labels ("Rok 5") at March-1 boundaries, bottom row carries
+   the calendar month names. */
 .gantt-days {
     position: relative;
-    height: 38px;
+    height: 56px;
+}
+.gantt-year-tick {
+    position: absolute; top: 0; height: 20px;
+    display: flex; align-items: center;
+    font-size: 11px; font-weight: 600;
+    color: var(--text);
+    border-left: 2px solid var(--border);
+    padding-left: 6px;
 }
 .gantt-day-tick {
-    position: absolute; top: 0; bottom: 0;
+    position: absolute; top: 20px; bottom: 0;
     display: flex; align-items: center;
     font-size: 11px; color: var(--muted);
     border-left: 1px solid var(--border);
@@ -331,6 +337,17 @@
     opacity: .7; z-index: 2;
     pointer-events: none;
 }
+/* Alternating year backgrounds — subtle banding so the user can see
+   year boundaries at a glance. Rendered as absolutely-positioned divs
+   in both the day-tick header and each row's timeline cell. */
+.gantt-year-band {
+    position: absolute; top: 0; bottom: 0;
+    pointer-events: none; z-index: 0;
+}
+.gantt-year-band-odd  { background: rgba(160, 194, 19, 0.10); }
+.gantt-year-band-even { background: rgba(100, 160, 220, 0.07); }
+[data-theme="light"] .gantt-year-band-odd  { background: rgba(80, 110, 0, 0.08); }
+[data-theme="light"] .gantt-year-band-even { background: rgba(40, 80, 140, 0.05); }
 
 /* ─── Legend ─────────────────────────────────────────────────────── */
 .legend {
@@ -351,6 +368,16 @@
 .filter-bar select, .filter-bar input[type=range] {
     background: var(--surface2); border: 1px solid var(--border);
     color: var(--text); border-radius: 4px; padding: 4px 8px; font-size: 12px;
+}
+
+/* Mobile (≤ 640 px): Gantt collapses to single sticky "Pole" column +
+   timeline; scrollbar track aligns to that. Filter bar drops below the
+   section heading and uses full width with wrap. */
+@media (max-width: 640px) {
+    .gantt-scroll-track { margin-left: 140px !important; }
+    .filter-bar { flex-wrap: wrap !important; padding: 8px 12px; }
+    .filter-bar > * { font-size: 11px; }
+    .section-header { flex-wrap: wrap; gap: 6px; }
 }
 
 /* ─── Modal ──────────────────────────────────────────────────────── */
@@ -455,6 +482,37 @@
 }
 .link-btn:hover { color: var(--red) !important; }
 
+/* Crop favorites / order panel — toggled by 🌾 Plodiny button */
+#crop-prefs-panel {
+    margin: 8px 0;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--surface2);
+}
+#crop-prefs-panel[hidden] { display: none; }
+.crop-prefs-hint {
+    font-size: 11px; color: var(--muted);
+    margin-bottom: 8px;
+}
+#crop-prefs-list {
+    display: flex; flex-direction: column; gap: 2px;
+    max-height: 320px; overflow-y: auto;
+}
+.crop-pref-row {
+    display: flex; align-items: center; gap: 8px;
+    padding: 4px 6px;
+    border-radius: 4px;
+    user-select: none;
+    font-size: 13px;
+}
+.crop-pref-row:hover { background: rgba(255,255,255,0.04); }
+.crop-pref-row .drag-handle {
+    color: var(--muted); cursor: grab;
+    font-size: 14px; line-height: 1;
+}
+.crop-pref-row .crop-name { flex: 1; }
+
 </style>
 </head>
 <body>
@@ -464,7 +522,6 @@
     <div class="nav-links">
         <a href="/">Dashboard</a>
         <a href="/calendar.html" class="active">Kalendář polí</a>
-        <a href="/profit.html">Zisk polí</a>
         <a href="/history.html">Historie</a>
         <a href="/help.html">❓ Nápověda</a>
     </div>
@@ -560,7 +617,14 @@
                 <div id="plan-years"></div>
                 <div class="plan-editor-row">
                     <button class="secondary" id="plan-add-year" type="button">+ Přidat rok</button>
+                    <button class="link-btn"  id="crop-prefs-toggle" type="button" style="margin-left:8px">🌾 Plodiny</button>
                     <button class="danger"    id="plan-clear"    type="button" style="margin-left:auto">Smazat plán</button>
+                </div>
+                <div id="crop-prefs-panel" hidden>
+                    <div class="crop-prefs-hint">
+                        Tažením přes ⠿ určíš pořadí plodin v rozbalovacím menu.
+                    </div>
+                    <div id="crop-prefs-list"></div>
                 </div>
                 <p class="settings-hint" style="margin-top:8px">
                     Plán se ukládá lokálně (a synchronizuje na ostatní zařízení).
@@ -773,6 +837,20 @@ function renderKPI(allFields) {
     $('kpi-sow-sub').textContent = sow.length ? sowHa.toFixed(2) + ' ha k osetí' : 'Vše osázeno';
 }
 
+// Mobile layout: at narrow viewports the 260+240 sticky panel eats the whole
+// screen and the timeline disappears entirely. Collapse to a single 140 px
+// "Pole" column and drop "Co potřebuje" — the chips are also visible on the
+// main dashboard / in the per-field modal so nothing irreplaceable is lost.
+function ganttLayout() {
+    const isMobile = window.innerWidth <= 640;
+    return {
+        isMobile,
+        labelW:   isMobile ? 140 : 260,
+        needsW:   isMobile ? 0   : 240,
+        stickyW:  isMobile ? 140 : 500,
+    };
+}
+
 function renderGantt(allFields) {
     const onlyOwned = $('filter-owned').value === 'owned';
     const viewDays  = parseInt($('range-days').value);
@@ -793,8 +871,15 @@ function renderGantt(allFields) {
     // all fields, capped at PLAN_MAX_YEARS in-game years. The timeline cell
     // is `totalDays * pxPerDay` wide and the wrap's overflow gives us the
     // horizontal scroll for free; the custom scrollbar below mirrors it.
-    const PX_PER_DAY = Math.max(20, Math.floor(($('gantt-wrap').clientWidth - 510) / viewDays));
     const dpM = (currentData && currentData.daysPerMonth) || 10;
+    // Each game-month gets at least MIN_PX_PER_MONTH so the tick label
+    // ("R5 KVĚ" worst-case) fits without overlapping the next month.
+    const MIN_PX_PER_MONTH = 56;
+    const minPxPerDay = Math.max(6, Math.ceil(MIN_PX_PER_MONTH / dpM));
+    const layout = ganttLayout();
+    // Reserve `stickyW + 10` for the sticky left panel; the rest is timeline.
+    const timelineAvailW = $('gantt-wrap').clientWidth - layout.stickyW - 10;
+    const PX_PER_DAY = Math.max(minPxPerDay, Math.floor(timelineAvailW / viewDays));
     const curYear  = (currentData && currentData.gameYear)  || 1;
     const curMonth = (currentData && currentData.gameMonth) || 1;
     const curDayInM = (currentData && currentData.dayInMonth) || 1;
@@ -807,25 +892,54 @@ function renderGantt(allFields) {
     const endDay    = gameDay + totalDays;
     const timelineW = totalDays * PX_PER_DAY;
 
-    // Day-tick header — show calendar date (month-abbr, optional day-in-month,
-    // year-on-change) every 5 game-days. Day-in-month is omitted when the
-    // game uses 1 day per period (the FS25 default) because it would always
-    // be "1." and just adds noise.
+    // Day-tick header — one tick per game-month (every `dpM` days), so the
+    // user sees Led/Úno/Bře/… continuously without gaps. Day-in-month is
+    // omitted when dpM=1 (the FS25 default) because it would always be "1."
+    // and just adds noise.
     const showDayInM = dpM > 1;
+    const tickStep = Math.max(1, dpM);
     let headerDays = '';
-    let lastShownYear = null;
+    // yearLabels — top strip in the header, one "Rok X" tag at each
+    // FS25 game-year start (period 1 = March). First label is forced at
+    // offset 0 so the visible year is always named even when the view
+    // doesn't start at a boundary.
+    let yearLabels = '';
+    let lastYearShown = null;
+    // yearBands stripe odd vs even *calendar* years (boundaries at January)
+    // so the bands match the user's mental model. FS25's gameYear ticks at
+    // March (period 1), so we derive a calendar-year key that bumps when
+    // month >= 11 (period 11 = January).
+    const calYearKey = (y, m) => y + (m >= 11 ? 1 : 0);
+    let yearBands = '';
+    let bandStartOffset = 0;
+    let bandKey = calYearKey(curYear, curMonth);
+    const closeBand = (endOffset) => {
+        const x = bandStartOffset * PX_PER_DAY;
+        const w = Math.max(0, endOffset * PX_PER_DAY - x);
+        if (w <= 0) return;
+        const cls = (bandKey % 2 === 0) ? 'even' : 'odd';
+        yearBands += `<div class="gantt-year-band gantt-year-band-${cls}" style="left:${x}px;width:${w}px"></div>`;
+    };
     for (let d = startDay; d <= endDay; d++) {
-        const x = (d - startDay) * PX_PER_DAY;
-        if ((d - startDay) % 5 !== 0) continue;
-        const cal = gameDayToCalendar(d - startDay, curYear, curMonth, curDayInM, dpM);
-        const monthAbbr = MONTHS_CS[cal.month - 1] || ('M' + cal.month);
-        let label = showDayInM ? `${cal.dayInM}.&nbsp;${monthAbbr}` : monthAbbr;
-        if (cal.year !== lastShownYear) {
-            label = `R${cal.year} ${label}`;
-            lastShownYear = cal.year;
+        const offset = d - startDay;
+        const x = offset * PX_PER_DAY;
+        const cal = gameDayToCalendar(offset, curYear, curMonth, curDayInM, dpM);
+        const key = calYearKey(cal.year, cal.month);
+        if (key !== bandKey) {
+            closeBand(offset);
+            bandStartOffset = offset;
+            bandKey = key;
         }
+        if (cal.year !== lastYearShown) {
+            yearLabels += `<div class="gantt-year-tick" style="left:${x}px">Rok ${cal.year}</div>`;
+            lastYearShown = cal.year;
+        }
+        if (offset % tickStep !== 0) continue;
+        const monthAbbr = MONTHS_CS[cal.month - 1] || ('M' + cal.month);
+        const label = showDayInM ? `${cal.dayInM}.&nbsp;${monthAbbr}` : monthAbbr;
         headerDays += `<div class="gantt-day-tick" style="left:${x}px" title="Herní den ${d}">${label}</div>`;
     }
+    closeBand(endDay - startDay);
 
     const settings  = (currentData && currentData.gameSettings) || {};
     const fruitMeta = {};
@@ -879,23 +993,42 @@ function renderGantt(allFields) {
                 onclick="event.stopPropagation(); openModal(this)">Sít</div>`;
         }
 
-        // Plan-task bars — two-row stagger. Row 0 shares the strip
-        // with the growth bar (sits at the same y, slightly thinner);
-        // row 1 is the second strip below. When two tasks touch in
-        // time the later one goes to row 1 so neighbours don't overdraw.
+        // Plan-task bars — one lane per crop in the rotation. Crops are
+        // assigned lanes in plan-year order (first crop = lane 0, second
+        // crop = lane 1, …), so each rotation has its own visual strip
+        // even when the tasks themselves are time-sequential. Lane 0 sits
+        // inside the growth bar's strip; further lanes stack below at
+        // +24 px each. If a crop's tasks happen to time-overlap inside
+        // its own lane (rare — generateTasksForYear emits sequential
+        // events), the later one bumps to a sub-lane so nothing overdraws.
         const planTasks = computeFieldTasksInView(f.id)
             .slice()
             .sort((a, b) => a.startDayOffset - b.startDayOffset);
-        const rowLastEnd = [-Infinity, -Infinity];
+        const cropOrder = new Map();
         for (const t of planTasks) {
-            if (t.startDayOffset > rowLastEnd[0]) {
-                t.row = 0; rowLastEnd[0] = t.endDayOffset;
-            } else if (t.startDayOffset > rowLastEnd[1]) {
-                t.row = 1; rowLastEnd[1] = t.endDayOffset;
-            } else {
-                t.row = 0; rowLastEnd[0] = Math.max(rowLastEnd[0], t.endDayOffset);
-            }
+            if (!cropOrder.has(t.cropName)) cropOrder.set(t.cropName, cropOrder.size);
         }
+        // Per-crop sub-lane stagger so within-crop time overlap (if any)
+        // is visible. Each crop's tasks sit on a contiguous block of
+        // lanes; the block's base index is the sum of previous crops'
+        // sub-lane counts.
+        const cropBase = [];
+        let baseSoFar = 0;
+        for (const crop of cropOrder.keys()) {
+            const cropTasks = planTasks.filter(t => t.cropName === crop);
+            const subEnds = [];
+            for (const t of cropTasks) {
+                let sub = 0;
+                while (sub < subEnds.length && t.startDayOffset <= subEnds[sub]) sub++;
+                t.row = baseSoFar + sub;
+                subEnds[sub] = t.endDayOffset;
+            }
+            cropBase.push(baseSoFar);
+            baseSoFar += Math.max(1, subEnds.length);
+        }
+        const maxLane = baseSoFar - 1;
+        // td height: base 56 fits 2 lanes; each extra lane adds 24 px.
+        const tdHeight = Math.max(56, 14 + (maxLane + 1) * 24);
         for (const t of planTasks) {
             const x1 = t.startDayOffset * PX_PER_DAY;
             const x2 = (t.endDayOffset + 1) * PX_PER_DAY;
@@ -907,22 +1040,26 @@ function renderGantt(allFields) {
             const month     = MONTHS_CS[t.month - 1] || t.month;
             const tooltip   = `${taskLabel} · ${month} ${t.year}${t.cropName ? ' · ' + t.cropName : ''}`;
             // Each plan-task bar carries its own label so the user can
-            // read it directly without consulting a legend. Sow stays
-            // special — it shows the CROP NAME (the actionable info:
-            // "what am I planting?"). Everything else shows the task
-            // type (orba / hnojení / válení / vápnění / sklizeň).
-            const labelText = (t.type === 'sow' && t.cropName) ? t.cropName : taskLabel;
-            // Sow bars carry the crop name (which can be long — "Slunečnice");
-            // hide the label on narrow sow bars where ellipsis would just be
-            // noise. Other task types (orba/hnojení/válcování/vápnění/sklizeň)
-            // are short — let them render even at 30 px, CSS ellipsis handles
-            // overflow gracefully.
-            const showLabel = labelText && (t.type !== 'sow' || w >= 60);
+            // read it directly without consulting a legend. Sow bars show
+            // the CROP NAME (actionable: "what am I planting?"); harvest
+            // bars combine task type + crop ("sklizeň – Ječmen") so it's
+            // obvious which crop is being harvested when multiple rotate;
+            // everything else just shows the task type.
+            const isLongLabel = (t.type === 'sow' || t.type === 'harvest') && t.cropName;
+            const labelText = t.type === 'sow' && t.cropName
+                ? t.cropName
+                : (t.type === 'harvest' && t.cropName ? `${taskLabel} – ${t.cropName}` : taskLabel);
+            // Sow/harvest labels can be long ("Slunečnice"); hide them on
+            // narrow bars where ellipsis would just be noise. Other task
+            // types are short — let them render even at 30 px, CSS ellipsis
+            // handles overflow gracefully.
+            const showLabel = labelText && (!isLongLabel || w >= 60);
             const innerText = showLabel
                 ? `<span class="gantt-plan-task-label">${esc(labelText)}</span>`
                 : '';
-            bars += `<div class="gantt-plan-task row-${t.row}"
-                style="left:${clampedX1}px;width:${w}px;background:${TASK_COLORS[t.type]};"
+            const topPx = 10 + t.row * 24;
+            bars += `<div class="gantt-plan-task"
+                style="left:${clampedX1}px;width:${w}px;top:${topPx}px;background:${TASK_COLORS[t.type]};"
                 title="${esc(tooltip)}">${innerText}</div>`;
         }
 
@@ -945,8 +1082,9 @@ function renderGantt(allFields) {
                     ${fertInLabel}
                 </div>
             </td>
-            <td class="g-needs">${needsHTML}</td>
-            <td class="g-timeline" style="width:${timelineW}px">
+            ${layout.isMobile ? '' : `<td class="g-needs">${needsHTML}</td>`}
+            <td class="g-timeline" style="width:${timelineW}px;height:${tdHeight}px">
+                ${yearBands}
                 <div class="gantt-today" style="left:0"></div>
                 ${bars}
             </td>
@@ -962,10 +1100,14 @@ function renderGantt(allFields) {
 
     // Both tables share an explicit <colgroup> so the sticky-left widths
     // line up across the visible + hidden tables (table-layout: fixed
-    // reads column widths from the colgroup / first row).
+    // reads column widths from the colgroup / first row). On mobile the
+    // "Co potřebuje" column is dropped — its <col> + <th> + <td> are all
+    // omitted so the timeline gets the screen real-estate.
+    const needsCol = layout.isMobile ? '' : '<col style="width:240px">';
+    const needsTh  = layout.isMobile ? '' : '<th class="g-th-needs">Co potřebuje</th>';
     const colgroup = `<colgroup>
-        <col style="width:260px">
-        <col style="width:240px">
+        <col style="width:${layout.labelW}px">
+        ${needsCol}
         <col style="width:${timelineW}px">
     </colgroup>`;
 
@@ -975,9 +1117,11 @@ function renderGantt(allFields) {
             <thead>
                 <tr>
                     <th class="g-th-label">Pole</th>
-                    <th class="g-th-needs">Co potřebuje</th>
+                    ${needsTh}
                     <th class="g-th-timeline">
                         <div class="gantt-days" style="width:${timelineW}px">
+                            ${yearBands}
+                            ${yearLabels}
                             ${headerDays}
                             <div class="gantt-today" style="left:0"></div>
                         </div>
@@ -1268,6 +1412,47 @@ function fruitDisplay(ft) {
     return ft.fillTitle || ft.title || ft.name || '';
 }
 
+// Base sort: alphabetical (Czech locale), with the user's drag-and-drop
+// order from TableTools "crops" scope layered on top. Used by the panel
+// directly so drag stays WYSIWYG.
+function sortFruitsBase(fruits) {
+    const seedable = (fruits || []).filter(ft => ft.allowsSeeding !== false);
+    const alpha = seedable.slice().sort((a, b) =>
+        fruitDisplay(a).localeCompare(fruitDisplay(b), 'cs'));
+    return (window.TableTools && window.TableTools.applyOrder)
+        ? window.TableTools.applyOrder(alpha, 'crops', f => f.name)
+        : alpha;
+}
+
+// Render the "🌾 Plodiny" management panel — a flat reorderable list of all
+// seedable fruit types. Rows drag via the ⠿ handle (TableTools picks up
+// [data-tt-dnd="crops"]); a reorder updates dropdown options on next render.
+function renderCropPrefs() {
+    const wrap = $('crop-prefs-list');
+    if (!wrap) return;
+    const fruits = (currentData && currentData.availableFruits) || [];
+    if (!fruits.length) {
+        wrap.innerHTML = '<div style="color:var(--muted);font-size:12px;padding:4px 6px">Načítám katalog plodin ze hry…</div>';
+        return;
+    }
+    const sorted = sortFruitsBase(fruits);
+    wrap.innerHTML = sorted.map(ft => `
+        <div class="crop-pref-row" data-tt-dnd="crops" data-tt-key="${esc(ft.name)}">
+            <span class="drag-handle" title="Tažením změň pořadí">⠿</span>
+            <span class="crop-name">${esc(fruitDisplay(ft))}</span>
+        </div>`).join('');
+}
+
+// Refresh both the dropdowns and the panel when crops state changes.
+function refreshCropPrefs() {
+    _planYearsMemo = null;  // bust the dropdown memo so options re-render
+    renderCropPrefs();
+    if (currentData) {
+        const fruits = currentData.availableFruits || [];
+        renderPlanYears(fruits);
+    }
+}
+
 // Field picker mirrors what the Gantt above shows: respects the
 // "owned vs all" filter and excludes fields the user hid via TableTools.
 // That way the picker can never offer a field that's not visible in the
@@ -1388,12 +1573,10 @@ function renderPlanYears(fruits) {
         years = [startYear];
     }
 
-    // Fruit dropdown options — sorted by display name (fillTitle preferred,
-    // ft.title fallback, canonical name as last resort).
-    const sortedFruits = fruits
-        .filter(ft => ft.allowsSeeding !== false)
-        .slice()
-        .sort((a, b) => fruitDisplay(a).localeCompare(fruitDisplay(b), 'cs'));
+    // Fruit dropdown options — alphabetical by default, with any user-defined
+    // drag-and-drop order (saved via TableTools under the "crops" scope)
+    // applied on top.
+    const sortedFruits = sortFruitsBase(fruits);
     const fruitOpts = '<option value="">— bez plodiny —</option>'
         + sortedFruits.map(ft =>
             `<option value="${esc(ft.name)}">${esc(fruitDisplay(ft))}</option>`).join('');
@@ -1627,13 +1810,38 @@ document.addEventListener('DOMContentLoaded', () => {
             if (currentData) renderGantt(currentData.fields || []);
             updatePlanAddYearButton();
         }
+        if (e.target.id === 'crop-prefs-toggle') {
+            const panel = $('crop-prefs-panel');
+            if (!panel) return;
+            const isOpen = !panel.hasAttribute('hidden');
+            if (isOpen) {
+                panel.setAttribute('hidden', '');
+            } else {
+                panel.removeAttribute('hidden');
+                renderCropPrefs();
+            }
+        }
     });
+});
+
+// On viewport resize / orientation change, the Gantt's sticky-column / PX_PER_DAY
+// math depends on `window.innerWidth`, so we redraw. Debounced to avoid thrash
+// during a slow resize drag (and Safari fires multiple resize events per drag).
+let _resizeTimer = null;
+window.addEventListener('resize', () => {
+    if (_resizeTimer) clearTimeout(_resizeTimer);
+    _resizeTimer = setTimeout(() => { if (currentData) rerenderFromCurrent(); }, 150);
 });
 
 window.addEventListener('DOMContentLoaded', () => {
     // Re-render when the user hides/unhides a field anywhere on the page.
     // TableTools click handler updates localStorage + triggers this callback.
     TableTools.onChange('fields', rerenderFromCurrent);
+    // Crop-prefs panel: TableTools fires this after a drag-and-drop reorder
+    // (the saved order is already persisted by then). refreshCropPrefs rebuilds
+    // the panel + busts the dropdown memo so the plan-editor selects pick up
+    // the new order on the next render tick.
+    TableTools.onChange('crops', refreshCropPrefs);
 
     FS25App.connect(data => {
         currentData = data;

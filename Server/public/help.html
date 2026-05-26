@@ -34,7 +34,6 @@
     <div class="nav-links">
         <a href="/">Dashboard</a>
         <a href="/calendar.html">Kalendář polí</a>
-        <a href="/profit.html">Zisk polí</a>
         <a href="/history.html">Historie</a>
         <a href="/help.html" class="active">❓ Nápověda</a>
     </div>
@@ -67,7 +66,6 @@
             </li>
             <li><a href="#kalendar">Kalendář polí</a></li>
             <li><a href="#historie">Historie</a></li>
-            <li><a href="#zisk">Zisk polí</a></li>
             <li>
                 <a href="#funkce">Společné funkce</a>
                 <ol>
@@ -120,11 +118,11 @@
         <section id="orientace" class="help-section">
             <h2>Orientace v navbaru</h2>
             <p>Lišta nahoře je všude stejná:</p>
-            <table class="help-table">
+            <div class="help-table-wrap"><table class="help-table">
                 <thead><tr><th>Prvek</th><th>K čemu je</th></tr></thead>
                 <tbody>
                     <tr><td>🌾 FS25</td><td>Logo, klik nedělá nic — jen značka.</td></tr>
-                    <tr><td>Dashboard / Kalendář polí / Zisk polí / Historie / Nápověda</td>
+                    <tr><td>Dashboard / Kalendář polí / Historie / Nápověda</td>
                         <td>Přepínání mezi stránkami. Aktivní stránka je zvýrazněná.</td></tr>
                     <tr><td>🔔 Zvoneček</td>
                         <td>Notifikace — palivo, krmení, plné sklady. Číslo = počet
@@ -141,7 +139,7 @@
                         <td>Rychlý přepínač motivu (cyklus 4 motivů).
                         <a href="#motivy">Detail</a>.</td></tr>
                 </tbody>
-            </table>
+            </table></div>
         </section>
 
         <!-- ───────────────────────────────────────────────────────────── -->
@@ -158,7 +156,7 @@
             </figure>
 
             <h3 id="kpi">KPI karty</h3>
-            <table class="help-table">
+            <div class="help-table-wrap"><table class="help-table">
                 <thead><tr><th>Karta</th><th>Co ukazuje</th></tr></thead>
                 <tbody>
                     <tr><td><strong>Zůstatek</strong></td>
@@ -174,7 +172,7 @@
                     <tr><td><strong>Čas</strong></td>
                         <td>Herní čas (ne reálný).</td></tr>
                 </tbody>
-            </table>
+            </table></div>
 
             <h3 id="sec-pole">🌱 Pole – přehled</h3>
             <p>
@@ -219,7 +217,7 @@
                     Zobrazují se jen ty, které stáj reálně používá (Králík/Křepelka
                     nemají žádné výstupy).</li>
             </ul>
-            <table class="help-table">
+            <div class="help-table-wrap"><table class="help-table">
                 <thead>
                     <tr><th>Zkr.</th><th>Sloupec</th><th>Význam</th><th>Co znamená vysoké %</th></tr>
                 </thead>
@@ -231,7 +229,7 @@
                     <tr><td><code>H</code></td><td>vpravo (výstupy)</td><td>Hnůj (suchý)</td><td>Špatně — odvézt na pole</td></tr>
                     <tr><td><code>Kj</code></td><td>vpravo (výstupy)</td><td>Kejda (tekutý hnůj)</td><td>Špatně — odčerpat</td></tr>
                 </tbody>
-            </table>
+            </table></div>
             <p>
                 <strong>M (Mléko) ≠ H (Hnůj)</strong> — u krav a koz vidíš M, H i Kj naráz, protože stáj produkuje
                 mléko (k prodeji) <em>a zároveň</em> hnůj + kejdu (k odvozu na pole).
@@ -378,38 +376,6 @@
         </section>
 
         <!-- ───────────────────────────────────────────────────────────── -->
-        <section id="zisk" class="help-section">
-            <h2>💵 Zisk polí</h2>
-            <p>Stránka <code>/profit.html</code> — pokus o per-pole P&amp;L analýzu.</p>
-
-            <div class="help-callout help-callout--warn">
-                ⚠️ <strong>Důležité omezení:</strong> Hra neumožňuje přesné sledování
-                nákladů (semena, hnojivo, palivo). Server odhaduje z událostí setí/sklizeň.
-                Slouží <em>k orientaci, ne k účetnictví</em>.
-            </div>
-
-            <h3>4 KPI nahoře</h3>
-            <ul>
-                <li><strong>Celkový zisk</strong> (barevně) — kolik polí je v plusu, kolik v mínusu.</li>
-                <li><strong>Celkové výnosy</strong> (zelená) — co přiteklo ze sklizní.</li>
-                <li><strong>Celkové náklady</strong> (červená) — odhad nákladů na setí.</li>
-                <li><strong>Aktivita</strong> — počet setí + sklizní.</li>
-            </ul>
-
-            <h3>Tabulka per pole</h3>
-            <p>
-                Pole #, poslední plodina, počet setí/sklizní, náklady, výnosy, zisk
-                a stav („✓ N sklizní“ / „⏳ Roste“ / „—“).
-            </p>
-
-            <h3>Tabulka nedávných událostí</h3>
-            <p>
-                Chronologický log <strong>setí 🌱</strong> (žlutě) a <strong>sklizní 🚜</strong>
-                (zeleně) s denem, polem, plodinou, plochou a finanční změnou.
-            </p>
-        </section>
-
-        <!-- ───────────────────────────────────────────────────────────── -->
         <section id="funkce" class="help-section">
             <h2>Společné funkce</h2>
 
@@ -418,7 +384,7 @@
                 Klik na ozubené kolo otevře modal se 3 záložkami. <strong>Uložit</strong>
                 je vždy vpravo dole, <strong>×</strong> vpravo nahoře.
             </p>
-            <table class="help-table">
+            <div class="help-table-wrap"><table class="help-table">
                 <thead><tr><th>Záložka</th><th>Co tam najdeš</th></tr></thead>
                 <tbody>
                     <tr><td>🔔 <strong>Notifikace</strong></td>
@@ -433,7 +399,7 @@
                         <td>4 motivy — dark-green (default), dark-blue, light,
                         high-contrast. Klik aplikuje okamžitě napříč všemi stránkami.</td></tr>
                 </tbody>
-            </table>
+            </table></div>
 
             <h3 id="zvonecek">🔔 Zvoneček</h3>
             <p>

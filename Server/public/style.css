@@ -140,6 +140,21 @@ nav {
     font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 }
 .nav-links { display: flex; gap: 4px; flex: 1; }
+.nav-burger {
+    display: none;          /* desktop: hidden; mobile media query shows it */
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text);
+    width: 32px; height: 32px;
+    border-radius: 4px;
+    font-size: 16px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 0;
+    margin-right: 8px;
+    flex-shrink: 0;
+}
+.nav-burger:hover { background: var(--surface2); border-color: var(--accent); }
 .nav-links a {
     padding: 6px 14px;
     border-radius: var(--radius);
@@ -1862,11 +1877,21 @@ body.tt-drag-active .tt-hidden-zone [data-tt-hidden] {
     .help-main {
         grid-template-columns: 1fr;
     }
-    .help-toc {
+    /* Grid items default to min-content width; on a single column this
+       lets the content (long URL in <code>, etc.) push the column past
+       the viewport. min-width:0 lets the column shrink, then long-word
+       wrapping inside code/pre absorbs any leftover overflow. */
+    .help-toc, .help-article {
         position: static;
         max-height: none;
+        min-width: 0;
     }
     .help-article { padding: 20px 18px 32px; }
+    .help-article code, .help-article pre {
+        word-break: break-word;
+        overflow-wrap: anywhere;
+    }
+    .help-article pre { overflow-x: auto; }
 }
 
 /* ─── Mobile / narrow viewports ───────────────────────────────────────────
@@ -1894,15 +1919,39 @@ body.tt-drag-active .tt-hidden-zone [data-tt-hidden] {
         padding-left: 0; padding-top: 6px;
         min-width: 0;
     }
+    /* Mobile nav: hide the inline link strip and surface a hamburger ☰
+       button instead. The links drop down as an absolute panel below the
+       nav when toggled, so they no longer fight for space with the save
+       chip + version + status. */
+    .nav-burger { display: inline-flex; align-items: center; justify-content: center; }
     .nav-links {
+        display: none;
+        position: absolute;
+        top: var(--nav-h); left: 0; right: 0;
+        background: var(--surface);
+        border-bottom: 1px solid var(--border);
+        box-shadow: 0 6px 16px rgba(0,0,0,.25);
+        flex-direction: column;
         gap: 0;
-        flex-wrap: nowrap;
-        overflow-x: auto;
-        -webkit-overflow-scrolling: touch;
+        padding: 8px 0;
+        z-index: 99;
     }
-    .nav-links a { padding: 6px 10px; font-size: 12px; white-space: nowrap; }
-    nav { padding: 0 10px; }
-    .nav-brand { font-size: 13px; }
+    .nav-links.open { display: flex; }
+    .nav-links a {
+        padding: 10px 20px;
+        font-size: 14px;
+        border-radius: 0;
+        border-bottom: 1px solid transparent;
+    }
+    .nav-links a.active { border-left: 3px solid var(--accent); padding-left: 17px; }
+    nav { padding: 0 10px; gap: 4px; }
+    .nav-brand { font-size: 13px; margin-right: 6px; }
+    /* Save chip + version chip eat space on mobile; trim them aggressively
+       so the bell + time + status dot still fit. */
+    .nav-save { max-width: 130px; font-size: 10px; margin-right: 6px; padding: 1px 6px; }
+    .nav-version { font-size: 10px; margin-right: 4px; padding: 1px 4px; }
+    .nav-status { gap: 4px; font-size: 11px; }
+    .nav-updated { display: none; }   /* time is in the bell tooltip too */
 }
 @media (max-width: 480px) {
     .kpi-value { font-size: 18px; }
@@ -1911,4 +1960,36 @@ body.tt-drag-active .tt-hidden-zone [data-tt-hidden] {
     table { font-size: 12px; }
     thead th, tbody td { padding: 5px 6px; }
     .nav-brand { display: none; }
+    /* Help-page table wrappers — keep the table's normal table layout but
+       give it its own horizontal scroll so a 4-column row of long Czech
+       labels doesn't force the entire page to scroll. */
+    .help-table-wrap {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        max-width: 100%;
+    }
+    /* Fields table has 7 columns; on a 375 px viewport hide the two least-
+       critical ones (ZP = parcel-number, identifiable via id; "Dní do
+       sklizně" = visible in the per-field modal). */
+    .sec-fields table thead th:nth-child(2),
+    .sec-fields table tbody td:nth-child(2),
+    .sec-fields table thead th:nth-child(7),
+    .sec-fields table tbody td:nth-child(7) { display: none; }
+    /* Vehicle names truncated mid-word on narrow screens — allow wrap to
+       a 2nd line; the card grows but the user can read the full name. */
+    .vc-name {
+        white-space: normal;
+        overflow-wrap: anywhere;
+        line-height: 1.2;
+    }
+    /* Settings modal tab strip — let the row scroll horizontally so the
+       last tab ("Sync") isn't clipped off the right edge. */
+    .settings-tabs {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        flex-wrap: nowrap;
+        scrollbar-width: none;
+    }
+    .settings-tabs::-webkit-scrollbar { display: none; }
+    .settings-tabs button { flex-shrink: 0; }
 }

@@ -484,8 +484,47 @@
 
     // ─── Init ─────────────────────────────────────────────────────────────────
 
+    // On mobile the nav links don't fit alongside the brand + status + save
+    // chip. Inject a hamburger button that toggles `.nav-links.open` — CSS
+    // does the rest (hidden by default desktop, dropdown on mobile).
+    function injectNavBurger() {
+        const nav = document.querySelector('nav');
+        const links = nav && nav.querySelector('.nav-links');
+        if (!nav || !links) return;
+        if (nav.querySelector('.nav-burger')) return;
+        const btn = document.createElement('button');
+        btn.className = 'nav-burger';
+        btn.setAttribute('aria-label', 'Menu');
+        btn.setAttribute('aria-expanded', 'false');
+        btn.textContent = '☰';
+        nav.insertBefore(btn, links);
+        btn.addEventListener('click', e => {
+            e.stopPropagation();
+            const open = links.classList.toggle('open');
+            btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+            btn.textContent = open ? '✕' : '☰';
+        });
+        // Close the dropdown on any link click (it'll navigate away anyway,
+        // but feels snappier) and on outside-click.
+        links.addEventListener('click', e => {
+            if (e.target.tagName === 'A') {
+                links.classList.remove('open');
+                btn.setAttribute('aria-expanded', 'false');
+                btn.textContent = '☰';
+            }
+        });
+        document.addEventListener('click', e => {
+            if (!links.classList.contains('open')) return;
+            if (nav.contains(e.target)) return;
+            links.classList.remove('open');
+            btn.setAttribute('aria-expanded', 'false');
+            btn.textContent = '☰';
+        });
+    }
+
     document.addEventListener('DOMContentLoaded', () => {
         injectNotifUI();
+        injectNavBurger();
         showServerVersion();
     });
 

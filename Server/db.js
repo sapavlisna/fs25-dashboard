@@ -53,9 +53,24 @@ const seenEventKeys = new Set();
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
+// Build a stable identifier for the current savegame so history queries
+// can filter to one playthrough at a time. Without this, switching slots
+// (or even reloading a different save) interleaves rows in the same JSONL
+// — the chart then shows balance from one game-day and crop prices from
+// another, which is what gave the user a 68 M Kč "chart vs 1.3 M Kč in
+// game" mismatch.
+function buildSaveId(data) {
+    const m = data && data.saveMeta;
+    if (!m) return '';
+    const name = m.name || '';
+    const map  = m.mapTitle || '';
+    return name && map ? `${name}|${map}` : (name || map || '');
+}
+
 function saveSnapshot(data) {
     const day = data.gameDay || 0;
     const now = new Date().toISOString();
+    const saveId = buildSaveId(data);
 
     // Save events immediately, deduplicated (events fire any time, not per-day)
     saveEvents(data.events || [], data);
@@ -66,13 +81,14 @@ function saveSnapshot(data) {
 
     try {
         if (data.farmBalance != null) {
-            appendJsonl(FILES.balance, { recorded_at: now, game_day: day, balance: data.farmBalance });
+            appendJsonl(FILES.balance, { recorded_at: now, save_id: saveId, game_day: day, balance: data.farmBalance });
         }
 
         for (const sp of (data.prices || [])) {
             for (const item of (sp.items || [])) {
                 appendJsonl(FILES.prices, {
                     recorded_at: now,
+                    save_id:     saveId,
                     game_day:    day,
                     sell_point:  sp.sellPoint,
                     fill_type:   item.name,
@@ -85,6 +101,7 @@ function saveSnapshot(data) {
             if (f.owned) {
                 appendJsonl(FILES.fields, {
                     recorded_at:    now,
+                    save_id:        saveId,
                     game_day:       day,
                     field_id:       f.id,
                     fruit_name:     f.fruitName || '',
@@ -168,7 +185,7 @@ function saveEvents(events, snapshot) {
 // ─── Profit aggregation ───────────────────────────────────────────────────────
 
 function getFieldProfit(fieldIds) {
-    const events = readJsonl(FILES.events);
+    const events = filterCurrentSave(readJsonl(FILES.events));
     const byField = {};
 
     for (const e of events) {
@@ -208,40 +225,72 @@ function getFieldProfit(fieldIds) {
 }
 
 function getRecentEvents(limit) {
-    const events = readJsonl(FILES.events);
+    const events = filterCurrentSave(readJsonl(FILES.events));
     return events.slice(-1 * (parseInt(limit) || 50)).reverse();
 }
 
+// Helper: max game_day via reduce (NOT Math.max(...arr) — that blows the
+// call stack at ~100 k arguments, which is what happens once the price log
+// gets a few weeks of multi-station data in it).
+function maxGameDay(rows) {
+    let m = -Infinity;
+    for (const r of rows) if (r.game_day > m) m = r.game_day;
+    return m;
+}
+
+// Keep one row per group (last wins) so the chart isn't cluttered with the
+// ~10 identical snapshots every game-day produces under the 2-second WS tick.
+function dedupeLast(rows, keyFn) {
+    const map = new Map();
+    for (const r of rows) map.set(keyFn(r), r);
+    return [...map.values()];
+}
+
+// Filter rows down to the current savegame. The "current" save_id is whatever
+// the most recent record carries; older rows from previous playthroughs (or
+// pre-tagging legacy rows with no save_id) are excluded so the chart shows
+// one consistent timeline. If the latest row has no save_id either (early in
+// a fresh install or right after a wipe), nothing is filtered.
+function filterCurrentSave(rows) {
+    if (!rows.length) return rows;
+    const latest = rows[rows.length - 1];
+    const currentSaveId = latest.save_id || '';
+    if (!currentSaveId) return rows;
+    return rows.filter(r => (r.save_id || '') === currentSaveId);
+}
+
 function getPriceHistory(fillType, sellPoint, days) {
-    const rows = readJsonl(FILES.prices);
+    const rows = filterCurrentSave(readJsonl(FILES.prices));
     if (!rows.length) return [];
 
-    const maxDay = Math.max(...rows.map(r => r.game_day));
+    const maxDay = maxGameDay(rows);
     const minDay = days ? maxDay - parseInt(days) : 0;
 
-    return rows.filter(r => {
+    const filtered = rows.filter(r => {
         if (r.game_day < minDay) return false;
         if (fillType  && r.fill_type  !== fillType)  return false;
         if (sellPoint && r.sell_point !== sellPoint) return false;
         return true;
-    }).sort((a, b) => a.game_day - b.game_day);
+    });
+    return dedupeLast(filtered, r => `${r.game_day}|${r.fill_type}|${r.sell_point}`)
+        .sort((a, b) => a.game_day - b.game_day);
 }
 
 function getBalanceHistory(days) {
-    const rows = readJsonl(FILES.balance);
+    const rows = filterCurrentSave(readJsonl(FILES.balance));
     if (!rows.length) return [];
 
-    const maxDay = Math.max(...rows.map(r => r.game_day));
+    const maxDay = maxGameDay(rows);
     const minDay = maxDay - (parseInt(days) || 30);
 
-    return rows.filter(r => r.game_day >= minDay)
-               .sort((a, b) => a.game_day - b.game_day);
+    return dedupeLast(rows.filter(r => r.game_day >= minDay), r => r.game_day)
+        .sort((a, b) => a.game_day - b.game_day);
 }
 
 // Most-recent saved balance whose game_day is strictly before `currentDay`.
 // Returns null if there isn't one yet (first session day).
 function getBalanceBefore(currentDay) {
-    const rows = readJsonl(FILES.balance);
+    const rows = filterCurrentSave(readJsonl(FILES.balance));
     let best = null;
     for (const r of rows) {
         if (r.game_day < currentDay && (!best || r.game_day > best.game_day)) {
@@ -253,13 +302,13 @@ function getBalanceBefore(currentDay) {
 
 function getAvailableFillTypes() {
     const seen = new Set();
-    for (const r of readJsonl(FILES.prices)) seen.add(r.fill_type);
+    for (const r of filterCurrentSave(readJsonl(FILES.prices))) seen.add(r.fill_type);
     return [...seen].sort().map(fill_type => ({ fill_type }));
 }
 
 function getAvailableSellPoints() {
     const seen = new Set();
-    for (const r of readJsonl(FILES.prices)) seen.add(r.sell_point);
+    for (const r of filterCurrentSave(readJsonl(FILES.prices))) seen.add(r.sell_point);
     return [...seen].sort().map(sell_point => ({ sell_point }));
 }
 
