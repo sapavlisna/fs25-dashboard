@@ -73,6 +73,7 @@
                     <li><a href="#zvonecek">Zvoneček 🔔</a></li>
                     <li><a href="#flash">Flash zvýraznění</a></li>
                     <li><a href="#motivy">Motivy vzhledu</a></li>
+                    <li><a href="#mobilni">Mobilní zobrazení 📱</a></li>
                     <li><a href="#perzistence">Co si pamatuje prohlížeč</a></li>
                 </ol>
             </li>
@@ -122,22 +123,32 @@
                 <thead><tr><th>Prvek</th><th>K čemu je</th></tr></thead>
                 <tbody>
                     <tr><td>🌾 FS25</td><td>Logo, klik nedělá nic — jen značka.</td></tr>
+                    <tr><td><strong>Save chip</strong> (název · mapa)</td>
+                        <td>Aktuální savegame z FS25 (např. „Má uložená hra · HOF BERGMANN").
+                        Server tagové každý záznam historie tímto save ID — přepneš slot,
+                        grafy přepnou s tebou.</td></tr>
+                    <tr><td><strong>v1.1.2</strong></td>
+                        <td>Verze módu v běžící hře (čteno z payloadu). Server svoji verzi
+                        kontroluje proti módu a varuje, když nesedí.</td></tr>
                     <tr><td>Dashboard / Kalendář polí / Historie / Nápověda</td>
-                        <td>Přepínání mezi stránkami. Aktivní stránka je zvýrazněná.</td></tr>
+                        <td>Přepínání mezi stránkami. Aktivní stránka je zvýrazněná.
+                        Na telefonu skrytě za <strong>☰</strong> burger menu
+                        (<a href="#mobilni">detail</a>).</td></tr>
                     <tr><td>🔔 Zvoneček</td>
                         <td>Notifikace — palivo, krmení, plné sklady. Číslo = počet
                         aktivních upozornění. Klik = rozbalení seznamu.
                         <a href="#zvonecek">Detail</a>.</td></tr>
-                    <tr><td>Čas aktualizace</td>
-                        <td>Kdy přišel poslední update z hry.</td></tr>
+                    <tr><td>Herní čas</td>
+                        <td>Aktuální čas ve hře (ne reálný hodiny). „Live" zelený
+                        indikátor vedle = WS spojení žije.</td></tr>
                     <tr><td>Tečka stavu</td>
                         <td>🟢 živé spojení · 🟡 obnovuje se · 🔴 chyba · ⚪ čeká.</td></tr>
-                    <tr><td>⚙ Nastavení</td>
-                        <td>Otevře modal se 3 záložkami — Notifikace, Sekce, Vzhled.
-                        <a href="#nastaveni">Detail</a>.</td></tr>
                     <tr><td>🎨 Motiv</td>
-                        <td>Rychlý přepínač motivu (cyklus 4 motivů).
+                        <td>Rychlý přepínač motivu (cyklus 5 motivů).
                         <a href="#motivy">Detail</a>.</td></tr>
+                    <tr><td>⚙ Nastavení</td>
+                        <td>Otevře modal s 5 záložkami — Notifikace, Sekce, Vozidla,
+                        Vzhled, Sync. <a href="#nastaveni">Detail</a>.</td></tr>
                 </tbody>
             </table></div>
         </section>
@@ -276,58 +287,103 @@
         <section id="kalendar" class="help-section">
             <h2>📅 Kalendář polí</h2>
             <p>
-                Gantt-style časová osa <code>/calendar.html</code>. Cíl: na jednom pohledu
-                vidět, která pole čekají na co a kdy se hodí kombajn.
+                Gantt-style časová osa <code>/calendar.html</code>. Cíl: na jeden pohled
+                vidět, kdy která pole dozrávají, jak rotace plodin překrývá různé práce
+                a kdy se hodí kombajn. Plánuje až několik let dopředu.
             </p>
 
             <figure class="help-figure">
                 <img src="help/screenshot-calendar.png" alt="Kalendář polí"
                      onerror="this.parentElement.classList.add('help-figure--missing')">
-                <figcaption>Gantt s pevnými 7 sloupci potřeb a barevnými pruhy fází</figcaption>
+                <figcaption>Gantt — sticky levá část (číslo pole + potřeby) + horizontální timeline s rotací plodin</figcaption>
             </figure>
 
-            <h3>Pevných 7 sloupců potřeb</h3>
+            <h3>Hlavička timeline</h3>
             <p>
-                Vedle popisku každého pole je mřížka <strong>Orat | Kultivovat | Sít | Vápno
-                | Plevel | Kameny | Válet</strong>. Každá buňka obsahuje buď chip
-                s potřebou, nebo zůstává prázdná — sloupce jsou tedy zarovnané a snadno se
-                porovnává více polí najednou.
+                Dvě stacknuté řady ticků:
             </p>
+            <ul>
+                <li><strong>Horní pruh „Rok X"</strong> — přepne se 1. března
+                    (start FS25 herního roku).</li>
+                <li><strong>Spodní pruh měsíců</strong> — Led, Úno, Bře, Dub, Kvě, Čen,
+                    Čvc, Srp, Zář, Říj, Lis, Pro. Tick je vždy na začátku každého měsíce.</li>
+            </ul>
             <p>
-                Které sloupce vidíš, řídí <strong>nastavení hry</strong>
-                (Plevel, Kameny, Vápno, Orba). Pokud máš v menu „Vyžaduje orbu = Vypnuto“,
-                sloupec Orat se nikdy nerozsvítí.
+                Pozadí lehce střídá liché/sudé kalendářní roky (předěl 1. ledna). Předěl je
+                jiný než „Rok X" hlavička — ta sleduje herní rok (březen), zatímco
+                podbarvení sleduje kalendářní rok (leden). Výsledek: na první pohled
+                vidíš, kde se kalendář překlápí, i kdyby ses díval na timeline z dálky.
             </p>
 
-            <h3>Barevné pruhy</h3>
+            <h3>Co potřebuje (chip pills)</h3>
+            <p>
+                Vedle popisku pole je sloupec <strong>Co potřebuje</strong> s nejvýše třemi
+                chip-pillami (Orat / Sít / Vápno / Plevel / Kameny / Válet / Hnojit).
+                Když je potřeb víc, čtvrtá+ jsou nahrazené „+N" indikátorem
+                (hover ukáže celý seznam).
+            </p>
+            <p>
+                Které chipy vidíš, řídí <strong>nastavení hry</strong>. Pokud máš
+                ve hře „Vyžaduje orbu = Vypnuto", chip Orat se nikdy neobjeví.
+                Hnojení má vlastní indikátor: <strong>●●</strong> plně, <strong>●○</strong>
+                jedna dávka, <strong>○○</strong> nepohnojeno.
+            </p>
+
+            <h3>Aktuální stav pole (růstový bar)</h3>
             <ul>
-                <li><span class="help-swatch help-swatch--ready"></span> <strong>Připraveno</strong>
+                <li><span class="help-swatch help-swatch--ready"></span> <strong>Sklízet!</strong>
                     — pole je dozrálé, jeď sklízet.</li>
                 <li><span class="help-swatch help-swatch--growing"></span> <strong>Roste</strong>
-                    — pruh ukazuje očekávanou délku dozrávání.</li>
-                <li><span class="help-swatch help-swatch--tosow"></span> <strong>K setbě</strong>
-                    — pole čeká.</li>
+                    — pruh ukazuje očekávanou délku dozrávání + procento.</li>
+                <li><span class="help-swatch help-swatch--tosow"></span> <strong>Sít</strong>
+                    — pole čeká na osetí.</li>
                 <li><span class="help-swatch help-swatch--cut"></span> <strong>Sklizeno (strniště)</strong>
                     — vždy potřebuje znovu kultivovat + sít.</li>
                 <li><span class="help-swatch help-swatch--withered"></span> <strong>Zvadlé</strong>
                     — propásl jsi okno sklizně, jediná cesta dál je kultivovat a začít znovu.</li>
             </ul>
 
-            <h3>Hnojení (●●/●○/○○)</h3>
+            <h3>Plán: per-plodina lane</h3>
             <p>
-                Badge u každého pole: <strong>●●</strong> plně pohnojeno (zelená),
-                <strong>●○</strong> jedna dávka chybí (žlutá),
-                <strong>○○</strong> nepohnojeno (červená).
+                Plán polí (editor dole) umí rotaci — Ječmen rok 4, Čirok rok 5,
+                cokoliv chceš. Bary úkolů (vápnění, orba, setba, hnojení, válcování,
+                sklizeň) se v timeline stackují vertikálně tak, že
+                <strong>každá plodina v rotaci má vlastní řadu</strong>. Sklizňové bary
+                nesou jméno plodiny („sklizeň – Ječmen"), takže okamžitě rozlišíš
+                <em>co</em> se kdy sklízí, i když cykly přímo časově nepřekrývají.
             </p>
 
-            <h3>Časový rozsah</h3>
+            <h3>Plánovací editor + 🌾 Plodiny panel</h3>
             <p>
-                Slider 5–60 dní. Defaultně 14. Today marker (svislá čára) je vždy úplně vlevo.
+                Klik na řádek pole v tabulce výše = otevře editor pod tabulkou:
+            </p>
+            <ul>
+                <li>Pro každý rok rotace vyber plodinu z rozbalovacího menu.</li>
+                <li><strong>+ Přidat rok</strong> přidá další rotaci do budoucna.</li>
+                <li><strong>🌾 Plodiny</strong> otevře panel, kde tažením přes ⠿
+                    změníš pořadí plodin v rozbalovacím menu — plodiny, které
+                    sázíš často, přetáhneš nahoru a v dropdownu je najdeš první.
+                    Pořadí se synchronizuje mezi zařízeními.</li>
+                <li><strong>Smazat plán</strong> resetuje plán pro vybrané pole.</li>
+            </ul>
+
+            <h3>Filtry a zoom</h3>
+            <p>
+                Horní lišta sekce:
+            </p>
+            <ul>
+                <li><strong>Jen vlastněná pole / Všechna pole</strong> — filtruje seznam.</li>
+                <li><strong>Slider rozsahu</strong> 7–90 dní (defaultně 30). Při zúžení
+                    se měsíční ticky roztáhnou, při rozšíření se zhustí.</li>
+            </ul>
+            <p>
+                Today marker (svislá oranžová čára) je vždy úplně vlevo timeline — co
+                je vpravo, jsou budoucí dny.
             </p>
 
             <h3>Klik na pruh = detail</h3>
             <p>
-                Modal s plodinou, fází, ETA sklizně, est. denem sklizně a kompletním
+                Modal s plodinou, fází, ETA sklizně, odhadovaným dnem sklizně a kompletním
                 seznamem potřeb (OK / ANO / POTŘEBA).
             </p>
         </section>
@@ -381,8 +437,8 @@
 
             <h3 id="nastaveni">⚙ Nastavení</h3>
             <p>
-                Klik na ozubené kolo otevře modal se 3 záložkami. <strong>Uložit</strong>
-                je vždy vpravo dole, <strong>×</strong> vpravo nahoře.
+                Klik na ozubené kolo otevře modal s 5 záložkami. <strong>×</strong>
+                vpravo nahoře modal zavře, změny se ukládají průběžně.
             </p>
             <div class="help-table-wrap"><table class="help-table">
                 <thead><tr><th>Záložka</th><th>Co tam najdeš</th></tr></thead>
@@ -392,12 +448,23 @@
                         prázdné pole dnů, cooldown mezi opakovanými notifikacemi v minutách)
                         a test tlačítko.</td></tr>
                     <tr><td>📋 <strong>Sekce</strong></td>
-                        <td>iOS-style přepínače pro každou sekci hlavního dashboardu —
-                        sekce, kterou nepotřebuješ (například Výrobny při hraní bez
-                        produkčního řetězce), jednoduše vypneš a zmizí.</td></tr>
+                        <td>iOS-style přepínače + drag-and-drop pořadí pro každou sekci
+                        hlavního dashboardu. Sekce, kterou nepotřebuješ (třeba Výrobny
+                        při hraní bez produkčního řetězce), jednoduše vypneš a zmizí.
+                        Tlačítka <strong>↺ Obnovit pořadí</strong> (vrátí výchozí pořadí
+                        bez ztráty viditelnosti) a <strong>Resetovat vše</strong>.</td></tr>
+                    <tr><td>🚜 <strong>Vozidla</strong></td>
+                        <td>„Rozšířené zobrazení" — pod každým vozidlem ukáže jeho
+                        nářadí (vlečky, semenovody, sila kombajnu) s naplněním. Sekce
+                        Vozidla se v rozšířeném módu roztáhne přes 2 sloupce v masonry
+                        layoutu.</td></tr>
                     <tr><td>🎨 <strong>Vzhled</strong></td>
-                        <td>4 motivy — dark-green (default), dark-blue, light,
-                        high-contrast. Klik aplikuje okamžitě napříč všemi stránkami.</td></tr>
+                        <td>5 motivů — dark-green (default), dark-blue, light,
+                        high-contrast, fs25-native. Klik aplikuje okamžitě napříč všemi
+                        stránkami.</td></tr>
+                    <tr><td>☁ <strong>Sync</strong></td>
+                        <td>Synchronizace `localStorage` mezi zařízeními přes server.
+                        Co skryješ / přerovnáš na PC se objeví i na tabletu a naopak.</td></tr>
                 </tbody>
             </table></div>
 
@@ -469,6 +536,28 @@
                     <p>GIANTS limetková + zralé obilí. Pocit z herního HUD.</p>
                 </div>
             </div>
+
+            <h3 id="mobilni">📱 Mobilní zobrazení</h3>
+            <p>
+                Stránka funguje i v telefonu (cíl: 375 px / iPhone 12 a větší).
+                Na úzkém viewportu:
+            </p>
+            <ul>
+                <li><strong>Hamburger menu ☰</strong> v navbaru — proklik na stránky se
+                    skryje za toggle button. Klik mimo nebo na položku menu zavře.</li>
+                <li><strong>Kalendář</strong> skryje sloupec „Co potřebuje" a zúží sloupec
+                    Pole na 140 px, aby se timeline vůbec vešla. Chip pills najdeš na
+                    hlavním dashboardu v tabulce Pole.</li>
+                <li><strong>Tabulka polí</strong> schová sloupce ZP a „Dní do sklizně"
+                    (méně důležité, vejdou se do detailu).</li>
+                <li><strong>Settings modal</strong> má horizontálně scrollovatelnou
+                    lištu tabů — Sync není odřízlý.</li>
+            </ul>
+            <p>
+                Pokud je zařízení v jiné síti než PC s hrou, nahraď
+                <code>localhost</code> v URL za IP počítače (např.
+                <code>http://192.168.1.20:3000</code>).
+            </p>
 
             <h3 id="perzistence">💾 Co si pamatuje prohlížeč</h3>
             <p>
@@ -567,8 +656,9 @@
             <h3>Layout se rozsypal, sekce na sebe lezou</h3>
             <p>
                 Masonry layout přepočítává pozice na resize. Pokud po změně rozlišení
-                vypadá divně, refresh (F5) opraví. Drag-and-drop pořadí sekcí se
-                neukládá — pořadí je defaultní pro každý load.
+                vypadá divně, refresh (F5) opraví. Pořadí sekcí, které sis nastavil
+                drag-and-dropem (nebo v Nastavení &gt; Sekce), se ukládá lokálně
+                a synchronizuje na další zařízení.
             </p>
 
             <h3>Chci úplný reset</h3>

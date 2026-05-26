@@ -30,12 +30,14 @@ If something doesn't work, feel free to open an issue but take it with a pinch o
 - 🌾 **Fields** — ownership, current crop, growth %, days to harvest, fertilization/lime/plow state. Pulled from `fields.xml` so it matches the in-game UI.
 - 🏭 **Silos & productions** — fill levels per commodity, active recipes, output stock.
 - 💰 **Market prices** — current sell-point prices per ton, sortable, with hide-zero-stock filter.
-- 📅 **Calendar** — what's planted on which field, sortable by harvest date.
-- 📈 **History** — balance trend over 7/30/90 days, commodity price history per sell-point.
-- 💵 **Profit per field** — revenue, cost, profit aggregated from event history.
+- 📅 **Field calendar** — Gantt-style timeline with per-field crop rotation. Custom dropdown crop order via drag-and-drop. Game year boundaries on March 1 (FS25 calendar), alternating row shading for calendar-year orientation.
+- 📈 **History** — balance trend and commodity prices over 7/30/90 days + 12-month seasonal price forecast. Records are tagged by savegame so slot-switching doesn't mix data.
+- 📱 **Mobile** — works on phones (375 px+). Hamburger menu, compact Gantt, single-column layout.
 - 🔔 **Browser notifications** — low fuel, low food, harvest ready, field empty too long.
 
 Works with **AdditionalCurrencies** — when the in-game converter is on, the dashboard mirrors the same currency and symbol.
+
+![Field calendar — Gantt timeline](docs/screenshot-calendar.png)
 
 ---
 

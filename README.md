@@ -30,12 +30,14 @@ Pokud ti něco nefunguje, klidně otevři issue, ale ber to s rezervou. Pokud ch
 - 🌾 **Pole** — vlastnictví, plodina, % růstu, dny do sklizně, hnojení / vápno / orba. Stav se čte z `fields.xml` — sedí s in-game UI.
 - 🏭 **Sila & výrobny** — co máš na skladě, jaké recepty běží, stav výstupu.
 - 💰 **Výkupní ceny** — aktuální ceny za tunu, sortovatelné, filtr na to, co máš na skladě.
-- 📅 **Kalendář polí** — co je zaseté na kterém poli, seřazeno podle data sklizně, s indikátory fáze růstu a hnojení.
-- 📈 **Historie** — vývoj zůstatku za 7 / 30 / 90 dní, historie cen plodin podle výkupního místa.
-- 💵 **Zisk podle pole** — auto-tracking eventů (osetí, sklizeň) → tržby, náklady, zisk.
+- 📅 **Kalendář polí** — Gantt-style timeline s rotací plodin per pole. Vlastní pořadí plodin v dropdownu přes drag-and-drop. Roky se přepínají na 1. března (FS25 herní rok), kalendářní pozadí střídá liché/sudé roky pro orientaci.
+- 📈 **Historie** — vývoj zůstatku farmy a cen komodit za 7 / 30 / 90 dní + sezónní křivka cen na 12 měsíců dopředu. Záznamy jsou tagované savegame ID, takže přepnutí slotu nesmíchá data.
+- 📱 **Mobilní zobrazení** — funguje na telefonu (375 px+). Hamburger menu, kompaktní Gantt, single-column layout.
 - 🔔 **Browser notifikace** — málo paliva, málo krmiva, pole připravené ke sklizni, dlouho prázdné pole.
 
 Funguje s **AdditionalCurrencies** — když máš zapnutý in-game převodník měny, dashboard zrcadlí stejnou měnu a symbol.
+
+![Kalendář polí — Gantt timeline](docs/screenshot-calendar.png)
 
 ---
 
