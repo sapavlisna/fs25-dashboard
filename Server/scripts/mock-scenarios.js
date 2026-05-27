@@ -87,6 +87,27 @@ function basePrices() {
     ];
 }
 
+// Seasonal price forecast — 12-month multiplier curve per fruit so the
+// history page's "Sezónní křivka" renders under any scenario (and the
+// click-to-watch feature has bars to interact with). Each fruit peaks in a
+// different month via a phase-shifted sine. factors are 0-indexed (index 0 =
+// FS25 period 1 = March), matching the real mod's JSON shape.
+function basePriceForecast(gameMonth) {
+    return {
+        currentPeriod: gameMonth || 1,
+        daysPerPeriod: 1,
+        fillTypes: AVAIL_FRUITS.map((f, fi) => {
+            const base = 400 + fi * 60;
+            const factors = [];
+            for (let p = 0; p < 12; p++) {
+                const phase = (p + fi * 2) / 12 * Math.PI * 2;
+                factors.push(+(1 + 0.35 * Math.sin(phase)).toFixed(3));
+            }
+            return { name: f.name, fillType: f.id, pricePerTon: base, factors };
+        }),
+    };
+}
+
 function baseProductions() {
     return [
         {
@@ -110,6 +131,104 @@ function baseProductions() {
 }
 
 // ─── Scenario implementations ─────────────────────────────────────────────────
+
+/**
+ * vehicles-rich — exercises the vehicle row extras (backlog 2026-05 body 1/2/4):
+ *  - a tractor with an ATTACHED TRAILER whose fill % CHANGES every tick
+ *    (drives the "flash on fill change" — body 1)
+ *  - an EMPTY trailer at 0 % that must still be visible (body 2)
+ *  - mixed conditionPercent incl. a low one + speeds (body 4)
+ * tick-varying fill so consecutive WS payloads differ.
+ */
+function scenarioVehiclesRich(tick) {
+    const t = tick || 0;
+    const trailerPct = 20 + (t % 8) * 10;          // 20,30,…,90,20… — always changing
+    const trailerCap = 24000;
+    const trailerLvl = Math.round(trailerCap * trailerPct / 100);
+    return {
+        exportedAt:   now(),
+        gameDay:      48, gameTime: '11:20',
+        gameYear:     3, gameMonth: 5, dayInMonth: 8, daysPerMonth: 1,
+        weather:      baseWeather({}),
+        farmBalance:  512000,
+        fields:       [],
+        vehicles: [
+            {
+                name: 'Fendt 942 Vario', typeName: 'Traktor', isInUse: true,
+                motorHours: 345, fuelPercent: 72, fuelLiters: 288, fuelCapacity: 400,
+                conditionPercent: 92, speedKmh: 14,
+                implements: [
+                    { name: 'Krampe Bandit', fillUnits: [
+                        { fillType: 'WHEAT', typeTitle: 'Pšenice', levelL: trailerLvl, capacityL: trailerCap, percent: trailerPct },
+                    ] },
+                ],
+            },
+            {
+                name: 'Fendt 516 Vario', typeName: 'Traktor', isInUse: false,
+                motorHours: 112, fuelPercent: 60, fuelLiters: 120, fuelCapacity: 200,
+                conditionPercent: 45, speedKmh: 0,           // low condition, parked
+                implements: [
+                    { name: 'Prázdná vlečka', fillUnits: [
+                        { fillType: 'EMPTY', typeTitle: '', levelL: 0, capacityL: 18000, percent: 0 },
+                    ] },
+                ],
+            },
+            {
+                name: 'CLAAS LEXION 8900', typeName: 'Kombajn', isInUse: true,
+                motorHours: 430, fuelPercent: 88, fuelLiters: 554, fuelCapacity: 630,
+                conditionPercent: 67, speedKmh: 8,
+                implements: [],
+            },
+        ],
+        animals: [],
+        storage: [{ storageName: 'Hlavní silo', items: [{ name: 'Pšenice', amount: 48000, capacity: 200000 }] }],
+        productions:  baseProductions(),
+        prices:       basePrices(),
+        events:       [],
+        availableFruits: AVAIL_FRUITS,
+    };
+}
+
+/**
+ * productions-many — 4 výrobny (backlog 2026-05 body 3). Ověřuje, že frontend
+ * vykreslí všechny, ne jen jednu.
+ */
+function scenarioProductionsMany(_tick) {
+    return {
+        exportedAt:   now(),
+        gameDay:      60, gameTime: '09:00',
+        gameYear:     3, gameMonth: 6, dayInMonth: 1, daysPerMonth: 1,
+        weather:      baseWeather({}),
+        farmBalance:  734000,
+        fields:       [],
+        vehicles:     [],
+        animals:      [],
+        storage:      [],
+        productions: [
+            { name: 'Mlékárna', items: [
+                { name: 'Mléko', amount: 9000, capacity: 50000 },
+                { name: 'Máslo', amount: 1200, capacity: 20000 },
+                { name: 'Sýr',   amount:  800, capacity: 20000 },
+            ], productions: [{ name: 'Máslo', status: 'active', cyclesPerHour: 30 },
+                             { name: 'Sýr',   status: 'active', cyclesPerHour: 12 }] },
+            { name: 'Pekárna', items: [
+                { name: 'Mouka', amount: 5200, capacity: 20000 },
+                { name: 'Chléb', amount: 1100, capacity: 20000 },
+            ], productions: [{ name: 'Chléb', status: 'active', cyclesPerHour: 40 }] },
+            { name: 'Pila', items: [
+                { name: 'Klády',  amount: 14800, capacity: 30000 },
+                { name: 'Řezivo', amount:  2300, capacity: 30000 },
+            ], productions: [{ name: 'Řezivo', status: 'noInput', cyclesPerHour: 25 }] },
+            { name: 'BGA Bergmann', items: [
+                { name: 'Siláž',     amount: 60000, capacity: 100000 },
+                { name: 'Digestát',  amount: 12000, capacity: 50000 },
+            ], productions: [{ name: 'Elektřina', status: 'active', cyclesPerHour: 100 }] },
+        ],
+        prices:       basePrices(),
+        events:       [],
+        availableFruits: AVAIL_FRUITS,
+    };
+}
 
 /**
  * default — same random behavior as the original mock-data.js.
@@ -510,6 +629,8 @@ const SCENARIOS = {
     'withered-crops':   scenarioWitheredCrops,
     'multi-fruit-types':scenarioMultiFruitTypes,
     'mixed-ai-tasks':   scenarioMixedAiTasks,
+    'vehicles-rich':    scenarioVehiclesRich,
+    'productions-many': scenarioProductionsMany,
 };
 
 /**
@@ -525,7 +646,13 @@ function getScenario(name, tick) {
     if (!Object.prototype.hasOwnProperty.call(SCENARIOS, name)) {
         throw new Error(`Unknown scenario "${name}". Known: ${Object.keys(SCENARIOS).join(', ')}`);
     }
-    return SCENARIOS[name](tick);
+    const payload = SCENARIOS[name](tick);
+    // Inject a seasonal forecast into any scenario that doesn't define its own,
+    // so the history page's forecast chart + watch feature work everywhere.
+    if (payload && typeof payload === 'object' && !payload.priceForecast) {
+        payload.priceForecast = basePriceForecast(payload.gameMonth);
+    }
+    return payload;
 }
 
 /**

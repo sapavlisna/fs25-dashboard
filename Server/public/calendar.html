@@ -27,6 +27,7 @@
 <script src="notifications.js" defer></script>
 <script src="bell.js" defer></script>
 <script src="crop-icons.js" defer></script>
+<script src="money.js" defer></script>
 <script src="app.js" defer></script>
 <script src="tabletools.js" defer></script>
 <style>
@@ -308,6 +309,20 @@
        so width matches but it stays mostly empty. */
 }
 .cal-hidden-row td { opacity: .55; }
+/* "Skrytá pole" header sits between the visible + hidden tables. Without
+   sticky-left it scrolls away with the timeline; pin it to the left edge
+   of #gantt-wrap so it stays anchored under the Pole / Co potřebuje
+   columns just like the field rows above. Background matches the section
+   so timeline content scrolling underneath isn't visible through it. */
+#gantt-hidden-wrap > .subgroup-header {
+    position: sticky;
+    left: 0;
+    z-index: 5;
+    background: var(--surface);
+    padding-left: 14px;
+    padding-right: 14px;
+    width: max-content;
+}
 
 /* Day-tick header bar — split into two stacked strips: top row carries
    game-year labels ("Rok 5") at March-1 boundaries, bottom row carries
@@ -618,7 +633,6 @@
                 <div class="plan-editor-row">
                     <button class="secondary" id="plan-add-year" type="button">+ Přidat rok</button>
                     <button class="link-btn"  id="crop-prefs-toggle" type="button" style="margin-left:8px">🌾 Plodiny</button>
-                    <button class="danger"    id="plan-clear"    type="button" style="margin-left:auto">Smazat plán</button>
                 </div>
                 <div id="crop-prefs-panel" hidden>
                     <div class="crop-prefs-hint">
@@ -689,6 +703,9 @@ function computeFieldTasksInView(fid) {
     const curMonth = currentData.gameMonth || 1;
     const dayInM   = currentData.dayInMonth || 1;
     const dpM      = currentData.daysPerMonth || 1;
+    // Only plan a plow when the game actually requires plowing — matches the
+    // "Co potřebuje" Orat chip gating. plowingRequiredEnabled defaults true.
+    const plowEnabled = ((currentData.gameSettings || {}).plowingRequiredEnabled) !== false;
 
     const out = [];
     const years = Object.keys(plan).map(Number).sort((a, b) => a - b);
@@ -698,7 +715,7 @@ function computeFieldTasksInView(fid) {
         if (!fruitName) continue;
         const ft = ftByName[fruitName];
         if (!ft) { prevFruit = fruitName; continue; }
-        const events = generateTasksForYear(ft, y === years[0], prevFruit && prevFruit !== fruitName);
+        const events = generateTasksForYear(ft, y === years[0], prevFruit && prevFruit !== fruitName, plowEnabled);
         prevFruit = fruitName;
         const cropName = fruitDisplay(ft);
         for (const ev of events) {
@@ -1026,7 +1043,13 @@ function renderGantt(allFields) {
             cropBase.push(baseSoFar);
             baseSoFar += Math.max(1, subEnds.length);
         }
-        const maxLane = baseSoFar - 1;
+        // Reserve lane 0 for the growth bar (current crop / "needs sowing")
+        // when one exists — otherwise a plan task on lane 0 (top:10) would
+        // overlap the growth bar (top:8) wherever they share an x-range. With
+        // the offset, plan tasks stack BELOW the growth bar on their own rows.
+        const hasGrowthBar = !!(f.fruitTypeId || f.needsSowing);
+        const laneOffset = hasGrowthBar ? 1 : 0;
+        const maxLane = baseSoFar - 1 + laneOffset;
         // td height: base 56 fits 2 lanes; each extra lane adds 24 px.
         const tdHeight = Math.max(56, 14 + (maxLane + 1) * 24);
         for (const t of planTasks) {
@@ -1057,7 +1080,7 @@ function renderGantt(allFields) {
             const innerText = showLabel
                 ? `<span class="gantt-plan-task-label">${esc(labelText)}</span>`
                 : '';
-            const topPx = 10 + t.row * 24;
+            const topPx = 10 + (t.row + laneOffset) * 24;
             bars += `<div class="gantt-plan-task"
                 style="left:${clampedX1}px;width:${w}px;top:${topPx}px;background:${TASK_COLORS[t.type]};"
                 title="${esc(tooltip)}">${innerText}</div>`;
@@ -1231,6 +1254,15 @@ window.selectPlanField = function(fid) {
     if (!sel) return;
     sel.value = String(fid);
     sel.dispatchEvent(new Event('change'));
+    // Show the editor body immediately. The body's empty/visible toggle lives
+    // in renderPlanEditor, which is normally only driven by the WS render loop
+    // — so without this direct call the editor wouldn't open until the next
+    // tick (and never, when the game is paused/closed and data is frozen).
+    if (currentData) {
+        renderPlanEditor(currentData.fields || [], currentData.availableFruits || []);
+        renderPlanYears(currentData.availableFruits || []);
+        updatePlanAddYearButton();
+    }
     // Update the visual "selected row" highlight on every row of the gantt.
     document.querySelectorAll('.gantt-table tbody tr').forEach(tr => {
         tr.classList.toggle('selected', tr.dataset.fieldId === String(fid));
@@ -1641,16 +1673,23 @@ function readEditorIntoPlan() {
 // wheat).
 const MONTHS_CS = ['Bře','Dub','Kvě','Čen','Čvc','Srp','Zář','Říj','Lis','Pro','Led','Úno'];
 const TASK_COLORS = {
-    sow:       '#facc15',
-    harvest:   '#4ade80',
-    plow:      '#a78bfa',
-    fertilize: '#60a5fa',
-    roll:      '#fb923c',
-    lime:      '#94a3b8',
+    sow:        '#facc15',
+    harvest:    '#4ade80',
+    plow:       '#a78bfa',
+    fertilize:  '#60a5fa',
+    fertilize1: '#93c5fd',  // pale blue — 1. fáze
+    fertilize2: '#3b82f6',  // sytá modř — 2. fáze
+    weed:       '#dc2626',  // červená — varování, plevel snižuje výnos
+    roll:       '#fb923c',
+    lime:       '#94a3b8',
 };
 const TASK_LABELS_CS = {
     sow: 'setba', harvest: 'sklizeň', plow: 'orba',
-    fertilize: 'hnojení', roll: 'válcování', lime: 'vápnění',
+    fertilize: 'hnojení',
+    fertilize1: 'hnojení 1×',
+    fertilize2: 'hnojení 2×',
+    weed: 'plevel',
+    roll: 'válcování', lime: 'vápnění',
 };
 
 // Find a contiguous "true" window in a 12-element 1-indexed bool array.
@@ -1678,7 +1717,7 @@ function findMonthWindow(arr) {
     return { start, end };
 }
 
-function generateTasksForYear(fruitType, isFirstYear, isFollowingDifferentCrop) {
+function generateTasksForYear(fruitType, isFirstYear, isFollowingDifferentCrop, plowEnabled = true) {
     // Emit tasks as {type, offsetFromSow (months), duration (months), sowMonth}.
     // offsetFromSow can be negative (plow / lime happen before sowing) so the
     // downstream day-offset converter just adds it to the sow anchor and
@@ -1722,9 +1761,10 @@ function generateTasksForYear(fruitType, isFirstYear, isFollowingDifferentCrop) 
     if (fruitType.consumesLime) {
         events.push({ type: 'lime', offsetFromSow: -2, duration: 1 });
     }
-    // Plow: 1 month before sow, lasts 1 month — only when a fresh field
-    // or the previous crop differs (no plow between two same-crop years)
-    if (isFirstYear || isFollowingDifferentCrop) {
+    // Plow: 1 month before sow, lasts 1 month — only when the game requires
+    // plowing AND it's a fresh field or the previous crop differs (no plow
+    // between two same-crop years).
+    if (plowEnabled && (isFirstYear || isFollowingDifferentCrop)) {
         events.push({ type: 'plow', offsetFromSow: -1, duration: 1 });
     }
     // Sow window itself
@@ -1733,20 +1773,47 @@ function generateTasksForYear(fruitType, isFirstYear, isFollowingDifferentCrop) 
     if (fruitType.needsRolling) {
         events.push({ type: 'roll', offsetFromSow: sowLen, duration: 1 });
     }
-    // Harvest + fertilize (only when we have a harvest window)
+    // Harvest, two-phase fertilize, weed window (only when we have a harvest window)
     if (harvWin) {
         // Calendar lag from sow start to harvest start, in months (1–12).
         // Always positive: if harv start <= sow start, harvest wraps to
         // the next year, so add 12.
         let lag = harvWin.start - sowWin.start;
         if (lag <= 0) lag += 12;
-        // Fertilize starts after the sow window ends; place it midway between
-        // the end-of-sow and start-of-harvest so it never overlaps either.
-        // For very tight crops (lag === sowLen — harvest right after sowing),
-        // the math gives sowLen which still abuts sow without overlap.
-        const fertOff = Math.min(lag - 1, sowLen + Math.max(0, Math.floor((lag - sowLen) / 2)));
-        events.push({ type: 'fertilize', offsetFromSow: fertOff, duration: 1 });
-        events.push({ type: 'harvest',   offsetFromSow: lag,     duration: spanLen(harvWin) });
+
+        // FS25 fertilization is a two-pass mechanic — two applications take
+        // the field from "Nehnojeno" (○○) through "1×" (●○) to "Plně hnojeno"
+        // (●●). The optimal window is between sow-end and harvest-start; we
+        // split that growth phase into thirds and put pass 1 at ~1/3 and pass
+        // 2 at ~2/3 so they don't overlap and the player can see both in
+        // their own bars. Tight crops (lag ≤ sowLen + 2) collapse to a single
+        // bar to avoid drawing two 1-month chips on top of each other.
+        const growthSpan = Math.max(0, lag - sowLen);
+        if (growthSpan >= 3) {
+            const fert1Off = sowLen + Math.max(1, Math.floor(growthSpan / 3));
+            const fert2Off = sowLen + Math.max(2, Math.floor(growthSpan * 2 / 3));
+            events.push({ type: 'fertilize1', offsetFromSow: fert1Off, duration: 1 });
+            events.push({ type: 'fertilize2', offsetFromSow: fert2Off, duration: 1 });
+        } else {
+            // Short cycle — keep a single combined bar so the user still sees
+            // "hnojení" but we don't pretend there are two distinct windows.
+            const fertOff = Math.min(lag - 1, sowLen + Math.max(0, Math.floor(growthSpan / 2)));
+            events.push({ type: 'fertilize', offsetFromSow: fertOff, duration: 1 });
+        }
+
+        // Weed pressure peaks early in growth: weeds appear shortly after
+        // germination (FS25 typically growth state 2) and stay relevant until
+        // the crop canopy outcompetes them (~half-way through growth). After
+        // that, weeding still works but yields diminishing returns. Show this
+        // as a span so the player knows the actionable window, not a single
+        // tick.
+        if (growthSpan >= 2) {
+            const weedStart    = sowLen;
+            const weedDuration = Math.max(1, Math.floor(growthSpan / 2));
+            events.push({ type: 'weed', offsetFromSow: weedStart, duration: weedDuration });
+        }
+
+        events.push({ type: 'harvest', offsetFromSow: lag, duration: spanLen(harvWin) });
     }
     // Annotate each event with the anchor (sow start month) so the
     // converter can place it on the calendar without re-deriving.
@@ -1786,15 +1853,6 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             byYear[next] = { fruit: '' };
             savePlanForField(fid, byYear);
-            renderPlanYears(currentData ? (currentData.availableFruits || []) : []);
-            if (currentData) renderGantt(currentData.fields || []);
-            updatePlanAddYearButton();
-        }
-        if (e.target.id === 'plan-clear') {
-            const fid = $('plan-field-select').value;
-            if (!fid) return;
-            if (!confirm('Smazat celý plán pro toto pole?')) return;
-            savePlanForField(fid, {});
             renderPlanYears(currentData ? (currentData.availableFruits || []) : []);
             if (currentData) renderGantt(currentData.fields || []);
             updatePlanAddYearButton();

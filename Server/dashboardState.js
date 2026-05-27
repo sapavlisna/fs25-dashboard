@@ -51,11 +51,14 @@ const ALLOWED_EXACT = new Set([
     'flashEnabled',
     'vehiclesExpanded',
     'vehicleShowEmptyImplements',
+    'vehicleShowCondition',
+    'fieldPlans',
     'kpi-layout',
     'bell-rules',
     'bell-flashEnabled',
     'fs25_notif_settings',
     'fs25_notif_cooldown',
+    'forecastWatches',
 ]);
 
 // Prefix patterns: any key starting with one of these is accepted. Used for

@@ -157,6 +157,52 @@
                 delete emptyFieldSince[f.id];
             }
         }
+
+        // Seasonal price watches — user clicked a month bar on the history
+        // forecast chart to "watch" it. Fire when the game enters that month
+        // for that commodity.
+        processForecastWatches(data);
+    }
+
+    // Fire once per (commodity, period, game-year): the game can sit in the
+    // same month for many real minutes, so we remember what we've alerted and
+    // only re-alert when the year rolls over (or a different month is entered).
+    const firedForecasts = new Set();
+
+    function processForecastWatches(data) {
+        const fc = data.priceForecast;
+        if (!fc || !window.DashState) return;
+        const watches = DashState.get('forecastWatches', []) || [];
+        if (!Array.isArray(watches) || !watches.length) return;
+
+        const period   = fc.currentPeriod || 0;
+        const gameYear = data.gameYear || 0;
+        const fmt = v => (window.FS25Money ? FS25Money.format(v) : `${Math.round(v)}`);
+
+        for (const w of watches) {
+            if (w.period !== period) continue;
+            const firedKey = `${w.fillType}|${w.period}|${gameYear}`;
+            if (firedForecasts.has(firedKey)) continue;
+
+            const entry = (fc.fillTypes || []).find(x => x.name === w.fillType);
+            if (!entry) continue;
+            const factor = (entry.factors || [])[w.period - 1] || 1;
+            const price  = (entry.pricePerTon || 0) * factor;
+
+            notify(
+                `forecast_${firedKey}`,
+                `📈 ${w.fillType} — sezónní vrchol`,
+                `Tenhle měsíc je cena ${fmt(price)} / t. Dobré okno na prodej.`,
+            );
+            firedForecasts.add(firedKey);
+        }
+
+        // Prune fired keys from past game years so the set doesn't grow forever
+        // and so a future re-entry into the same month fires again next year.
+        for (const k of [...firedForecasts]) {
+            const y = parseInt(k.slice(k.lastIndexOf('|') + 1), 10);
+            if (Number.isFinite(y) && y < gameYear) firedForecasts.delete(k);
+        }
     }
 
     // ─── Public API ──────────────────────────────────────────────────────────

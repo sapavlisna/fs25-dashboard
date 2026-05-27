@@ -45,6 +45,11 @@ function getMasks(page) {
         page.locator('.live-dot'),               // animated green/red status dot
         page.locator('#kpi-time'),               // game time KPI card
         page.locator('.kpi-card[data-tt-key="time"]'),  // same card, alternate selector
+        // History charts render asynchronously (Chart.js) after the WS payload,
+        // so their pixels aren't deterministic at screenshot time — mask the
+        // canvases. The chart cards/headers/labels around them are still
+        // compared, so layout regressions are still caught.
+        page.locator('canvas'),
     ];
 }
 

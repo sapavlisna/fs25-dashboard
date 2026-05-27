@@ -25,6 +25,7 @@
 <script src="theme.js" defer></script>
 <script src="notifications.js" defer></script>
 <script src="bell.js" defer></script>
+<script src="money.js" defer></script>
 <script src="app.js" defer></script>
 </head>
 <body>
@@ -346,8 +347,20 @@
             <h3>Plán: per-plodina lane</h3>
             <p>
                 Plán polí (editor dole) umí rotaci — Ječmen rok 4, Čirok rok 5,
-                cokoliv chceš. Bary úkolů (vápnění, orba, setba, hnojení, válcování,
-                sklizeň) se v timeline stackují vertikálně tak, že
+                cokoliv chceš. V timeline se objeví bary úkolů:
+            </p>
+            <ul>
+                <li><strong>vápnění</strong> · <strong>orba</strong> ·
+                    <strong>setba</strong> · <strong>válcování</strong> ·
+                    <strong>sklizeň – &lt;plodina&gt;</strong> — standardní práce</li>
+                <li><strong>hnojení 1× / hnojení 2×</strong> — dvě fáze hnojení
+                    rozdělené do třetin růstového období; světle modrá = první pas,
+                    syté modré = druhý pas</li>
+                <li><strong>plevel</strong> (červená) — okno kdy je smysluplné plet
+                    (od konce setí do ~poloviny růstu, než ho plodina přerůstá)</li>
+            </ul>
+            <p>
+                Bary se v timeline stackují vertikálně tak, že
                 <strong>každá plodina v rotaci má vlastní řadu</strong>. Sklizňové bary
                 nesou jméno plodiny („sklizeň – Ječmen"), takže okamžitě rozlišíš
                 <em>co</em> se kdy sklízí, i když cykly přímo časově nepřekrývají.
@@ -423,6 +436,14 @@
                 měsíce jsou zelené („nejlepší prodej“), spodní 3 červené („ztráta“),
                 aktuální měsíc je orámovaný. Nad grafem souhrn:
                 „nyní €XXX · nejlépe v Březen €XXX (za N dní) · nejhůř …“
+            </p>
+            <p>
+                <strong>🔔 Hlídání ceny:</strong> klikni na sloupec měsíce a označíš
+                ho k notifikaci (objeví se nad ním zvoneček). Až herní kalendář dorazí
+                do toho měsíce, vyskočí ti notifikace „sezónní vrchol“ s aktuální cenou
+                — ideální pro označení nejdražšího měsíce a prodej právě tehdy.
+                Funguje každý rok znovu. Dalším klikem hlídání zrušíš. (Vyžaduje
+                zapnuté notifikace v <a href="#nastaveni">Nastavení</a>.)
             </p>
 
             <div class="help-callout">

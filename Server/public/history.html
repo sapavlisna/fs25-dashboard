@@ -23,6 +23,7 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js" defer></script>
 <script src="serverSync.js" defer></script>
+<script src="state.js" defer></script>
 <script src="theme.js" defer></script>
 <script src="notifications.js" defer></script>
 <script src="bell.js" defer></script>
@@ -372,8 +373,24 @@ function rebuildFillTypeDropdown() {
             }
         }
     }
-    const owned = cachedFillTypes.filter(r => ownedSet.has(r.fill_type));
-    const rest  = cachedFillTypes.filter(r => !ownedSet.has(r.fill_type));
+    // Commodity universe = saved price history ∪ the live forecast catalog.
+    // Merging in latestForecast means the dropdown (and the seasonal-curve
+    // chart + watch feature) work immediately on a fresh save — before any
+    // price history has accumulated — instead of staying empty until the
+    // server has logged a few price ticks.
+    const fillTypeSet = new Set(cachedFillTypes.map(r => r.fill_type));
+    const merged = cachedFillTypes.slice();
+    if (latestForecast && Array.isArray(latestForecast.fillTypes)) {
+        for (const ft of latestForecast.fillTypes) {
+            if (ft.name && !fillTypeSet.has(ft.name)) {
+                fillTypeSet.add(ft.name);
+                merged.push({ fill_type: ft.name });
+            }
+        }
+        merged.sort((a, b) => a.fill_type.localeCompare(b.fill_type, 'cs'));
+    }
+    const owned = merged.filter(r => ownedSet.has(r.fill_type));
+    const rest  = merged.filter(r => !ownedSet.has(r.fill_type));
     const optHtml = arr =>
         arr.map(r => `<option value="${esc(r.fill_type)}">${esc(r.fill_type)}</option>`).join('');
 
@@ -521,12 +538,27 @@ function renderForecastChart() {
     const red    = themeVar('--red')     || '#e05252';
     const muted  = themeVar('--muted')   || '#888';
     const accent = themeVar('--accent2') || '#e8a838';
+    const watchBorder = '#fde047';   // bright gold — distinct from the amber current-month outline
 
-    const bgColors = prices.map((_, i) => topSet.has(i) ? green + 'cc'
-                                      : bottomSet.has(i) ? red + 'cc'
-                                      : muted + '66');
-    const borderColors = prices.map((_, i) => i === curPeriod0 ? accent : 'transparent');
-    const borderWidths = prices.map((_, i) => i === curPeriod0 ? 3 : 0);
+    // Which bars (by 0-based period index) is the user watching for
+    // notifications. Computed up here so it can drive bar fill + border.
+    const watches = (window.DashState && DashState.get('forecastWatches', [])) || [];
+    const watchedSet = new Set(
+        watches.filter(w => w.fillType === selected).map(w => w.period - 1)
+    );
+
+    // Watched bars get a fuller-opacity fill so they pop out of the row.
+    const bgColors = prices.map((_, i) => {
+        const base = topSet.has(i) ? green : bottomSet.has(i) ? red : muted;
+        const alpha = watchedSet.has(i) ? 'ff' : (topSet.has(i) || bottomSet.has(i) ? 'cc' : '66');
+        return base + alpha;
+    });
+    // Border priority: a watched bar shows the gold watch outline; otherwise
+    // the current month keeps its amber outline.
+    const borderColors = prices.map((_, i) =>
+        watchedSet.has(i) ? watchBorder : i === curPeriod0 ? accent : 'transparent');
+    const borderWidths = prices.map((_, i) =>
+        (watchedSet.has(i) || i === curPeriod0) ? 3 : 0);
 
     // Y-axis: don't start at 0 — when seasonal factors only swing ±10 %,
     // a zero-anchored scale flattens every bar into "looks identical".
@@ -543,7 +575,8 @@ function renderForecastChart() {
     if (forecastChart) forecastChart.destroy();
     const def = chartDefaults();
 
-    // Inline Chart.js plugin that draws each bar's price above its top edge.
+    // Inline Chart.js plugin that draws each bar's price above its top edge,
+    // plus a 🔔 marker on bars the user has clicked to "watch for notification".
     // Cheaper than pulling in chartjs-plugin-datalabels for one purpose.
     const valueLabels = {
         id: 'forecast-value-labels',
@@ -566,6 +599,11 @@ function renderForecastChart() {
                 else                       color = themeVar('--text') || '#e6ecdf';
                 ctx.fillStyle = color;
                 ctx.fillText(FS25Money.format(v), bar.x, bar.y - 4);
+                if (watchedSet.has(i)) {
+                    ctx.font = '14px "Segoe UI Emoji", "Segoe UI", system-ui, sans-serif';
+                    ctx.fillText('🔔', bar.x, bar.y - 20);
+                    ctx.font = '600 11px "Segoe UI", system-ui, sans-serif';
+                }
             });
             ctx.restore();
         },
@@ -586,14 +624,35 @@ function renderForecastChart() {
             ...def,
             animation: false,   // memo skips most re-renders; on the rare actual
                                 // re-render (new month), don't animate the swap
-            layout: { padding: { top: 18 } },   // headroom for the value labels
+            layout: { padding: { top: 24 } },   // headroom for value + 🔔 markers
+            // Click toggles a watch — when the game enters this month + this
+            // fill type, Notifier fires "sezónní vrchol" once per game year.
+            onClick(_evt, elements) {
+                if (!elements.length || !window.DashState) return;
+                const period = elements[0].index + 1;  // 0-based → FS25 1-based
+                const list = DashState.get('forecastWatches', []) || [];
+                const arr  = Array.isArray(list) ? list.slice() : [];
+                const i    = arr.findIndex(w => w.fillType === selected && w.period === period);
+                if (i >= 0) arr.splice(i, 1);
+                else arr.push({ fillType: selected, period });
+                DashState.set('forecastWatches', arr);
+                _forecastMemo = null;     // bust memo so the redraw picks up the change
+                renderForecastChart();
+            },
+            onHover(evt, elements) {
+                evt.native.target.style.cursor = elements.length ? 'pointer' : 'default';
+            },
             plugins: {
                 legend: { display: false },
                 tooltip: {
                     callbacks: {
                         label: ctx => {
                             const f = factors[ctx.dataIndex] || 1;
-                            return `${FS25Money.format(ctx.raw)} / t  (×${f.toFixed(2)})`;
+                            const watched = watchedSet.has(ctx.dataIndex);
+                            const tail = watched
+                                ? '  · 🔔 hlídáno (klik = zrušit)'
+                                : '  · klik = hlídat notifikací';
+                            return `${FS25Money.format(ctx.raw)} / t  (×${f.toFixed(2)})${tail}`;
                         },
                     },
                 },

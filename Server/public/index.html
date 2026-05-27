@@ -585,11 +585,13 @@ function noteBalanceFlash(balance) {
     scheduleFlashCleanup();
 }
 
-// Implement-boundary flash. Tracks per-fillUnit percent under
-// `vehicles::impl::<vName>::<implName>::<unitIdx>` and fires a 10 s
-// flash when the percent crosses into 100 (full) or 0 (empty). Reads
-// back via getImplFlashCls below to tint the vehicle row.
-function noteImplementBoundaryFlashes(vehicles) {
+// Implement fill flash. Tracks per-fillUnit percent under
+// `vehicles::impl::<vName>::<implName>::<unitIdx>` and fires a 10 s flash on
+// ANY change of the fill percent (up = filling, down = emptying) — not just
+// the 0/100 boundaries. This matches how storage rows flash and is what the
+// user expects when a trailer fills during work. Read back via
+// getImplFlashCls below to tint the vehicle row.
+function noteImplementFlashes(vehicles) {
     const now = Date.now();
     for (const v of (vehicles || [])) {
         for (const impl of (v.implements || [])) {
@@ -599,16 +601,15 @@ function noteImplementBoundaryFlashes(vehicles) {
                 const fuKey = `vehicles::impl::${v.name}::${impl.name}::${i}`;
                 const prev = flashPrev.get(fuKey);
                 if (prev != null && prev !== pct) {
-                    const reachedFull  = prev < 100 && pct >= 100;
-                    const reachedEmpty = prev > 0   && pct === 0;
-                    if (reachedFull || reachedEmpty) {
-                        const existing = flashes.get(fuKey);
-                        if (!existing || existing.expiresAt <= now) {
-                            flashes.set(fuKey, {
-                                dir: reachedFull ? 'up' : 'down',
-                                expiresAt: now + 10000,
-                            });
-                        }
+                    // Only START a new flash when none is active for this unit —
+                    // prevents a "pinned" tint when a wagon fills continuously
+                    // (1 l/tick); the active flash fades, the next can re-fire.
+                    const existing = flashes.get(fuKey);
+                    if (!existing || existing.expiresAt <= now) {
+                        flashes.set(fuKey, {
+                            dir: pct > prev ? 'up' : 'down',
+                            expiresAt: now + 10000,
+                        });
                     }
                 }
                 flashPrev.set(fuKey, pct);
@@ -712,7 +713,7 @@ function noteAllChanges(d) {
     // unloaded, send the tractor back". Tracked per fillUnit so multi-
     // bin implements don't smear; the per-vehicle aggregate gets read
     // back by getImplFlashCls() below.
-    noteImplementBoundaryFlashes(d.vehicles || []);
+    noteImplementFlashes(d.vehicles || []);
     // Animals — count per husbandry
     noteFlashRows('animals', d.animals || [],
         a => a.husbandryName,
@@ -852,6 +853,7 @@ function vehicleCardHTML(v, opts) {
         : '';
     const implHTML    = implementsHTML(v.implements, v.name);
     const implSummary = implementsSummary(v.implements, v.name);
+    const condSpeed   = conditionSpeedHTML(v);
     return `<div class="vehicle-row ${v.isInUse ? 'in-use' : ''}${flashCls}" ${TableTools.dndAttrs('vehicles', v.name)} title="${esc(rowTitle)}">
         <span class="${dotCls}"></span>
         <span class="vc-name">${esc(v.name)}</span>
@@ -859,11 +861,29 @@ function vehicleCardHTML(v, opts) {
             ${bar(fp)}
             <span class="vc-fuel-num">${fmt(v.fuelLiters)}/${fmt(v.fuelCapacity)} l</span>
         </div>
+        ${condSpeed}
         ${aiHTML}
         <span class="vc-mh" title="Motohodiny">${v.motorHours ?? 0} mh</span>
         ${implSummary}
         ${implHTML}
     </div>`;
+}
+
+// Minimalist condition (% kondice, colour-coded) + current speed (km/h, only
+// while the vehicle is actually moving). Gated by the `vehicleShowCondition`
+// setting (default on). conditionPercent / speedKmh come from the Lua mod.
+function conditionSpeedHTML(v) {
+    if (DashState.get('vehicleShowCondition', true) === false) return '';
+    const parts = [];
+    if (v.conditionPercent != null) {
+        const c = v.conditionPercent;
+        const cls = c >= 80 ? 'c-green' : (c >= 50 ? 'c-yellow' : 'c-red');
+        parts.push(`<span class="vc-cond ${cls}" title="Kondice vozidla (servis při nízké)">🔧 ${c} %</span>`);
+    }
+    if (v.speedKmh != null && v.speedKmh > 0) {
+        parts.push(`<span class="vc-speed" title="Aktuální rychlost">${v.speedKmh} km/h</span>`);
+    }
+    return parts.length ? `<span class="vc-condspeed">${parts.join('')}</span>` : '';
 }
 
 // Compact one-line summary of attached implements that currently carry
@@ -875,17 +895,35 @@ function vehicleCardHTML(v, opts) {
 // Each entry reads "<implName> · <fill> <pct>%" — the implement name is
 // suppressed when it duplicates the parent vehicle (integrated parts of
 // the same machine).
+// Which fillUnits of an implement to display:
+//   - if ANY unit has content, show only the non-empty ones (a loader bucket
+//     reports a real "Siláž 100%" unit AND a phantom empty unit — we don't
+//     want to render the bucket twice with a "— 0%" line)
+//   - if ALL units are empty, show them (so a freshly-hitched empty trailer is
+//     still visible per the "always show attached implements" behaviour),
+//     unless the user turned empty-implements off.
+function fillUnitIsEmpty(u) {
+    return (u.levelL ?? 0) <= 0 || (u.percent ?? 0) <= 0;
+}
+function displayFillUnits(impl, showEmpty) {
+    const units = impl.fillUnits || [];
+    const nonEmpty = units.filter(u => !fillUnitIsEmpty(u));
+    if (nonEmpty.length > 0) return nonEmpty;
+    return showEmpty ? units : [];
+}
+
 function implementsSummary(implements, vehicleName) {
     if (!implements || implements.length === 0) return '';
-    const showEmpty = !!DashState.get('vehicleShowEmptyImplements', false);
+    // Default ON: show attached implements (incl. empty 0% trailers) from the
+    // moment they're hitched. User can still hide empties via the setting.
+    const showEmpty = DashState.get('vehicleShowEmptyImplements', true) !== false;
     const parts = [];
     for (const impl of implements) {
         const showImplName = impl.name && impl.name !== '' && impl.name !== vehicleName;
-        for (const u of (impl.fillUnits || [])) {
+        for (const u of displayFillUnits(impl, showEmpty)) {
             const pct = u.percent ?? 0;
             const lvl = u.levelL ?? 0;
             const isEmpty = lvl <= 0 || pct <= 0;
-            if (isEmpty && !showEmpty) continue;
             const noFill = !u.fillType || u.fillType === 'EMPTY';
             const label  = noFill ? '—' : (u.typeTitle || u.fillType);
             const cls    = isEmpty ? 'c-muted vc-impl-empty'
@@ -908,10 +946,11 @@ function implementsSummary(implements, vehicleName) {
 // own name — "součást stroje" in user-speak).
 function implementsHTML(implements, vehicleName) {
     if (!implements || implements.length === 0) return '';
+    const showEmpty = DashState.get('vehicleShowEmptyImplements', true) !== false;
     const rows = [];
     for (const impl of implements) {
         const showImplName = impl.name && impl.name !== '' && impl.name !== vehicleName;
-        for (const u of (impl.fillUnits || [])) {
+        for (const u of displayFillUnits(impl, showEmpty)) {
             // "EMPTY" comes from the Lua side when a trailer has no current
             // and no historical fillType — show it as a soft em-dash so the
             // row reads "Pickup wagon — 0 / 50 t" rather than "EMPTY 0 / 50 t".

@@ -115,6 +115,13 @@
                             <span class="switch-knob"></span>
                         </span>
                     </label>
+                    <label class="section-row" style="cursor:default">
+                        <span class="section-row-label">Zobrazit kondici + rychlost vozidla</span>
+                        <span class="section-row-toggle">
+                            <input type="checkbox" id="vehicles-show-condition">
+                            <span class="switch-knob"></span>
+                        </span>
+                    </label>
                 </section>
 
                 <section class="settings-panel" data-panel="theme" hidden>
@@ -254,12 +261,26 @@
         const vehShowEmpty = document.getElementById('vehicles-show-empty-impl');
         if (vehShowEmpty && window.DashState) {
             const KEY = 'vehicleShowEmptyImplements';
-            vehShowEmpty.checked = !!window.DashState.get(KEY, false);
+            // Default ON — attached implements (incl. empty trailers) should be
+            // visible from the moment they're hitched, per user request. Toggle
+            // still lets the user hide empties if they want less clutter.
+            vehShowEmpty.checked = window.DashState.get(KEY, true) !== false;
             vehShowEmpty.onchange = () => {
                 window.DashState.set(KEY, vehShowEmpty.checked);
                 if (window.ServerSync) window.ServerSync.syncWrite(KEY, vehShowEmpty.checked);
                 // Re-render vehicles to pick up the new filter; uses the
                 // last live data cached on FS25App.
+                if (window.FS25App && window.FS25App.rerender) window.FS25App.rerender();
+            };
+        }
+        // ─── Vehicles panel — show condition + speed ──────────────────────
+        const vehShowCond = document.getElementById('vehicles-show-condition');
+        if (vehShowCond && window.DashState) {
+            const KEY = 'vehicleShowCondition';
+            vehShowCond.checked = window.DashState.get(KEY, true) !== false;
+            vehShowCond.onchange = () => {
+                window.DashState.set(KEY, vehShowCond.checked);
+                if (window.ServerSync) window.ServerSync.syncWrite(KEY, vehShowCond.checked);
                 if (window.FS25App && window.FS25App.rerender) window.FS25App.rerender();
             };
         }

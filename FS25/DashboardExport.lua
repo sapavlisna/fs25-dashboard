@@ -22,7 +22,7 @@ DashboardExport.MOD_NAME       = g_currentModName or "FS25_Dashboard"
 DashboardExport.MOD_DIR        = g_currentModDirectory or ""
 -- MOD_VERSION is kept in sync with modDesc.xml by scripts/build-mod-generic.ps1.
 -- Do not edit by hand; bump via the build script.
-DashboardExport.MOD_VERSION    = "1.1.2.11"
+DashboardExport.MOD_VERSION    = "1.1.2.12"
 -- SCHEMA_VERSION tracks the dashboard_data.json shape — bump ONLY on breaking
 -- changes (renamed/removed fields). Server has MIN/MAX bounds and warns on
 -- mismatch. See src/Dashboard/docs/COMPATIBILITY.md.
@@ -1236,11 +1236,29 @@ function DashboardExport:collectVehicles()
             local impls = collectImplements(v)
             if impls and #impls > 0 then rec.implements = impls end
 
+            -- Current speed in km/h (getLastSpeed already returns km/h, NOT m/ms).
+            -- See knowledge/vehicle-damage-speed-api.md.
+            local speedKmh = 0
+            if v.getLastSpeed then
+                speedKmh = math.floor((safeCall(function() return v:getLastSpeed() end) or 0) + 0.5)
+            end
+            rec.speedKmh = speedKmh
+
+            -- Condition % = (1 - damage) * 100. getDamageAmount() is 0..1 damage;
+            -- the menu shows condition, which is the inverse. Guard for vehicles
+            -- without the wearable spec.
+            if v.spec_wearable and v.getDamageAmount then
+                local dmg = safeCall(function() return v:getDamageAmount() end)
+                if type(dmg) == "number" then
+                    rec.conditionPercent = math.floor((1 - dmg) * 100 + 0.5)
+                end
+            end
+
             -- in-use: AI active, controlled by player, or moving. Note:
             -- spec_aiVehicle was the FS22 path; FS25 uses spec_aiJobVehicle.
             rec.isInUse = (rec.aiTask ~= nil)
                        or (v == g_currentMission.controlledVehicle)
-                       or (v.getLastSpeed and v:getLastSpeed() > 0.5)
+                       or (speedKmh > 0)
                        or false
 
             table.insert(out, rec)
@@ -1660,67 +1678,100 @@ local function productionStatusKey(pp, production)
     return "inactive"
 end
 
+-- Build one production record from a ProductionPoint object. `nameHint` is
+-- the owning placeable's display name (the pp itself may not have getName).
+local function buildProductionRecord(pp, nameHint)
+    local storage = pp and pp.storage
+    if not storage then return nil end
+    local rec = {
+        name        = nameHint or (pp.getName and pp:getName()) or "Výrobna",
+        items       = {},
+        productions = {},
+    }
+
+    -- Stockpile (inputs + outputs share one storage)
+    local fills = safeCall(function() return storage:getFillLevels() end) or {}
+    for fillType, level in pairs(fills) do
+        if level and level > 0.1 then
+            local cap = safeCall(function() return storage:getCapacity(fillType) end) or 0
+            table.insert(rec.items, {
+                name     = fillTypeName(fillType),
+                amount   = math.floor(level),
+                capacity = math.floor(cap),
+            })
+        end
+    end
+    table.sort(rec.items, function(a, b) return a.name < b.name end)
+    if #rec.items == 0 then rec.items = emptyArray() end
+
+    -- Recipes
+    for _, production in pairs(pp.productions or {}) do
+        local r = {
+            name          = production.name or production.id or "",
+            status        = productionStatusKey(pp, production),
+            cyclesPerHour = production.cyclesPerHour or 0,
+            costsPerHour  = production.costsPerActiveHour or 0,
+            inputs        = {},
+            outputs       = {},
+        }
+        for _, inp in ipairs(production.inputs or {}) do
+            table.insert(r.inputs, {
+                name   = fillTypeName(inp.type or inp.fillTypeIndex or 0),
+                amount = inp.amount or 0,
+            })
+        end
+        for _, outp in ipairs(production.outputs or {}) do
+            table.insert(r.outputs, {
+                name   = fillTypeName(outp.type or outp.fillTypeIndex or 0),
+                amount = outp.amount or 0,
+            })
+        end
+        if #r.inputs  == 0 then r.inputs  = emptyArray() end
+        if #r.outputs == 0 then r.outputs = emptyArray() end
+        table.insert(rec.productions, r)
+    end
+    if #rec.productions == 0 then rec.productions = emptyArray() end
+    return rec
+end
+
+-- Productions — all production points owned by the farm. Primary source is
+-- g_currentMission.productionChainManager:getProductionPointsForFarmId() which
+-- returns ProductionPoint objects directly and is NOT subject to the
+-- placeable-ownership pitfall that hid all-but-one production (a production
+-- with isFinalized=false has its pp owner overwritten to AccessHandler.EVERYONE
+-- so the old isOwnedBy() placeable scan dropped it). See
+-- knowledge/fs25-production-points.md. Falls back to the placeable scan when
+-- the chain manager isn't available.
 function DashboardExport:collectProductions()
     local out = {}
-    if not (g_currentMission and g_currentMission.placeableSystem) then return out end
     local farmId = getFarmId()
+    local pcm = g_currentMission and g_currentMission.productionChainManager
 
-    for _, placeable in pairs(g_currentMission.placeableSystem.placeables or {}) do
-        if isOwnedBy(placeable, farmId) then
-            local spec = placeable.spec_productionPoint
-            local pp   = spec and spec.productionPoint
-            local storage = pp and pp.storage
-            if storage then
-                local rec = {
-                    name        = placeable.getName and placeable:getName() or "Výrobna",
-                    items       = {},
-                    productions = {},
-                }
+    if pcm and pcm.getProductionPointsForFarmId then
+        local pps = safeCall(function() return pcm:getProductionPointsForFarmId(farmId) end) or {}
+        for _, pp in ipairs(pps) do
+            local placeable = pp.owningPlaceable
+            local nameHint  = placeable and placeable.getName and placeable:getName() or nil
+            local rec = buildProductionRecord(pp, nameHint)
+            if rec then table.insert(out, rec) end
+        end
+        if self.DEBUG then
+            Logging.info(string.format("[FS25_Dashboard][DIAG] productions via chainManager: %d", #out))
+        end
+        return out
+    end
 
-                -- Stockpile (inputs + outputs share one storage)
-                local fills = safeCall(function() return storage:getFillLevels() end) or {}
-                for fillType, level in pairs(fills) do
-                    if level and level > 0.1 then
-                        local cap = safeCall(function() return storage:getCapacity(fillType) end) or 0
-                        table.insert(rec.items, {
-                            name     = fillTypeName(fillType),
-                            amount   = math.floor(level),
-                            capacity = math.floor(cap),
-                        })
-                    end
+    -- Fallback: scan owned placeables (older engine / chain manager missing)
+    if g_currentMission and g_currentMission.placeableSystem then
+        for _, placeable in pairs(g_currentMission.placeableSystem.placeables or {}) do
+            if isOwnedBy(placeable, farmId) then
+                local spec = placeable.spec_productionPoint
+                local pp   = spec and spec.productionPoint
+                if pp then
+                    local nameHint = placeable.getName and placeable:getName() or nil
+                    local rec = buildProductionRecord(pp, nameHint)
+                    if rec then table.insert(out, rec) end
                 end
-                table.sort(rec.items, function(a, b) return a.name < b.name end)
-                if #rec.items == 0 then rec.items = emptyArray() end
-
-                -- Recipes
-                for _, production in pairs(pp.productions or {}) do
-                    local r = {
-                        name          = production.name or production.id or "",
-                        status        = productionStatusKey(pp, production),
-                        cyclesPerHour = production.cyclesPerHour or 0,
-                        costsPerHour  = production.costsPerActiveHour or 0,
-                        inputs        = {},
-                        outputs       = {},
-                    }
-                    for _, inp in ipairs(production.inputs or {}) do
-                        table.insert(r.inputs, {
-                            name   = fillTypeName(inp.type or inp.fillTypeIndex or 0),
-                            amount = inp.amount or 0,
-                        })
-                    end
-                    for _, outp in ipairs(production.outputs or {}) do
-                        table.insert(r.outputs, {
-                            name   = fillTypeName(outp.type or outp.fillTypeIndex or 0),
-                            amount = outp.amount or 0,
-                        })
-                    end
-                    if #r.inputs  == 0 then r.inputs  = emptyArray() end
-                    if #r.outputs == 0 then r.outputs = emptyArray() end
-                    table.insert(rec.productions, r)
-                end
-                if #rec.productions == 0 then rec.productions = emptyArray() end
-
-                table.insert(out, rec)
             end
         end
     end

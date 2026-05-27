@@ -274,6 +274,26 @@ function generateData() {
                 name: f.name, pricePerTon: ri(150, 850),
             })),
         })).filter(sp => sp.items.length > 0),
+        // Seasonal price forecast — 12-month multiplier curve per fruit so the
+        // history page's "Sezónní křivka" renders (and the click-to-watch
+        // feature has bars to click). Deterministic per-fruit phase so the
+        // curve is stable across ticks but differs between commodities.
+        priceForecast: {
+            currentPeriod: ((gameDay % 12) + 1),
+            daysPerPeriod: 1,
+            fillTypes: FRUITS.map((f, fi) => {
+                const base = 400 + fi * 60;
+                // 12-element, 0-indexed (matches the mod's JSON: index 0 = FS25
+                // period 1 = March). Sine hump offset per fruit so each crop
+                // peaks in a different month.
+                const factors = [];
+                for (let p = 0; p < 12; p++) {
+                    const phase = (p + fi * 2) / 12 * Math.PI * 2;
+                    factors.push(+(1 + 0.35 * Math.sin(phase)).toFixed(3));
+                }
+                return { name: f.name, fillType: f.id, pricePerTon: base, factors };
+            }),
+        },
         animals: [
             { husbandryName: 'Kravín',  type: 'COW',     count: animalCounts.cow,     foodPercent: Math.round(animalFood.cow * 100),     waterPercent: ri(40, 100), productivity: ri(70, 100) },
             { husbandryName: 'Vepřín',  type: 'PIG',     count: animalCounts.pig,     foodPercent: Math.round(animalFood.pig * 100),     waterPercent: ri(50, 100), productivity: ri(60, 100) },

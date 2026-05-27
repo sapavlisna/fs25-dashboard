@@ -18,6 +18,7 @@ const PORT = 3099;
 module.exports = defineConfig({
     testDir: __dirname,
     testMatch: '**/*.spec.js',
+    globalSetup: require.resolve('./global-setup.js'),
     timeout: 45_000,
     fullyParallel: false,         // single server — one test at a time
     workers: 1,
