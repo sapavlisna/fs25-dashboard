@@ -25,6 +25,9 @@
 <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js" defer></script>
 <script src="serverSync.js" defer></script>
 <script src="state.js" defer></script>
+<script src="diag.js" defer></script>
+<script src="i18n.en.js" defer></script>
+<script src="i18n.js" defer></script>
 <script src="theme.js" defer></script>
 <script src="notifications.js" defer></script>
 <script src="bell.js" defer></script>
@@ -140,7 +143,7 @@
         <div class="section-header">
             <span class="drag-handle" title="Přetáhni pro přesun sekce" aria-label="Přesunout sekci">⠿</span>
             🚜 Vozidla <span class="count" id="cnt-vehicles">0</span>
-            <label class="flash-toggle" style="margin-left:auto" title="Flash změn — zvýrazní změny paliva (zeleně = natankováno, červeně = spotřeba)">
+            <label class="flash-toggle" style="margin-left:auto" title="Flash změn — zvýrazní změny naplnění nářadí (zeleně = přibylo, červeně = ubylo)">
                 <input type="checkbox" data-flash-toggle="vehicles" checked>
             </label>
         </div>
@@ -597,6 +600,7 @@ function noteImplementFlashes(vehicles) {
         for (const impl of (v.implements || [])) {
             const units = impl.fillUnits || [];
             for (let i = 0; i < units.length; i++) {
+                if (units[i].fillType === 'AIR') continue;
                 const pct = Math.round(units[i].percent ?? 0);
                 const fuKey = `vehicles::impl::${v.name}::${impl.name}::${i}`;
                 const prev = flashPrev.get(fuKey);
@@ -703,10 +707,6 @@ function storageFlashKey(st) {
 function noteAllChanges(d) {
     // Balance — single-value flash with threshold (see noteBalanceFlash)
     noteBalanceFlash(d.farmBalance);
-    // Vehicles — fuelLiters per name (skip wheelbarrows w/ no fuel tank)
-    noteFlashRows('vehicles', d.vehicles || [],
-        v => v.name,
-        v => (v.fuelCapacity > 0 ? v.fuelLiters : null));
     // Implement boundary flashes — when an attached fillUnit transitions
     // into 100 % (full) or 0 % (empty), tint the vehicle row green / red
     // so the user notices "loaded trailer ready to drive" / "trailer
@@ -853,7 +853,7 @@ function vehicleCardHTML(v, opts) {
         : '';
     const implHTML    = implementsHTML(v.implements, v.name);
     const implSummary = implementsSummary(v.implements, v.name);
-    const condSpeed   = conditionSpeedHTML(v);
+    const rightHTML   = vehicleRightHTML(v);
     return `<div class="vehicle-row ${v.isInUse ? 'in-use' : ''}${flashCls}" ${TableTools.dndAttrs('vehicles', v.name)} title="${esc(rowTitle)}">
         <span class="${dotCls}"></span>
         <span class="vc-name">${esc(v.name)}</span>
@@ -861,21 +861,21 @@ function vehicleCardHTML(v, opts) {
             ${bar(fp)}
             <span class="vc-fuel-num">${fmt(v.fuelLiters)}/${fmt(v.fuelCapacity)} l</span>
         </div>
-        ${condSpeed}
         ${aiHTML}
-        <span class="vc-mh" title="Motohodiny">${v.motorHours ?? 0} mh</span>
+        ${rightHTML}
         ${implSummary}
         ${implHTML}
     </div>`;
 }
 
-// Minimalist condition (% kondice, colour-coded) + current speed (km/h, only
-// while the vehicle is actually moving). Gated by the `vehicleShowCondition`
-// setting (default on). conditionPercent / speedKmh come from the Lua mod.
-function conditionSpeedHTML(v) {
-    if (DashState.get('vehicleShowCondition', true) === false) return '';
+// Right-aligned info cluster: condition (% kondice, colour-coded) · current
+// speed (km/h, only while moving) · motor-hours. Order matters — motor-hours
+// sits at the very right edge, speed just to its left (per user layout), with
+// condition further left. Condition is gated by `vehicleShowCondition`.
+function vehicleRightHTML(v) {
     const parts = [];
-    if (v.conditionPercent != null) {
+    const showCond = DashState.get('vehicleShowCondition', true) !== false;
+    if (showCond && v.conditionPercent != null) {
         const c = v.conditionPercent;
         const cls = c >= 80 ? 'c-green' : (c >= 50 ? 'c-yellow' : 'c-red');
         parts.push(`<span class="vc-cond ${cls}" title="Kondice vozidla (servis při nízké)">🔧 ${c} %</span>`);
@@ -883,7 +883,8 @@ function conditionSpeedHTML(v) {
     if (v.speedKmh != null && v.speedKmh > 0) {
         parts.push(`<span class="vc-speed" title="Aktuální rychlost">${v.speedKmh} km/h</span>`);
     }
-    return parts.length ? `<span class="vc-condspeed">${parts.join('')}</span>` : '';
+    parts.push(`<span class="vc-mh" title="Motohodiny">${v.motorHours ?? 0} mh</span>`);
+    return `<span class="vc-right">${parts.join('')}</span>`;
 }
 
 // Compact one-line summary of attached implements that currently carry
@@ -905,11 +906,18 @@ function conditionSpeedHTML(v) {
 function fillUnitIsEmpty(u) {
     return (u.levelL ?? 0) <= 0 || (u.percent ?? 0) <= 0;
 }
-function displayFillUnits(impl, showEmpty) {
-    const units = impl.fillUnits || [];
+function displayFillUnits(impl, showEmpty, hideAir) {
+    let units = impl.fillUnits || [];
+    if (hideAir) units = units.filter(u => u.fillType !== 'AIR');
     const nonEmpty = units.filter(u => !fillUnitIsEmpty(u));
     if (nonEmpty.length > 0) return nonEmpty;
-    return showEmpty ? units : [];
+    if (!showEmpty || units.length === 0) return [];
+    // All units empty. A loader bucket reports two units (a real slot + a
+    // phantom EMPTY one); once emptied BOTH read 0%, which would render the
+    // implement twice. Collapse to a single representative empty row — prefer
+    // one that still carries a real fill type for a meaningful label.
+    if (units.length === 1) return units;
+    return [units.find(u => u.fillType && u.fillType !== 'EMPTY') || units[0]];
 }
 
 function implementsSummary(implements, vehicleName) {
@@ -917,10 +925,11 @@ function implementsSummary(implements, vehicleName) {
     // Default ON: show attached implements (incl. empty 0% trailers) from the
     // moment they're hitched. User can still hide empties via the setting.
     const showEmpty = DashState.get('vehicleShowEmptyImplements', true) !== false;
+    const hideAir   = !!DashState.get('vehicleHideAir', false);
     const parts = [];
     for (const impl of implements) {
         const showImplName = impl.name && impl.name !== '' && impl.name !== vehicleName;
-        for (const u of displayFillUnits(impl, showEmpty)) {
+        for (const u of displayFillUnits(impl, showEmpty, hideAir)) {
             const pct = u.percent ?? 0;
             const lvl = u.levelL ?? 0;
             const isEmpty = lvl <= 0 || pct <= 0;
@@ -947,10 +956,11 @@ function implementsSummary(implements, vehicleName) {
 function implementsHTML(implements, vehicleName) {
     if (!implements || implements.length === 0) return '';
     const showEmpty = DashState.get('vehicleShowEmptyImplements', true) !== false;
+    const hideAir   = !!DashState.get('vehicleHideAir', false);
     const rows = [];
     for (const impl of implements) {
         const showImplName = impl.name && impl.name !== '' && impl.name !== vehicleName;
-        for (const u of displayFillUnits(impl, showEmpty)) {
+        for (const u of displayFillUnits(impl, showEmpty, hideAir)) {
             // "EMPTY" comes from the Lua side when a trailer has no current
             // and no historical fillType — show it as a soft em-dash so the
             // row reads "Pickup wagon — 0 / 50 t" rather than "EMPTY 0 / 50 t".
@@ -1416,9 +1426,10 @@ function storageRowsHTML(st, opts) {
     const totalCap    = items.reduce((s, i) => s + (i.capacity || 0), 0);
     const pct = totalCap > 0 ? Math.round(totalAmount / totalCap * 100) : 0;
     const donut = totalCap > 0 ? donutSVG(pct) : '';
+    const itemWord = items.length === 1 ? t('položka') : items.length < 5 ? t('položky') : t('položek');
     const summary = items.length
-        ? `<span class="group-meta">${items.length} ${items.length === 1 ? 'položka' : items.length < 5 ? 'položky' : 'položek'} · ${fmt(totalAmount)}${totalCap > 0 ? ' / ' + fmt(totalCap) : ''} l</span>`
-        : '<span class="group-meta">prázdné</span>';
+        ? `<span class="group-meta">${items.length} ${itemWord} · ${fmt(totalAmount)}${totalCap > 0 ? ' / ' + fmt(totalCap) : ''} l</span>`
+        : `<span class="group-meta">${t('prázdné')}</span>`;
     const pctTxt = totalCap > 0 ? `<span class="silo-pct">${pct} %</span>` : '';
     // Flash uses a different (dedup) key so two storages with identical
     // `${type}:${name}` don't share flash state. Hide/collapse keep `key`.
@@ -1508,7 +1519,9 @@ function productionRowsHTML(p, opts) {
     const pct = totalCap > 0 ? Math.round(totalAmount / totalCap * 100) : 0;
     const donut = totalCap > 0 ? donutSVG(pct) : '';
     const activeRecipes = recipes.filter(r => r.status === 'active').length;
-    const summary = `<span class="group-meta">${recipes.length} recept${recipes.length === 1 ? '' : 'y'}${activeRecipes ? ' · ' + activeRecipes + ' běží' : ''}${items.length ? ' · ' + fmt(totalAmount) + (totalCap > 0 ? ' / ' + fmt(totalCap) : '') + ' l' : ''}</span>`;
+    const recipeWord = recipes.length === 1 ? t('recept') : t('recepty');
+    const runningTxt = activeRecipes ? ` · ${activeRecipes} ${t('běží')}` : '';
+    const summary = `<span class="group-meta">${recipes.length} ${recipeWord}${runningTxt}${items.length ? ' · ' + fmt(totalAmount) + (totalCap > 0 ? ' / ' + fmt(totalCap) : '') + ' l' : ''}</span>`;
     const pctTxt = totalCap > 0 ? `<span class="silo-pct">${pct} %</span>` : '';
     const hdrFlashCls = getFlashCls('productions', `header::${p.name}`);
     const header = `<tr class="st-row collapsible${hdrFlashCls}" ${TableTools.dndAttrs('productions', key)} data-group="${esc(key)}"><td colspan="4"><span class="group-toggle">${indicator}</span> ${donut} ${esc(p.name)} ${summary} ${pctTxt}</td></tr>`;
@@ -1654,7 +1667,7 @@ function renderPrices(prices) {
         const visibleItems = sortItems(allItems.filter(it => !hiddenItems.has(String(it.name))));
         const hiddenItemRows = sortItems(allItems.filter(it => hiddenItems.has(String(it.name))));
 
-        const summary = `<span class="group-meta">${visibleItems.length}${hiddenItemRows.length ? ' / ' + allItems.length : ''} komodit</span>`;
+        const summary = `<span class="group-meta">${visibleItems.length}${hiddenItemRows.length ? ' / ' + allItems.length : ''} ${t('komodit')}</span>`;
         const header = `<tr class="sp-row collapsible" ${TableTools.dndAttrs(STATE_KEY, sp.sellPoint)} data-group="${esc(key)}"><td colspan="3"><span class="group-toggle">${indicator}</span> 📍 ${esc(sp.sellPoint)} ${summary}</td></tr>`;
 
         const itemRow = (item, canHideItem) => {

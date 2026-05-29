@@ -26,6 +26,8 @@
         { id: 'sec-prices',      label: '💰 Výkupní ceny' },
     ];
 
+    let _gearClicks = 0;
+
     function injectNotifUI() {
         const status = document.querySelector('.nav-status');
         if (!status) return;
@@ -49,13 +51,14 @@
         overlay.innerHTML = `
             <div id="notif-modal">
                 <button class="settings-close" id="nt-close" type="button" aria-label="Zavřít" title="Zavřít">×</button>
-                <h3>⚙ Nastavení</h3>
+                <h3><span id="settings-gear-icon" style="cursor:default;user-select:none">⚙</span> Nastavení</h3>
                 <nav class="settings-tabs" id="settings-tabs">
                     <button type="button" data-tab="notif" class="active">🔔 Notifikace</button>
                     <button type="button" data-tab="sections">📋 Sekce</button>
                     <button type="button" data-tab="vehicles">🚜 Vozidla</button>
                     <button type="button" data-tab="theme">🎨 Vzhled</button>
                     <button type="button" data-tab="sync">☁ Sync</button>
+                    <button type="button" data-tab="diag" hidden>🐞 Diagnostika</button>
                 </nav>
 
                 <div class="settings-panels">
@@ -122,9 +125,22 @@
                             <span class="switch-knob"></span>
                         </span>
                     </label>
+                    <label class="section-row" style="cursor:default">
+                        <span class="section-row-label">Skrýt vzduch (AIR) u nářadí</span>
+                        <span class="section-row-toggle">
+                            <input type="checkbox" id="vehicles-hide-air">
+                            <span class="switch-knob"></span>
+                        </span>
+                    </label>
                 </section>
 
                 <section class="settings-panel" data-panel="theme" hidden>
+                    <label style="margin-bottom:8px;display:block">Jazyk</label>
+                    <select id="lang-select" class="lang-select"></select>
+                    <p class="settings-hint" style="margin:4px 0 14px">
+                        Přepne celé rozhraní; stránka se po změně načte znovu.
+                        Synchronizuje se na ostatní zařízení.
+                    </p>
                     <label style="margin-bottom:8px;display:block">Téma vzhledu</label>
                     <div class="theme-grid">${themeButtons}</div>
                 </section>
@@ -152,6 +168,60 @@
                                 title="Stáhne aktuální nastavení ze serveru a přepíše lokální">↺ Načíst ze serveru</button>
                     </div>
                 </section>
+
+                <section class="settings-panel" data-panel="diag" hidden>
+                    <label style="margin-bottom:8px;display:block">Diagnostický záznam</label>
+                    <p class="settings-hint">
+                        Když narazíš na chybu: spusť nahrávání, zopakuj co se dělo a zastav ho.
+                        Vznikne jeden soubor (data + chyby prohlížeče + tvoje nastavení), který
+                        stáhneš a pošleš. Drží se posledních ~1000 snímků.
+                    </p>
+                    <label for="diag-note">Co se stalo?</label>
+                    <input type="text" id="diag-note" maxlength="200"
+                           placeholder="např. špatně se zobrazují výrobny">
+                    <div class="section-reset-row" style="margin-top:10px;align-items:center">
+                        <button class="primary" id="diag-record-btn" type="button">● Spustit nahrávání</button>
+                        <button class="secondary" id="diag-mark" type="button"
+                                title="Vloží do záznamu značku „tady to nastalo“">⚑ Označit</button>
+                        <span id="diag-record-status" style="font-size:12px;color:var(--muted);margin-left:auto"></span>
+                    </div>
+                    <div class="section-reset-row" style="margin-top:8px;align-items:center">
+                        <button class="secondary" id="diag-save-buffer" type="button"
+                                title="Uloží posledních pár minut, i když jsi nahrávání nezapnul předem">💾 Uložit poslední snímky zpětně</button>
+                        <span id="diag-buffer-info" style="font-size:11px;color:var(--muted);margin-left:auto"></span>
+                    </div>
+                    <div id="diag-mockup-tools">
+                        <label class="section-row" style="cursor:default;margin-top:14px">
+                            <span class="section-row-label">Mockup režim (zobrazit ovládání přehrávání)</span>
+                            <span class="section-row-toggle">
+                                <input type="checkbox" id="diag-mockup-toggle">
+                                <span class="switch-knob"></span>
+                            </span>
+                        </label>
+                        <p class="settings-hint">
+                            <strong>Mockup režim.</strong> Načti záznam (třeba od kamaráda) a přehraj
+                            ho jako živá data — server poběží z něj místo ze hry.
+                            Vypnutím přepínače ovládání zase schováš.
+                        </p>
+                        <div class="section-reset-row" style="margin-bottom:6px">
+                            <label class="secondary diag-upload-btn">📂 Načíst soubory
+                                <input type="file" id="diag-upload-files" accept=".jsonl" multiple hidden>
+                            </label>
+                            <label class="secondary diag-upload-btn">🗂 Načíst složku
+                                <input type="file" id="diag-upload-dir" webkitdirectory hidden>
+                            </label>
+                        </div>
+                        <label class="section-row" style="cursor:default">
+                            <span class="section-row-label">🔁 Přehrávat ve smyčce (jinak jen jednou)</span>
+                            <span class="section-row-toggle">
+                                <input type="checkbox" id="diag-replay-loop">
+                                <span class="switch-knob"></span>
+                            </span>
+                        </label>
+                    </div>
+                    <label style="margin:16px 0 6px;display:block">Uložené záznamy</label>
+                    <div id="diag-list" class="diag-list"></div>
+                </section>
                 </div>
 
                 <div id="nt-status" style="font-size:11px;color:var(--muted);margin-top:10px"></div>
@@ -170,6 +240,15 @@
         document.getElementById('nt-save').onclick  = saveNotifSettings;
         document.getElementById('nt-test').onclick  = testNotif;
 
+        // Hidden diagnostics unlock — click the ⚙ inside the modal 4×.
+        // Counter resets when the modal is closed (see closeNotifModal).
+        document.getElementById('settings-gear-icon').addEventListener('click', () => {
+            if (++_gearClicks >= 4) {
+                const diagTab = document.querySelector('[data-tab="diag"]');
+                if (diagTab) diagTab.hidden = false;
+            }
+        });
+
         // Tab switching
         document.getElementById('settings-tabs').addEventListener('click', e => {
             const t = e.target.closest('[data-tab]');
@@ -182,6 +261,8 @@
             // Hide notif-only action buttons on other tabs
             document.querySelectorAll('[data-only-tab]').forEach(b =>
                 b.hidden = (b.dataset.onlyTab !== tab));
+            // Diagnostics tab: refresh status + list on enter (status also pushed via WS).
+            if (tab === 'diag') diagRefresh();
         });
 
         // Theme picker — clicking a card applies + persists immediately
@@ -284,6 +365,28 @@
                 if (window.FS25App && window.FS25App.rerender) window.FS25App.rerender();
             };
         }
+        // ─── Vehicles panel — hide AIR fill units ─────────────────────────
+        const vehHideAir = document.getElementById('vehicles-hide-air');
+        if (vehHideAir && window.DashState) {
+            const KEY = 'vehicleHideAir';
+            vehHideAir.checked = !!window.DashState.get(KEY, false);
+            vehHideAir.onchange = () => {
+                window.DashState.set(KEY, vehHideAir.checked);
+                if (window.ServerSync) window.ServerSync.syncWrite(KEY, vehHideAir.checked);
+                if (window.FS25App && window.FS25App.rerender) window.FS25App.rerender();
+            };
+        }
+        // ─── Appearance panel — language selector ─────────────────────────
+        const langSel = document.getElementById('lang-select');
+        if (langSel && window.I18n) {
+            langSel.innerHTML = window.I18n.AVAILABLE
+                .map(l => `<option value="${l.id}">${l.flag} ${l.label}</option>`).join('');
+            langSel.value = window.I18n.getLang();
+            langSel.onchange = () => window.I18n.setLang(langSel.value);  // setLang reloads the page
+        }
+
+        // ─── Diagnostics panel — record / list / download ─────────────────
+        wireDiagPanel();
     }
 
     // Toggle the .expanded-vehicles class on the vehicles section based on
@@ -350,6 +453,184 @@
             card.classList.toggle('active', card.dataset.themeId === id));
     }
 
+    // ─── Diagnostics panel logic ─────────────────────────────────────────────
+    // Talks to the server's /diag/* REST endpoints (recorder.js). Recording
+    // state is PUSHED over the WS (__recordStatus) — never polled — so the
+    // button can't get stuck on a stale cached status.
+
+    function tr(cs, params) { return window.t ? window.t(cs, params) : cs; }
+
+    function diagEsc(s) {
+        return String(s == null ? '' : s)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
+    }
+    function diagFmtSize(b) {
+        if (!b) return '0 kB';
+        return b >= 1048576 ? (b / 1048576).toFixed(1) + ' MB' : Math.round(b / 1024) + ' kB';
+    }
+
+    async function diagApi(method, url, body) {
+        const opt = { method, cache: 'no-store' };   // never serve a stale status from cache
+        if (body) { opt.headers = { 'Content-Type': 'application/json' }; opt.body = JSON.stringify(body); }
+        try {
+            const r = await fetch(url, opt);
+            return await r.json();
+        } catch (_) {
+            return null;          // transient failure — callers keep current UI, don't revert
+        }
+    }
+
+    function diagSetRecording(active, info) {
+        const btn    = document.getElementById('diag-record-btn');
+        const note   = document.getElementById('diag-note');
+        const status = document.getElementById('diag-record-status');
+        if (!btn) return;
+        if (active) {
+            btn.textContent = tr('■ Zastavit nahrávání');
+            btn.classList.remove('primary'); btn.classList.add('danger');
+            if (note) note.disabled = true;
+            if (status) status.textContent = tr('Nahrávám… {n} snímků', { n: (info && info.frames) || 0 });
+        } else {
+            btn.textContent = tr('● Spustit nahrávání');
+            btn.classList.remove('danger'); btn.classList.add('primary');
+            if (note) note.disabled = false;
+            if (status) status.textContent = '';
+        }
+    }
+
+    // Apply a record-status object (from the WS push or a one-shot GET) to the UI.
+    function diagApplyRecordStatus(st) {
+        if (!st) return;
+        diagSetRecording(!!st.active, st);
+        const info = document.getElementById('diag-buffer-info');
+        if (info) info.textContent = tr('V bufferu: {n} snímků', { n: st.buffered || 0 });
+    }
+
+    async function diagRefreshStatus() {
+        const st = await diagApi('GET', '/diag/record/status');
+        diagApplyRecordStatus(st);            // null (transient) → no-op, UI kept
+        return st;
+    }
+
+    async function diagRefreshList() {
+        const wrap = document.getElementById('diag-list');
+        if (!wrap) return;
+        const recs = await diagApi('GET', '/diag/recordings');
+        if (!recs) return;                    // transient failure — keep the current list
+        if (!Array.isArray(recs) || !recs.length) {
+            wrap.innerHTML = `<p class="settings-hint">${tr('Zatím žádné záznamy.')}</p>`;
+            return;
+        }
+        wrap.innerHTML = recs.map(r => {
+            const when = r.startedAt ? new Date(r.startedAt).toLocaleString() : r.name;
+            const errBadge = r.clientErrors ? ` · <span class="diag-err">⚠ ${r.clientErrors} ${tr('chyb')}</span>` : '';
+            const modS = r.modVersion ? ` · mod ${diagEsc(r.modVersion)}` : '';
+            const retro = r.retroactive ? ' · ⏪' : '';
+            const meta = `${r.frames != null ? r.frames : '?'} ${tr('snímků')} · ${diagFmtSize(r.sizeBytes)}${errBadge}${modS}${retro}`;
+            const note = r.note ? `<span class="diag-note-txt">${diagEsc(r.note)}</span>` : '';
+            const dot  = r.active ? ' <span class="diag-rec-dot" title="' + tr('Nahrává se') + '">⏺</span>' : '';
+            return `<div class="diag-row" data-name="${diagEsc(r.name)}">
+                <div class="diag-row-main">
+                    <span class="diag-row-when">${diagEsc(when)}${dot}</span>
+                    ${note}
+                    <span class="diag-row-meta">${meta}</span>
+                </div>
+                <button class="primary diag-play" type="button" title="${tr('Přehrát jako živá data')}">▶</button>
+                <a class="secondary diag-dl" href="/diag/recordings/${encodeURIComponent(r.name)}" download title="${tr('Stáhnout')}">⬇</a>
+                <button class="danger diag-del" type="button" title="${tr('Smazat')}">×</button>
+            </div>`;
+        }).join('');
+    }
+
+    // Record status is PUSHED over the WS (__recordStatus), so no polling here.
+    // A one-shot refresh just seeds the panel when it opens.
+    async function diagRefresh() {
+        await diagRefreshStatus();
+        await diagRefreshList();
+    }
+
+    function wireDiagPanel() {
+        const btn  = document.getElementById('diag-record-btn');
+        const note = document.getElementById('diag-note');
+        const list = document.getElementById('diag-list');
+        if (btn) {
+            btn.onclick = async () => {
+                const st = await diagApi('GET', '/diag/record/status');
+                if (st && st.active) {
+                    diagSetRecording(false);                       // optimistic; WS push confirms
+                    await diagApi('POST', '/diag/record/stop');
+                } else {
+                    diagSetRecording(true, { frames: 0 });         // optimistic; WS push confirms
+                    await diagApi('POST', '/diag/record/start', {
+                        note: note ? note.value : '',
+                        lang: window.I18n ? window.I18n.getLang() : 'cs',
+                    });
+                }
+                await diagRefreshList();
+            };
+        }
+        if (list) {
+            list.addEventListener('click', async (e) => {
+                const row = e.target.closest('.diag-row');
+                const name = row && row.dataset.name;
+                if (!name) return;
+                if (e.target.closest('.diag-play')) {
+                    await diagApi('POST', '/diag/replay/start', { name, loop: diagReplayLoop() });
+                    return;
+                }
+                if (e.target.closest('.diag-del')) {
+                    if (!confirm(tr('Smazat tento záznam?'))) return;
+                    await diagApi('DELETE', '/diag/recordings/' + encodeURIComponent(name));
+                    await diagRefreshList();
+                }
+            });
+        }
+
+        // ─── Mockup mode — upload recording(s) to replay ──────────────────
+        async function uploadFileList(fileList) {
+            const files = Array.from(fileList || []).filter(f => /\.jsonl$/i.test(f.name));
+            if (!files.length) { alert(tr('Nenašel jsem žádný .jsonl soubor.')); return; }
+            for (const f of files) {
+                let text = '';
+                try { text = await f.text(); } catch (_) { continue; }
+                await fetch('/diag/replay/upload?name=' + encodeURIComponent(f.name), {
+                    method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: text,
+                });
+            }
+            await diagRefreshList();
+        }
+        const upFiles = document.getElementById('diag-upload-files');
+        const upDir   = document.getElementById('diag-upload-dir');
+        if (upFiles) upFiles.onchange = () => { uploadFileList(upFiles.files); upFiles.value = ''; };
+        if (upDir)   upDir.onchange   = () => { uploadFileList(upDir.files);   upDir.value = ''; };
+
+        // Mockup-mode on/off switch (itself only visible while mockup mode is on).
+        const mockupToggle = document.getElementById('diag-mockup-toggle');
+        if (mockupToggle) {
+            mockupToggle.checked = isMockup();
+            mockupToggle.onchange = () => setMockup(mockupToggle.checked);
+        }
+
+        // Flag the current moment.
+        const markBtn = document.getElementById('diag-mark');
+        if (markBtn) markBtn.onclick = async () => {
+            await diagApi('POST', '/diag/record/marker', { label: '' });
+            markBtn.textContent = tr('⚑ Označeno');
+            setTimeout(() => { markBtn.textContent = tr('⚑ Označit'); }, 1200);
+        };
+
+        // Retroactive capture — save the always-on rolling buffer.
+        const saveBuf = document.getElementById('diag-save-buffer');
+        if (saveBuf) saveBuf.onclick = async () => {
+            await diagApi('POST', '/diag/record/save-buffer', {
+                note: note ? note.value : '',
+                lang: window.I18n ? window.I18n.getLang() : 'cs',
+            });
+            await diagRefreshList();
+        };
+    }
+
     async function openNotifModal() {
         const s = window.Notifier.getSettings();
         document.getElementById('nt-enabled').checked  = s.enabled;
@@ -372,6 +653,7 @@
     }
     function closeNotifModal() {
         document.getElementById('notif-modal-overlay').classList.remove('open');
+        _gearClicks = 0;
     }
 
     async function saveNotifSettings() {
@@ -425,6 +707,10 @@
                     // real game-data payload, so short-circuit before the
                     // regular renderers run.
                     if (window.ServerSync && window.ServerSync.handleWsMessage(data)) return;
+                    // Mockup/replay state envelope — drives the banner, not a payload.
+                    if (data.__replayStatus) { updateReplayBanner(data.__replayStatus); return; }
+                    // Recording state envelope — pushed, drives the record button.
+                    if (data.__recordStatus) { diagApplyRecordStatus(data.__recordStatus); return; }
                     if (window.CropIcons && Array.isArray(data.availableFruits)) {
                         window.CropIcons.setCatalog(data.availableFruits);
                     }
@@ -434,6 +720,7 @@
                     if (window.FS25Bell) window.FS25Bell.update(data);
                     lastData = data;
                     onData && onData(data);
+                    if (inspectorOpen) refreshInspector();
                 } catch (_) {}
             };
             ws.onclose = ws.onerror = () => {
@@ -503,6 +790,166 @@
         }
     }
 
+    // ─── Mockup mode (hidden) + replay banner ─────────────────────────────────
+    // A hidden gesture (10× click the brand) flips this page into "mockup mode",
+    // which reveals the diag panel's upload/replay controls. State is per-tab
+    // (sessionStorage) so it never leaks into a normal session or syncs.
+
+    const MOCKUP_KEY = 'fs25.dash.mockup';
+    let currentReplayName = null;   // name of the recording currently playing (for restart)
+
+    function diagReplayLoop() {
+        const cb = document.getElementById('diag-replay-loop');
+        return !!(cb && cb.checked);
+    }
+    function isMockup() {
+        try { return sessionStorage.getItem(MOCKUP_KEY) === '1'; } catch (_) { return false; }
+    }
+    function applyMockupMode() {
+        document.body.classList.toggle('mockup-mode', isMockup());
+    }
+    function setMockup(on) {
+        try { on ? sessionStorage.setItem(MOCKUP_KEY, '1') : sessionStorage.removeItem(MOCKUP_KEY); } catch (_) {}
+        applyMockupMode();
+        const cb = document.getElementById('diag-mockup-toggle');
+        if (cb) cb.checked = isMockup();
+    }
+    function disableMockup() { setMockup(false); }
+    function enableMockup() {
+        setMockup(true);
+        // Jump straight to the Diagnostics tab so the new controls are in view.
+        openNotifModal();
+        const dt = document.querySelector('[data-tab="diag"]');
+        if (dt) dt.click();
+        alert(tr('Mockup režim zapnut. V Nastavení → 🐞 Diagnostika ho zase vypneš přepínačem.'));
+    }
+    function wireMockupGesture() {
+        const brand = document.querySelector('.nav-brand');
+        if (!brand) return;
+        let clicks = 0, timer = null;
+        brand.style.cursor = 'default';
+        brand.addEventListener('click', () => {
+            if (isMockup()) return;
+            clicks++;
+            clearTimeout(timer);
+            timer = setTimeout(() => { clicks = 0; }, 1500);
+            if (clicks >= 10) { clicks = 0; enableMockup(); }
+        });
+    }
+
+    let lastReplayStatus = null;
+    function replayPost(path, body) {
+        fetch(path, {
+            method:  'POST',
+            headers: body ? { 'Content-Type': 'application/json' } : undefined,
+            body:    body ? JSON.stringify(body) : undefined,
+        }).catch(() => {});
+    }
+
+    function injectReplayBanner() {
+        if (document.getElementById('replay-banner')) return;
+        const bar = document.createElement('div');
+        bar.id = 'replay-banner';
+        bar.hidden = true;
+        bar.innerHTML =
+            '<span class="replay-banner-txt"></span>' +
+            '<span class="replay-ctl">' +
+              '<button type="button" id="rp-restart" title="Od začátku">↺</button>' +
+              '<button type="button" id="rp-back" title="O snímek zpět">◀</button>' +
+              '<button type="button" id="rp-play" title="Přehrát/Pauza">⏸</button>' +
+              '<button type="button" id="rp-fwd" title="O snímek vpřed">▶</button>' +
+              '<input type="range" id="rp-seek" min="0" max="0" value="0" list="rp-marks" aria-label="Pozice přehrávání">' +
+              '<datalist id="rp-marks"></datalist>' +
+              '<span id="rp-count" class="replay-count">0/0</span>' +
+              '<button type="button" id="rp-mark" title="Skočit na další značku">⚑</button>' +
+              '<button type="button" id="rp-inspect" title="Inspektor snímku">{ }</button>' +
+            '</span>' +
+            '<button type="button" id="replay-banner-stop" class="replay-banner-stop"></button>';
+        document.body.appendChild(bar);
+
+        bar.querySelector('#replay-banner-stop').onclick = () => replayPost('/diag/replay/stop');
+        bar.querySelector('#rp-restart').onclick = () => {
+            if (currentReplayName) replayPost('/diag/replay/start', { name: currentReplayName, loop: diagReplayLoop() });
+        };
+        bar.querySelector('#rp-back').onclick = () => replayPost('/diag/replay/step', { delta: -1 });
+        bar.querySelector('#rp-fwd').onclick  = () => replayPost('/diag/replay/step', { delta: 1 });
+        bar.querySelector('#rp-play').onclick = () => {
+            const paused = lastReplayStatus && lastReplayStatus.paused;
+            replayPost(paused ? '/diag/replay/resume' : '/diag/replay/pause');
+        };
+        const seek = bar.querySelector('#rp-seek');
+        let seekTimer = null;
+        seek.addEventListener('input', () => {
+            const v = Number(seek.value);
+            clearTimeout(seekTimer);
+            seekTimer = setTimeout(() => replayPost('/diag/replay/seek', { idx: v }), 60);
+        });
+        bar.querySelector('#rp-mark').onclick = () => {
+            const st = lastReplayStatus;
+            if (!st || !st.markers || !st.markers.length) return;
+            const cur = st.idx || 0;
+            const next = st.markers.find(m => m.idx > cur) || st.markers[0];
+            replayPost('/diag/replay/seek', { idx: next.idx });
+        };
+        bar.querySelector('#rp-inspect').onclick = () => toggleInspector();
+    }
+
+    function updateReplayBanner(st) {
+        const bar = document.getElementById('replay-banner');
+        if (!bar) return;
+        lastReplayStatus = (st && st.active) ? st : null;
+        if (st && st.active) {
+            currentReplayName = st.name;
+            const total = st.total || 0;
+            bar.querySelector('.replay-banner-txt').textContent =
+                `${tr('▶ MOCKUP — přehrávám záznam')} ${st.name}${st.loop ? ' 🔁' : ''}${st.done ? ' ✓' : ''}`;
+            bar.querySelector('#rp-count').textContent = `${(st.idx || 0) + 1}/${total}`;
+            const seek = bar.querySelector('#rp-seek');
+            seek.max = String(Math.max(0, total - 1));
+            seek.value = String(st.idx || 0);
+            bar.querySelector('#rp-play').textContent = st.paused ? '▶' : '⏸';
+            const dl = bar.querySelector('#rp-marks');
+            if (dl) dl.innerHTML = (st.markers || []).map(m => `<option value="${m.idx}"></option>`).join('');
+            const markBtn = bar.querySelector('#rp-mark');
+            if (markBtn) markBtn.style.display = (st.markers && st.markers.length) ? '' : 'none';
+            bar.querySelector('#replay-banner-stop').textContent = tr('■ Zpět na živá data');
+            bar.hidden = false;
+            document.body.classList.add('replaying');
+            if (inspectorOpen) refreshInspector();
+        } else {
+            bar.hidden = true;
+            document.body.classList.remove('replaying');
+            closeInspector();
+        }
+    }
+
+    // ─── Frame inspector — raw JSON of the currently shown payload ─────────────
+    let inspectorOpen = false;
+    function ensureInspector() {
+        let el = document.getElementById('replay-inspector');
+        if (!el) {
+            el = document.createElement('div');
+            el.id = 'replay-inspector';
+            el.hidden = true;
+            el.innerHTML = '<div class="ri-head"><span>Inspektor snímku</span>' +
+                '<button type="button" id="ri-close" aria-label="Zavřít">×</button></div>' +
+                '<pre id="ri-body"></pre>';
+            document.body.appendChild(el);
+            el.querySelector('#ri-close').onclick = () => closeInspector();
+        }
+        return el;
+    }
+    function refreshInspector() {
+        const el = ensureInspector();
+        const data = (window.FS25App && window.FS25App.getData) ? window.FS25App.getData() : null;
+        const body = el.querySelector('#ri-body');
+        try { body.textContent = data ? JSON.stringify(data, null, 2) : '—'; }
+        catch (_) { body.textContent = '—'; }
+    }
+    function toggleInspector() { inspectorOpen ? closeInspector() : openInspector(); }
+    function openInspector()  { inspectorOpen = true;  ensureInspector().hidden = false; refreshInspector(); }
+    function closeInspector() { inspectorOpen = false; const el = document.getElementById('replay-inspector'); if (el) el.hidden = true; }
+
     // ─── Init ─────────────────────────────────────────────────────────────────
 
     // On mobile the nav links don't fit alongside the brand + status + save
@@ -547,7 +994,10 @@
         injectNotifUI();
         injectNavBurger();
         showServerVersion();
+        injectReplayBanner();
+        wireMockupGesture();
+        applyMockupMode();
     });
 
-    window.FS25App = { connect, rerender };
+    window.FS25App = { connect, rerender, getData: () => lastData };
 })();

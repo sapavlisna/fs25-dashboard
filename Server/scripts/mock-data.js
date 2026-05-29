@@ -315,11 +315,27 @@ function generateData() {
                 fuelPercent:  Math.round(s.fuel * 100),
                 fuelLiters:   Math.round(s.fuel * v.fuelCap),
                 fuelCapacity: v.fuelCap,
+                // Condition (deterministic-ish per vehicle so it's stable) + speed
+                // (only the in-use ones are moving). Surfaces the condition/speed UI.
+                conditionPercent: [100, 95, 88, 72, 46, 99][i % 6],
+                speedKmh:         s.inUse ? ri(6, 22) : 0,
             };
             if (v.adblueCap != null) {
                 entry.adBluePercent  = Math.round(s.adblue * 100);
                 entry.adBlueLiters   = Math.round(s.adblue * v.adblueCap);
                 entry.adBlueCapacity = v.adblueCap;
+            }
+            // First tractor pulls a grain trailer so the implement fill row +
+            // flash-on-change behaviour is visible in the default mock.
+            if (i === 0) {
+                const cap = 24000;
+                const pct = 20 + (Math.floor(Date.now() / 5000) % 8) * 10;  // steps each tick
+                entry.implements = [
+                    { name: 'Krampe Bandit', fillUnits: [
+                        { fillType: 'WHEAT', typeTitle: 'Pšenice',
+                          levelL: Math.round(cap * pct / 100), capacityL: cap, percent: pct },
+                    ] },
+                ];
             }
             return entry;
         }),

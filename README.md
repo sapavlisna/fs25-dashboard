@@ -25,19 +25,28 @@ Pokud ti něco nefunguje, klidně otevři issue, ale ber to s rezervou. Pokud ch
 
 ## Co to ukazuje
 
-- 🚜 **Vozidla** — palivo / AdBlue %, motohodiny, aktivita. Drag & drop na skrytí těch, co tě nezajímají.
+- 🚜 **Vozidla** — palivo / AdBlue %, motohodiny, **kondice (🔧 %) a aktuální rychlost**, AI/Courseplay/AutoDrive úkoly. Připojené nářadí (vlečka, secí stroj…) ukazuje naplněnost hned po připojení a **blikne při změně** (zeleně přibývá / červeně ubývá). Drag & drop na skrytí.
 - 🐄 **Zvířata** — krmivo / voda / sláma, sklad mléka / hnoje, produktivita. Upozornění, když něco dochází.
 - 🌾 **Pole** — vlastnictví, plodina, % růstu, dny do sklizně, hnojení / vápno / orba. Stav se čte z `fields.xml` — sedí s in-game UI.
-- 🏭 **Sila & výrobny** — co máš na skladě, jaké recepty běží, stav výstupu.
+- 🏭 **Sila & výrobny** — všechny výrobny farmy (mlékárna, pekárna, pila, BGA…), co máš na skladě, jaké recepty běží, stav výstupu.
 - 💰 **Výkupní ceny** — aktuální ceny za tunu, sortovatelné, filtr na to, co máš na skladě.
-- 📅 **Kalendář polí** — Gantt-style timeline s rotací plodin per pole. Vlastní pořadí plodin v dropdownu přes drag-and-drop. Roky se přepínají na 1. března (FS25 herní rok), kalendářní pozadí střídá liché/sudé roky pro orientaci.
-- 📈 **Historie** — vývoj zůstatku farmy a cen komodit za 7 / 30 / 90 dní + sezónní křivka cen na 12 měsíců dopředu. Záznamy jsou tagované savegame ID, takže přepnutí slotu nesmíchá data.
-- 📱 **Mobilní zobrazení** — funguje na telefonu (375 px+). Hamburger menu, kompaktní Gantt, single-column layout.
-- 🔔 **Browser notifikace** — málo paliva, málo krmiva, pole připravené ke sklizni, dlouho prázdné pole.
+- 📅 **Kalendář polí** — Gantt timeline s rotací plodin per pole; každá plodina má vlastní řadu (nepřekrývají se). Naplánuje práce: orba (jen když ji hra vyžaduje), vápnění, setba, **dvě fáze hnojení**, válcování, **okno plevele**, sklizeň. Vlastní pořadí plodin v menu přes drag-and-drop. Roky se přepínají na 1. března (FS25 herní rok), pozadí střídá liché/sudé kalendářní roky pro orientaci.
+- 📈 **Historie** — vývoj zůstatku a cen komodit za 7 / 30 / 90 dní + sezónní křivka cen na 12 měsíců dopředu. **Klikni na sloupec měsíce a hlídej cenu notifikací** (🔔 vyskočí, až herní kalendář dorazí do nejdražšího měsíce). Záznamy tagované savegame ID — přepnutí slotu nesmíchá data.
+- 📱 **Mobilní zobrazení** — funguje na telefonu (375 px+): hamburger menu, kompaktní Gantt, single-column layout.
+- 🔔 **Browser notifikace** — málo paliva, málo krmiva, pole připravené ke sklizni, dlouho prázdné pole, sezónní cenový vrchol.
 
 Funguje s **AdditionalCurrencies** — když máš zapnutý in-game převodník měny, dashboard zrcadlí stejnou měnu a symbol.
 
 ![Kalendář polí — Gantt timeline](docs/screenshot-calendar.png)
+
+### Na mobilu
+
+Dashboard a kalendář na šířce telefonu (375 px) — hamburger menu, sekce pod sebou, kompaktní Gantt:
+
+<p>
+  <img src="docs/screenshot-mobile-dashboard.png" alt="Mobilní dashboard" width="32%">
+  <img src="docs/screenshot-mobile-calendar.png" alt="Mobilní kalendář" width="32%">
+</p>
 
 ---
 

@@ -75,4 +75,39 @@ test.describe('help screenshots', () => {
             fullPage: true,
         });
     });
+
+    // ── Mobile shots (375×812, iPhone-12 width) for README ───────────────────
+    test('mobile dashboard', async ({ page }) => {
+        await page.setViewportSize({ width: 375, height: 812 });
+        await page.goto('/');
+        await page.waitForFunction(
+            () => {
+                const el = document.querySelector('#kpi-balance');
+                return el && el.textContent.trim() !== '—';
+            },
+            { timeout: 10_000 }
+        );
+        await page.waitForTimeout(800);
+        await page.screenshot({
+            path: path.join(OUT_DIR, 'screenshot-mobile-dashboard.png'),
+            fullPage: true,
+        });
+    });
+
+    test('mobile calendar', async ({ page }) => {
+        await page.setViewportSize({ width: 375, height: 812 });
+        await page.goto('/calendar.html');
+        await page.waitForFunction(
+            () => {
+                const el = document.querySelector('#kpi-owned');
+                return el && el.textContent.trim() !== '—';
+            },
+            { timeout: 10_000 }
+        );
+        await page.waitForTimeout(800);
+        await page.screenshot({
+            path: path.join(OUT_DIR, 'screenshot-mobile-calendar.png'),
+            fullPage: true,
+        });
+    });
 });

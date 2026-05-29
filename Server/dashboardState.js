@@ -41,6 +41,7 @@ const LOCAL_ONLY = new Set([
 // (originally PATCH would happily delete any key the body named null).
 const ALLOWED_EXACT = new Set([
     'theme',
+    'lang',
     'currency',
     'hiddenVehicles',
     'hiddenStorages',

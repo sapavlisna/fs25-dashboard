@@ -22,7 +22,7 @@ DashboardExport.MOD_NAME       = g_currentModName or "FS25_Dashboard"
 DashboardExport.MOD_DIR        = g_currentModDirectory or ""
 -- MOD_VERSION is kept in sync with modDesc.xml by scripts/build-mod-generic.ps1.
 -- Do not edit by hand; bump via the build script.
-DashboardExport.MOD_VERSION    = "1.1.2.12"
+DashboardExport.MOD_VERSION    = "1.1.2.13"
 -- SCHEMA_VERSION tracks the dashboard_data.json shape — bump ONLY on breaking
 -- changes (renamed/removed fields). Server has MIN/MAX bounds and warns on
 -- mismatch. See src/Dashboard/docs/COMPATIBILITY.md.
@@ -1023,6 +1023,54 @@ local function getImplementFillUnits(impl)
     return #result > 0 and result or nil
 end
 
+-- A self-propelled machine carries its STORAGE in its own fill units alongside
+-- the fuel/DEF units (a combine's grain tank, a self-propelled sprayer's tank).
+-- collectImplements only walks ATTACHED implements, so those tanks were never
+-- surfaced — a combine showed no fill. Collect them here, excluding fuel/DEF
+-- (those are already shown as the fuel bar).
+local function fillTypeName(idx)
+    if not (idx and idx ~= 0 and g_fillTypeManager) then return nil end
+    local ft = safeCall(function() return g_fillTypeManager:getFillTypeByIndex(idx) end)
+    return ft and ft.name or nil
+end
+
+local function isFuelOrDefUnit(unit)
+    local n = fillTypeName(unit.lastValidFillType)
+    if n then return FUEL_FILLTYPES[n] or n == "DEF" end
+    -- No current contents — inspect the allowed set. A pure fuel/DEF tank
+    -- allows only fuel/DEF types; a crop/liquid tank allows other types too.
+    if type(unit.fillTypes) == "table" then
+        local sawAny, sawNonFuel = false, false
+        for idx in pairs(unit.fillTypes) do
+            local nm = fillTypeName(idx)
+            if nm then
+                sawAny = true
+                if not (FUEL_FILLTYPES[nm] or nm == "DEF") then sawNonFuel = true end
+            end
+        end
+        if sawAny and not sawNonFuel then return true end
+    end
+    return false
+end
+
+local function getVehicleStorageFillUnits(v)
+    if not (v.spec_fillUnit and v.spec_fillUnit.fillUnits) then return nil end
+    local result = {}
+    for _, unit in ipairs(v.spec_fillUnit.fillUnits) do
+        if isStorageFillUnit(unit) and not isFuelOrDefUnit(unit) then
+            local ftName, ftTitle = resolveFillTypeLabel(unit)
+            table.insert(result, {
+                fillType  = ftName,
+                typeTitle = ftTitle,
+                levelL    = math.floor(unit.fillLevel or 0),
+                capacityL = math.floor(unit.capacity or 0),
+                percent   = pctOf(unit.fillLevel or 0, unit.capacity or 0),
+            })
+        end
+    end
+    return #result > 0 and result or nil
+end
+
 local function collectImplements(vehicle, depth)
     depth = depth or 0
     if depth > 3 then return {} end                      -- anti-loop guard
@@ -1233,8 +1281,13 @@ function DashboardExport:collectVehicles()
 
             -- Attached implements with storage (trailers / harvesters / seeders).
             -- Tools without capacity (plows etc.) are filtered inside the helper.
-            local impls = collectImplements(v)
-            if impls and #impls > 0 then rec.implements = impls end
+            local impls = collectImplements(v) or {}
+            -- The machine's OWN storage tank (combine grain tank, sprayer tank)
+            -- comes first, named after the vehicle so the frontend shows just
+            -- the fill (e.g. "Pšenice 45%") without repeating the name.
+            local ownTanks = getVehicleStorageFillUnits(v)
+            if ownTanks then table.insert(impls, 1, { name = rec.name, fillUnits = ownTanks }) end
+            if #impls > 0 then rec.implements = impls end
 
             -- Current speed in km/h (getLastSpeed already returns km/h, NOT m/ms).
             -- See knowledge/vehicle-damage-speed-api.md.

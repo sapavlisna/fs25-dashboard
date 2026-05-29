@@ -836,11 +836,11 @@ tr.flash-down > td { background-color: rgba(224, 82, 82, .35)                   
 #vehicles-body, #vehicles-hidden-body { padding: 4px 12px 8px; }
 .vehicle-row {
     display: grid;
-    /* dot · name(flex) · fuel block · motor-hours. The full vehicle type
-       name is in the row's title attribute (tooltip on hover).
-       Sized so the row fits inside the narrowest masonry track (~340 px)
-       — wider tracks let the 1fr name column absorb the slack. */
-    grid-template-columns: 10px minmax(80px, 1fr) 150px 60px;
+    /* dot · name(flex) · fuel block · right cluster (condition·speed·mh).
+       The full vehicle type name is in the row's title attribute (tooltip).
+       Content-sized side columns keep the row inside the narrowest masonry
+       track (~340 px); wider tracks let the 1fr name column absorb the slack. */
+    grid-template-columns: 10px minmax(50px, 1fr) minmax(60px, max-content) max-content;
     align-items: center;
     gap: 8px;
     padding: 6px 10px 6px 7px;
@@ -870,10 +870,17 @@ tr.flash-down > td { background-color: rgba(224, 82, 82, .35)                   
 }
 .vc-fuel { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .vc-fuel .bar-wrap { width: 60px; min-width: 60px; flex: 0 0 60px; }
-.vc-fuel-num { font-size: 11px; color: var(--muted); white-space: nowrap; flex-shrink: 0; }
-/* Condition (% kondice, colour-coded) + speed (km/h) — minimalist badges
-   between the fuel bar and the motor-hours column. */
-.vc-condspeed { display: inline-flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.vc-fuel-num { font-size: 11px; color: var(--muted); white-space: nowrap; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+/* Right-aligned info cluster: condition · speed · motor-hours (mh at the very
+   right edge, speed just left of it when moving). */
+.vc-right {
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    flex-shrink: 0;
+    white-space: nowrap;
+}
 .vc-cond { font-size: 11px; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .vc-speed { font-size: 11px; color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .vc-mh {
@@ -1204,6 +1211,11 @@ tr.flash-down > td { background-color: rgba(224, 82, 82, .35)                   
     width: 80px; background: var(--surface2); border: 1px solid var(--border);
     color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 13px;
 }
+.lang-select {
+    background: var(--surface2); border: 1px solid var(--border);
+    color: var(--text); padding: 6px 10px; border-radius: 4px; font-size: 13px;
+    min-width: 160px; cursor: pointer;
+}
 #notif-modal .row { display: flex; align-items: center; gap: 10px; }
 #notif-modal .switch { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }
 #notif-modal button.primary {
@@ -1220,6 +1232,7 @@ tr.flash-down > td { background-color: rgba(224, 82, 82, .35)                   
 /* Settings tabs — sit at the top of the modal, switch panels below. */
 .settings-tabs {
     display: flex;
+    flex-wrap: wrap;
     gap: 4px;
     border-bottom: 1px solid var(--border);
     margin: 0 -24px 14px;
@@ -2003,4 +2016,165 @@ body.tt-drag-active .tt-hidden-zone [data-tt-hidden] {
     }
     .settings-tabs::-webkit-scrollbar { display: none; }
     .settings-tabs button { flex-shrink: 0; }
+}
+
+/* ── Settings → Diagnostics panel ──────────────────────────────────────────── */
+.diag-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    max-height: 240px;
+    overflow-y: auto;
+}
+.diag-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+}
+.diag-row-main { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.diag-row-when { font-size: 12px; color: var(--text); }
+.diag-note-txt {
+    font-size: 11px;
+    color: var(--muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.diag-row-meta { font-size: 10px; color: var(--muted); }
+.diag-rec-dot { color: #e5484d; }
+.diag-err { color: #e5a23d; font-weight: 600; }
+.diag-dl, .diag-del {
+    flex: 0 0 auto;
+    text-decoration: none;
+    padding: 4px 9px;
+    border-radius: 6px;
+    font-size: 13px;
+    line-height: 1.2;
+    cursor: pointer;
+}
+.diag-dl {
+    display: inline-flex;
+    align-items: center;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text);
+}
+.diag-dl:hover { border-color: var(--accent); }
+
+/* ── Mockup mode (hidden replay controls, revealed by the brand gesture) ───── */
+#diag-mockup-tools { display: none; }
+body.mockup-mode #diag-mockup-tools { display: block; }
+.diag-play {
+    flex: 0 0 auto;
+    padding: 4px 9px;
+    border-radius: 6px;
+    font-size: 13px;
+    line-height: 1.2;
+    cursor: pointer;
+    display: none;
+}
+body.mockup-mode .diag-play { display: inline-flex; align-items: center; }
+.diag-upload-btn { cursor: pointer; display: inline-flex; align-items: center; gap: 4px; }
+.diag-upload-btn input[type="file"] { display: none; }
+
+/* ── Replay banner — fixed bar while a recording plays as live data ────────── */
+#replay-banner {
+    position: fixed;
+    left: 0; right: 0; top: 0;
+    z-index: 2000;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: #b45309;
+    color: #fff;
+    padding: 6px 14px;
+    font-size: 13px;
+    font-weight: 600;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, .35);
+}
+#replay-banner[hidden] { display: none; }
+.replay-banner-txt {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.replay-banner-stop {
+    flex: 0 0 auto;
+    background: rgba(0, 0, 0, .25);
+    color: #fff;
+    border: 1px solid rgba(255, 255, 255, .5);
+    border-radius: 6px;
+    padding: 4px 10px;
+    cursor: pointer;
+    font-weight: 600;
+}
+.replay-banner-stop:hover { background: rgba(0, 0, 0, .4); }
+body.replaying { padding-top: 34px; }
+
+/* Playback transport in the banner */
+#replay-banner { overflow-x: auto; }
+.replay-ctl { display: flex; align-items: center; gap: 6px; flex: 2; min-width: 0; }
+.replay-ctl button {
+    flex: 0 0 auto;
+    background: rgba(0, 0, 0, .22);
+    color: #fff;
+    border: 1px solid rgba(255, 255, 255, .45);
+    border-radius: 5px;
+    padding: 2px 7px;
+    cursor: pointer;
+    font-size: 13px;
+    line-height: 1.2;
+}
+.replay-ctl button:hover { background: rgba(0, 0, 0, .42); }
+#rp-seek { flex: 1; min-width: 90px; accent-color: #fff; cursor: pointer; }
+.replay-count { flex: 0 0 auto; font-variant-numeric: tabular-nums; font-size: 12px; min-width: 52px; text-align: center; }
+
+/* Frame inspector overlay */
+#replay-inspector {
+    position: fixed;
+    right: 12px;
+    bottom: 12px;
+    z-index: 2100;
+    width: min(440px, 92vw);
+    max-height: 50vh;
+    display: flex;
+    flex-direction: column;
+    background: var(--surface);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-shadow: 0 6px 24px rgba(0, 0, 0, .45);
+}
+#replay-inspector[hidden] { display: none; }
+#replay-inspector .ri-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--border);
+    font-size: 12px;
+    font-weight: 600;
+}
+#replay-inspector #ri-close {
+    background: none;
+    border: none;
+    color: var(--muted);
+    font-size: 18px;
+    line-height: 1;
+    cursor: pointer;
+}
+#replay-inspector #ri-body {
+    margin: 0;
+    padding: 10px;
+    overflow: auto;
+    font-size: 11px;
+    line-height: 1.4;
+    white-space: pre;
+    font-family: ui-monospace, Consolas, "Courier New", monospace;
 }

@@ -22,6 +22,9 @@
 <link rel="stylesheet" href="style.css">
 <script src="serverSync.js" defer></script>
 <script src="state.js" defer></script>
+<script src="diag.js" defer></script>
+<script src="i18n.en.js" defer></script>
+<script src="i18n.js" defer></script>
 <script src="theme.js" defer></script>
 <script src="notifications.js" defer></script>
 <script src="bell.js" defer></script>
@@ -209,8 +212,13 @@
             <ul>
                 <li><strong>Stavová tečka</strong> — modrá = motor jede, šedá = stojí.</li>
                 <li><strong>Název + typ</strong> a motohodiny.</li>
-                <li><strong>AdBlue %</strong> pokud má nádržku.</li>
-                <li><strong>Bar paliva</strong> v procentech + l/kapacita.</li>
+                <li><strong>Bar paliva</strong> v procentech + l/kapacita. <strong>AdBlue %</strong> pokud má nádržku.</li>
+                <li><strong>🔧 Kondice</strong> — stav vozidla v % (zelená ≥ 80, žlutá ≥ 50,
+                    červená &lt; 50 = čas na servis). Vypneš v Nastavení → Vozidla.</li>
+                <li><strong>Rychlost km/h</strong> — jen když vozidlo jede (u stojícího skrytá).</li>
+                <li><strong>Připojené nářadí</strong> — vlečka/secí stroj/postřikovač se ukáže
+                    s naplněností (plodina + %) hned po připojení, i prázdné. Když se naplnění
+                    mění, řádek krátce blikne (zeleně přibývá / červeně ubývá).</li>
             </ul>
             <p>
                 Vozidla bez palivové nádrže (kolečka, vleky, pluhy bez motoru) se v této
@@ -352,7 +360,9 @@
             <ul>
                 <li><strong>vápnění</strong> · <strong>orba</strong> ·
                     <strong>setba</strong> · <strong>válcování</strong> ·
-                    <strong>sklizeň – &lt;plodina&gt;</strong> — standardní práce</li>
+                    <strong>sklizeň – &lt;plodina&gt;</strong> — standardní práce.
+                    Orba se ukáže jen při změně plodiny / na čerstvém poli a jen
+                    když máš ve hře zapnuté „Vyžaduje orbu" (jinak se vynechá).</li>
                 <li><strong>hnojení 1× / hnojení 2×</strong> — dvě fáze hnojení
                     rozdělené do třetin růstového období; světle modrá = první pas,
                     syté modré = druhý pas</li>
@@ -373,11 +383,14 @@
             <ul>
                 <li>Pro každý rok rotace vyber plodinu z rozbalovacího menu.</li>
                 <li><strong>+ Přidat rok</strong> přidá další rotaci do budoucna.</li>
+                <li><strong>×</strong> u každého roku ten rok z plánu odebere
+                    (smažeš tak celý plán postupně po letech — samostatné tlačítko
+                    „Smazat plán" už není). Plán se ukládá a synchronizuje mezi
+                    zařízeními, takže smazání přežije i reload.</li>
                 <li><strong>🌾 Plodiny</strong> otevře panel, kde tažením přes ⠿
                     změníš pořadí plodin v rozbalovacím menu — plodiny, které
                     sázíš často, přetáhneš nahoru a v dropdownu je najdeš první.
                     Pořadí se synchronizuje mezi zařízeními.</li>
-                <li><strong>Smazat plán</strong> resetuje plán pro vybrané pole.</li>
             </ul>
 
             <h3>Filtry a zoom</h3>
@@ -475,10 +488,11 @@
                         Tlačítka <strong>↺ Obnovit pořadí</strong> (vrátí výchozí pořadí
                         bez ztráty viditelnosti) a <strong>Resetovat vše</strong>.</td></tr>
                     <tr><td>🚜 <strong>Vozidla</strong></td>
-                        <td>„Rozšířené zobrazení" — pod každým vozidlem ukáže jeho
-                        nářadí (vlečky, semenovody, sila kombajnu) s naplněním. Sekce
-                        Vozidla se v rozšířeném módu roztáhne přes 2 sloupce v masonry
-                        layoutu.</td></tr>
+                        <td><strong>Rozšířené zobrazení</strong> — pod každým vozidlem
+                        ukáže jeho nářadí (vlečky, semenovody, sila kombajnu) s naplněním;
+                        sekce se přitom roztáhne přes 2 sloupce. <strong>Zobrazit i prázdné
+                        nářadí</strong> a <strong>Zobrazit kondici + rychlost</strong>
+                        (🔧 % + km/h na kartě vozidla) jsou samostatné přepínače.</td></tr>
                     <tr><td>🎨 <strong>Vzhled</strong></td>
                         <td>5 motivů — dark-green (default), dark-blue, light,
                         high-contrast, fs25-native. Klik aplikuje okamžitě napříč všemi

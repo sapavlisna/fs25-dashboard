@@ -25,19 +25,28 @@ If something doesn't work, feel free to open an issue but take it with a pinch o
 
 ## What it shows
 
-- 🚜 **Vehicles** — fuel/AdBlue %, motor hours, in-use status. Drag & drop to hide ones you don't care about.
+- 🚜 **Vehicles** — fuel/AdBlue %, motor hours, **condition (🔧 %) and current speed**, AI/Courseplay/AutoDrive jobs. Attached implements (trailer, seeder…) show their fill the moment they're hitched and **flash on change** (green = filling, red = emptying). Drag & drop to hide.
 - 🐄 **Animals** — food/water/straw levels, milk/manure storage, productivity. Alerts when something needs attention.
 - 🌾 **Fields** — ownership, current crop, growth %, days to harvest, fertilization/lime/plow state. Pulled from `fields.xml` so it matches the in-game UI.
-- 🏭 **Silos & productions** — fill levels per commodity, active recipes, output stock.
+- 🏭 **Silos & productions** — every production the farm owns (dairy, bakery, sawmill, BGA…), fill levels per commodity, active recipes, output stock.
 - 💰 **Market prices** — current sell-point prices per ton, sortable, with hide-zero-stock filter.
-- 📅 **Field calendar** — Gantt-style timeline with per-field crop rotation. Custom dropdown crop order via drag-and-drop. Game year boundaries on March 1 (FS25 calendar), alternating row shading for calendar-year orientation.
-- 📈 **History** — balance trend and commodity prices over 7/30/90 days + 12-month seasonal price forecast. Records are tagged by savegame so slot-switching doesn't mix data.
-- 📱 **Mobile** — works on phones (375 px+). Hamburger menu, compact Gantt, single-column layout.
-- 🔔 **Browser notifications** — low fuel, low food, harvest ready, field empty too long.
+- 📅 **Field calendar** — Gantt timeline with per-field crop rotation; each crop gets its own row (no overlap). Plans the work: plowing (only when the game requires it), lime, sowing, **two fertilizer passes**, rolling, **weed window**, harvest. Custom dropdown crop order via drag-and-drop. Game year boundaries on March 1 (FS25 calendar), alternating shading for calendar-year orientation.
+- 📈 **History** — balance and commodity prices over 7/30/90 days + 12-month seasonal price forecast. **Click a month bar to watch its price** — a notification fires when the in-game calendar reaches the best month. Records tagged by savegame so slot-switching doesn't mix data.
+- 📱 **Mobile** — works on phones (375 px+): hamburger menu, compact Gantt, single-column layout.
+- 🔔 **Browser notifications** — low fuel, low food, harvest ready, field empty too long, seasonal price peak.
 
 Works with **AdditionalCurrencies** — when the in-game converter is on, the dashboard mirrors the same currency and symbol.
 
 ![Field calendar — Gantt timeline](docs/screenshot-calendar.png)
+
+### On mobile
+
+Dashboard and calendar at phone width (375 px) — hamburger menu, stacked sections, compact Gantt:
+
+<p>
+  <img src="docs/screenshot-mobile-dashboard.png" alt="Mobile dashboard" width="32%">
+  <img src="docs/screenshot-mobile-calendar.png" alt="Mobile calendar" width="32%">
+</p>
 
 ---
 

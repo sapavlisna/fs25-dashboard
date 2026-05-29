@@ -47,6 +47,19 @@ test.describe('Vehicles extras (vehicles-rich scenario)', () => {
         await expect(row942.locator('.vc-speed')).toContainText('14 km/h');
     });
 
+    test('right cluster order: motor-hours rightmost, speed left of it', async ({ page }) => {
+        await page.setViewportSize({ width: 1440, height: 900 });
+        await gotoDashboard(page);
+        const row942 = vehicleRow(page, 'Fendt 942 Vario');   // moving → has speed + mh
+        await expect(row942.locator('.vc-right > :last-child')).toHaveClass(/vc-mh/);
+        await expect(row942.locator('.vc-mh')).toContainText('mh');
+        const order = await row942.locator('.vc-right > *').evaluateAll(els => els.map(e => e.className));
+        const iSpeed = order.findIndex(c => c.includes('vc-speed'));
+        const iMh    = order.findIndex(c => c.includes('vc-mh'));
+        expect(iSpeed).toBeGreaterThanOrEqual(0);
+        expect(iSpeed).toBeLessThan(iMh);                      // speed sits left of motor-hours
+    });
+
     test('condition badge survives mobile width', async ({ page }) => {
         await page.setViewportSize({ width: 375, height: 812 });
         await gotoDashboard(page);

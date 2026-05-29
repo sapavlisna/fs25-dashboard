@@ -9,6 +9,8 @@ const savegame = require('./savegame');
 const config   = require('./config');
 const pkg      = require('./package.json');
 const log      = require('./logger');
+const recorder = require('./recorder');
+const replayer = require('./replayer');
 const { DashboardState } = require('./dashboardState');
 
 const { PORT, HOST, DATA_FILE, PUBLIC_DIR, DATA_DIR } = config;
@@ -139,6 +141,174 @@ app.get('/api/savegame', (_req, res) => {
     });
 });
 
+// ─── Diagnostic recording (capture & replay) ─────────────────────────────────
+//
+// SECURITY: these /diag/* endpoints are UNAUTHENTICATED. They can start/stop
+// recording, upload arbitrary JSONL, and replay it as live data. That's fine
+// for the intended local-only use (the dashboard runs on the user's own
+// machine — see the "dashboard stays local" decision), but if you ever expose
+// this server on an untrusted network, gate /diag/* behind auth or a flag.
+//
+// A user hitting a bug records the live payload stream into one self-contained
+// JSONL file under <DATA_DIR>/recordings/ and sends it over; scripts/replay.js
+// feeds it back through this same server so the bug renders locally. Available
+// in every mode (the recorder runs on the bug-reporter's own machine).
+
+// Status/list GETs are polled — never let the browser serve a stale cached
+// response (that made the record button appear to cancel itself).
+app.use('/diag', (_req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
+//
+//   POST   /diag/record/start   { note?, lang? }   → { recording }
+//   POST   /diag/record/stop                        → { name, frames, durationMs, … }
+//   GET    /diag/record/status                      → { active, name?, frames?, … }
+//   GET    /diag/recordings                         → [{ name, startedAt, note, … }]
+//   GET    /diag/recordings/:name                   → download the .jsonl
+//   DELETE /diag/recordings/:name                   → { deleted }
+
+app.post('/diag/record/start', (req, res) => {
+    const body = req.body || {};
+    try {
+        const r = recorder.start({ note: body.note, lang: body.lang });
+        broadcastRecordStatus();
+        res.json({ recording: r.name });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.post('/diag/record/stop', (_req, res) => {
+    const r = recorder.stop();
+    broadcastRecordStatus();
+    if (!r) return res.status(409).json({ error: 'No active recording' });
+    res.json(r);
+});
+
+// Retroactive capture: write the always-on rolling buffer to a recording file.
+app.post('/diag/record/save-buffer', (req, res) => {
+    const body = req.body || {};
+    const r = recorder.saveRolling({ note: body.note, lang: body.lang });
+    if (!r) return res.status(409).json({ error: 'Nothing buffered yet' });
+    res.json(r);
+});
+
+// Flag the current moment ("here's where it went wrong").
+app.post('/diag/record/marker', (req, res) => {
+    const r = recorder.addMarker((req.body || {}).label);
+    broadcastRecordStatus();
+    res.json(r);
+});
+
+app.get('/diag/record/status', (_req, res) => {
+    res.json(recorder.status());
+});
+
+app.get('/diag/recordings', (_req, res) => {
+    res.json(recorder.list());
+});
+
+app.get('/diag/recordings/:name', (req, res) => {
+    const fp = recorder.resolve(req.params.name);
+    if (!fp || !fs.existsSync(fp)) return res.status(404).json({ error: 'Not found' });
+    res.download(fp, req.params.name);
+});
+
+app.delete('/diag/recordings/:name', (req, res) => {
+    const ok = recorder.remove(req.params.name);
+    res.status(ok ? 200 : 404).json({ deleted: ok });
+});
+
+// Client-side diagnostics (JS errors + a settings/env snapshot) posted by
+// public/diag.js. Folded into the active recording if any; always kept in a
+// small global ring so a recording started right after a crash still has them.
+app.post('/diag/client-log', (req, res) => {
+    const body = req.body || {};
+    recorder.noteClient(body);
+    res.json({ ok: true, recording: recorder.isActive() });
+});
+
+// ─── Mockup mode — replay a recording AS live data ────────────────────────────
+//
+// The dashboard's hidden gesture (10× click the brand) reveals controls that
+// upload a recording and replay it through this server, so a bug renders
+// locally without the game. While replaying, the file watcher is ignored and
+// recorded frames are broadcast verbatim (already enriched — no re-enrich).
+//
+//   POST /diag/replay/upload?name=<orig>   (text body = JSONL) → { name }
+//   POST /diag/replay/start  { name, speed?, loop? }           → status
+//   POST /diag/replay/stop                                      → { active:false }
+//   GET  /diag/replay/status                                    → status
+
+const replayUpload = express.text({ type: '*/*', limit: '64mb' });
+
+app.post('/diag/replay/upload', replayUpload, (req, res) => {
+    const raw = typeof req.body === 'string' ? req.body : '';
+    if (!raw.trim()) return res.status(400).json({ error: 'Empty upload' });
+    // Accept only something that parses as our JSONL (a meta line or a frame).
+    const looksRight = raw.split('\n').some(l => {
+        try { const o = JSON.parse(l); return !!(o && (o.payload || o.meta)); } catch (_) { return false; }
+    });
+    if (!looksRight) return res.status(400).json({ error: 'Not a recognised recording (expected JSONL frames)' });
+
+    const base = String(req.query.name || 'upload')
+        .replace(/\.jsonl$/i, '')
+        .replace(/[^0-9A-Za-z._-]+/g, '-')
+        .slice(0, 40) || 'upload';
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const name = `rec-up-${stamp}-${base}.jsonl`;
+    try {
+        fs.mkdirSync(recorder.recordingsDir(), { recursive: true });
+        fs.writeFileSync(path.join(recorder.recordingsDir(), name), raw);
+        recorder.prune();
+        log.add('replay', `nahrán záznam ${name} (${(raw.length / 1024).toFixed(0)} kB)`);
+        res.json({ name });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.post('/diag/replay/start', (req, res) => {
+    const body = req.body || {};
+    const fp = recorder.resolve(body.name);
+    if (!fp || !fs.existsSync(fp)) return res.status(404).json({ error: 'Recording not found' });
+    try {
+        const s = replayer.start({
+            filePath: fp,
+            name:     body.name,
+            speed:    Number(body.speed) || 1,
+            loop:     !!body.loop,
+            send:     broadcastRaw,
+            onStatus: broadcastReplayStatus,
+        });
+        broadcastReplayStatus();
+        res.json(s);
+    } catch (e) {
+        res.status(400).json({ error: e.message });
+    }
+});
+
+app.post('/diag/replay/stop', (_req, res) => {
+    replayer.stop();
+    broadcastReplayStatus();
+    // Return clients to live data right away.
+    try { broadcast(fs.readFileSync(DATA_FILE, 'utf8')); } catch (_) {}
+    res.json({ active: false });
+});
+
+app.get('/diag/replay/status', (_req, res) => {
+    res.json(replayer.status());
+});
+
+app.post('/diag/replay/pause',  (_req, res) => res.json(replayer.pause()));
+app.post('/diag/replay/resume', (_req, res) => res.json(replayer.resume()));
+app.post('/diag/replay/seek', (req, res) => {
+    if (!replayer.isActive()) return res.status(409).json({ error: 'No active replay' });
+    res.json(replayer.seek(Number((req.body || {}).idx) || 0));
+});
+app.post('/diag/replay/step', (req, res) => {
+    if (!replayer.isActive()) return res.status(409).json({ error: 'No active replay' });
+    res.json(replayer.step(Number((req.body || {}).delta) || 0));
+});
+
 // ─── Mock scenario switcher ──────────────────────────────────────────────────
 //
 //   POST /mock/scenario    { "scenario": "<name>" }
@@ -250,6 +420,8 @@ function broadcast(rawString) {
     try { data = JSON.parse(rawString); } catch (_) { data = null; }
     if (data) trackModVersion(data);
     const enriched = data ? enrich(data) : null;
+    if (enriched) recorder.observe(enriched);
+    if (recorder.isActive()) broadcastRecordStatus();   // live frame-count while recording
     const msg = enriched ? JSON.stringify(enriched) : rawString;
     wss.clients.forEach(client => {
         if (client.readyState === 1 /* OPEN */) client.send(msg);
@@ -269,6 +441,32 @@ function broadcastStatePatch(patch, opts = {}) {
     });
 }
 
+// Broadcast a payload object verbatim (no enrich, no recording) — used by the
+// replayer so recorded frames reach clients exactly as captured.
+function broadcastRaw(payloadObj) {
+    const msg = JSON.stringify(payloadObj);
+    wss.clients.forEach(client => {
+        if (client.readyState === 1 /* OPEN */) client.send(msg);
+    });
+}
+
+// Tell every client about replay (mockup) state so the banner can show/hide.
+function broadcastReplayStatus() {
+    const msg = JSON.stringify({ __replayStatus: replayer.status() });
+    wss.clients.forEach(client => {
+        if (client.readyState === 1 /* OPEN */) client.send(msg);
+    });
+}
+
+// Push recording state to clients (pushed, not polled — a polled GET could be
+// served stale from the browser cache, which made the button mis-toggle).
+function broadcastRecordStatus() {
+    const msg = JSON.stringify({ __recordStatus: recorder.status() });
+    wss.clients.forEach(client => {
+        if (client.readyState === 1 /* OPEN */) client.send(msg);
+    });
+}
+
 wss.on('connection', (ws, req) => {
     const ip = (req.socket.remoteAddress || '?').replace(/^::ffff:/, '');
     const ua = req.headers['user-agent'] || '';
@@ -279,12 +477,22 @@ wss.on('connection', (ws, req) => {
                   : 'unknown';
     log.add('client', `${browser} (${ip}) → ${wss.clients.size} klient${wss.clients.size === 1 ? '' : (wss.clients.size < 5 ? 'i' : 'ů')}`);
 
+    // Tell the freshly-connected client whether a recording is in progress.
+    ws.send(JSON.stringify({ __recordStatus: recorder.status() }));
+
     // Send current state immediately so the page doesn't wait up to 5s.
-    try {
-        const raw = fs.readFileSync(DATA_FILE, 'utf8');
-        let data; try { data = JSON.parse(raw); } catch (_) {}
-        ws.send(data ? JSON.stringify(enrich(data)) : raw);
-    } catch (_) { /* file not yet written – that's fine */ }
+    if (replayer.isActive()) {
+        // Mockup mode — hand the new client the current replay frame + status.
+        const f = replayer.currentFrame();
+        if (f) ws.send(JSON.stringify(f));
+        ws.send(JSON.stringify({ __replayStatus: replayer.status() }));
+    } else {
+        try {
+            const raw = fs.readFileSync(DATA_FILE, 'utf8');
+            let data; try { data = JSON.parse(raw); } catch (_) {}
+            ws.send(data ? JSON.stringify(enrich(data)) : raw);
+        } catch (_) { /* file not yet written – that's fine */ }
+    }
 
     ws.on('close', () => {
         const n = wss.clients.size;
@@ -326,6 +534,9 @@ let lastEventsSnapshot = 0; // count we've seen so we can detect new ones
 
 watcher.on('add',    f => log.info('watch', `sleduji ${f}`));
 watcher.on('change', f => {
+    // In mockup/replay mode the dashboard is driven by a recording, not the
+    // live file — ignore writes so stale/live data can't override the replay.
+    if (replayer.isActive()) return;
     try {
         const raw  = fs.readFileSync(f, 'utf8');
         const data = JSON.parse(raw);
@@ -417,3 +628,13 @@ server.listen(PORT, HOST, () => {
     ]);
     log.info('boot', 'čekám až FS25 začne psát data…');
 });
+
+// Flush an in-progress diagnostic recording before exiting so the last frames
+// (the interesting ones, near the bug) aren't lost on Ctrl+C / kill.
+function shutdown() {
+    if (recorder.isActive()) { try { recorder.stop(); } catch (_) {} }
+    if (replayer.isActive()) { try { replayer.stop(); } catch (_) {} }
+    process.exit(0);
+}
+process.on('SIGINT',  shutdown);
+process.on('SIGTERM', shutdown);
