@@ -73,7 +73,8 @@
             <li>
                 <a href="#funkce">Společné funkce</a>
                 <ol>
-                    <li><a href="#nastaveni">Nastavení ⚙</a></li>
+                    <li><a href="#nastaveni">Nastavení ⚙ (globální)</a></li>
+                    <li><a href="#sekce-cfg">Nastavení sekce ⚙</a></li>
                     <li><a href="#zvonecek">Zvoneček 🔔</a></li>
                     <li><a href="#flash">Flash zvýraznění</a></li>
                     <li><a href="#motivy">Motivy vzhledu</a></li>
@@ -151,8 +152,11 @@
                         <td>Rychlý přepínač motivu (cyklus 5 motivů).
                         <a href="#motivy">Detail</a>.</td></tr>
                     <tr><td>⚙ Nastavení</td>
-                        <td>Otevře modal s 5 záložkami — Notifikace, Sekce, Vozidla,
-                        Vzhled, Sync. <a href="#nastaveni">Detail</a>.</td></tr>
+                        <td>Globální modal se 4 záložkami — Notifikace, Sekce, Vzhled,
+                        Sync. Nastavení jednotlivých sekcí (co a jak se v nich zobrazuje)
+                        je v jejich vlastním ⚙ v hlavičce sekce —
+                        <a href="#sekce-cfg">Nastavení sekce</a>.
+                        <a href="#nastaveni">Detail</a>.</td></tr>
                 </tbody>
             </table></div>
         </section>
@@ -469,10 +473,12 @@
         <section id="funkce" class="help-section">
             <h2>Společné funkce</h2>
 
-            <h3 id="nastaveni">⚙ Nastavení</h3>
+            <h3 id="nastaveni">⚙ Nastavení (globální)</h3>
             <p>
-                Klik na ozubené kolo otevře modal s 5 záložkami. <strong>×</strong>
-                vpravo nahoře modal zavře, změny se ukládají průběžně.
+                Klik na ozubené kolo v navbaru otevře globální modal se 4 záložkami.
+                <strong>×</strong> vpravo nahoře modal zavře, změny se ukládají průběžně.
+                Nastavení toho, co a jak se zobrazuje v jednotlivých sekcích, najdeš
+                v <a href="#sekce-cfg">⚙ přímo v hlavičce sekce</a>.
             </p>
             <div class="help-table-wrap"><table class="help-table">
                 <thead><tr><th>Záložka</th><th>Co tam najdeš</th></tr></thead>
@@ -487,12 +493,6 @@
                         při hraní bez produkčního řetězce), jednoduše vypneš a zmizí.
                         Tlačítka <strong>↺ Obnovit pořadí</strong> (vrátí výchozí pořadí
                         bez ztráty viditelnosti) a <strong>Resetovat vše</strong>.</td></tr>
-                    <tr><td>🚜 <strong>Vozidla</strong></td>
-                        <td><strong>Rozšířené zobrazení</strong> — pod každým vozidlem
-                        ukáže jeho nářadí (vlečky, semenovody, sila kombajnu) s naplněním;
-                        sekce se přitom roztáhne přes 2 sloupce. <strong>Zobrazit i prázdné
-                        nářadí</strong> a <strong>Zobrazit kondici + rychlost</strong>
-                        (🔧 % + km/h na kartě vozidla) jsou samostatné přepínače.</td></tr>
                     <tr><td>🎨 <strong>Vzhled</strong></td>
                         <td>5 motivů — dark-green (default), dark-blue, light,
                         high-contrast, fs25-native. Klik aplikuje okamžitě napříč všemi
@@ -502,6 +502,51 @@
                         Co skryješ / přerovnáš na PC se objeví i na tabletu a naopak.</td></tr>
                 </tbody>
             </table></div>
+
+            <h3 id="sekce-cfg">⚙ Nastavení sekce (panel v hlavičce)</h3>
+            <p>
+                Každá sekce hlavního dashboardu má v pravém rohu hlavičky vlastní
+                <strong>⚙</strong>. Klik otevře malý panel s nastavením <em>jen pro tuhle
+                sekci</em> — co a jak se v ní zobrazuje. Nahoře pár základních přepínačů,
+                <strong>▶ Rozšířené nastavení</strong> rozbalí detailní volby,
+                <strong>↺ Výchozí</strong> dole vrátí sekci do výchozího stavu. Když má
+                sekce jiné než výchozí nastavení, na jejím ⚙ svítí tečka. Vše se ukládá
+                lokálně a synchronizuje na další zařízení.
+            </p>
+            <p>
+                Společný přepínač většiny sekcí je <strong>Rozšířené zobrazení
+                (2 sloupce)</strong> — sekce se roztáhne přes dva sloupce a ukáže víc
+                detailů (u vozidel připojené nářadí, u zvířat litry vstupů/výstupů,
+                u skladů stacked bar v hlavičce atd.).
+            </p>
+            <div class="help-table-wrap"><table class="help-table">
+                <thead><tr><th>Sekce</th><th>Základní přepínače</th><th>Rozšířené nastavení</th></tr></thead>
+                <tbody>
+                    <tr><td>🌱 <strong>Pole</strong></td>
+                        <td>jen vlastní pole · sloupec „Dní do sklizně" · inline akce (Orat, Sít…)</td>
+                        <td>Filtr stavu (skrýt prázdná / skrýt strniště + zvadlá) · extra sloupce (Hnojení, Orat, Vápno, Plevel, Kameny)</td></tr>
+                    <tr><td>🚜 <strong>Vozidla</strong></td>
+                        <td>rozšířené (2 sloupce) · kondice + rychlost · prázdné nářadí · skrýt vzduch (AIR) · jen pracující</td>
+                        <td>Vozidlo (motohodiny, AI/CP/AD badge, ETA) · skrýt skupiny nářadí (plodiny / kapaliny / pevné vstupy / biomasa)</td></tr>
+                    <tr><td>🐄 <strong>Zvířata</strong></td>
+                        <td>rozšířené · alarm badge (Doplnit/Odvézt) · reprodukce badge</td>
+                        <td>vstupy K/V/P · výstupy M/H/Kj · práh alarmu (vstupy pod % / výstupy nad %)</td></tr>
+                    <tr><td>📦 <strong>Sklady</strong></td>
+                        <td>rozšířené · nové skupiny sbalit · skrýt komodity s 0 l</td>
+                        <td>zobrazení (kapacita / % / progress bar) · flash kanály (hlavička vs. jednotlivé položky)</td></tr>
+                    <tr><td>🏭 <strong>Výrobny</strong></td>
+                        <td>rozšířené · jen aktivní výrobny · nové skupiny sbalit</td>
+                        <td>detail receptury (vstupy + výstupy, cykly/hodinu) · flash kanály</td></tr>
+                    <tr><td>💰 <strong>Ceny</strong></td>
+                        <td>jen komodity s mým skladem · zobrazit dostupné množství</td>
+                        <td>—</td></tr>
+                </tbody>
+            </table></div>
+            <div class="help-callout">
+                <strong>Změna oproti starší verzi:</strong> dřívější globální tab
+                „Vozidla" v ⚙ Nastavení se přesunul sem — zobrazení vozidel (rozšířený
+                pohled, kondice, nářadí) teď řídíš ⚙ přímo v sekci Vozidla.
+            </div>
 
             <h3 id="zvonecek">🔔 Zvoneček</h3>
             <p>
