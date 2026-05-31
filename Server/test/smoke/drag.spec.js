@@ -129,10 +129,7 @@ test.describe('Drag interactions', () => {
         expect(dayIdx, 'day moved earlier than balance').toBeLessThan(balanceIdx);
     });
 
-    test('vehicle reorder (sanity — drag works within same container)', async ({ page, request }) => {
-        // Ensure a scenario with ≥2 vehicles — plan-3-years (active from prior tests) has only 1.
-        await request.post('/mock/scenario', { data: { scenario: 'harvest-ready' } });
-        await new Promise(r => setTimeout(r, 3000));
+    test('vehicle reorder (sanity — drag works within same container)', async ({ page }) => {
         await page.goto('/');
         await expect(page.locator('#kpi-balance')).not.toHaveText('—', { timeout: 10_000 });
         // Need at least two vehicles to swap positions.

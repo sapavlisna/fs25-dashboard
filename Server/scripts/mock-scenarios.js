@@ -117,7 +117,8 @@ function baseProductions() {
                 { name: 'Voda',  amount: 8500, capacity: 20000 },
                 { name: 'Chléb', amount: 1100, capacity: 20000 },
             ],
-            productions: [{ name: 'Recept #1', status: 'active', cyclesPerHour: 40 }],
+            productions: [{ name: 'Chléb', status: 'active', cyclesPerHour: 40, costsPerHour: 12,
+                inputs: [{ name: 'Mouka', amount: 200 }, { name: 'Voda', amount: 100 }], outputs: [{ name: 'Chléb', amount: 150 }] }],
         },
         {
             name: 'Pila',
@@ -125,7 +126,8 @@ function baseProductions() {
                 { name: 'Klády',   amount: 14800, capacity: 30000 },
                 { name: 'Řezivo',  amount:  2300, capacity: 30000 },
             ],
-            productions: [{ name: 'Recept #1', status: 'active', cyclesPerHour: 25 }],
+            productions: [{ name: 'Řezivo', status: 'active', cyclesPerHour: 25, costsPerHour: 8,
+                inputs: [{ name: 'Klády', amount: 500 }], outputs: [{ name: 'Řezivo', amount: 400 }] }],
         },
     ];
 }
@@ -209,20 +211,25 @@ function scenarioProductionsMany(_tick) {
                 { name: 'Mléko', amount: 9000, capacity: 50000 },
                 { name: 'Máslo', amount: 1200, capacity: 20000 },
                 { name: 'Sýr',   amount:  800, capacity: 20000 },
-            ], productions: [{ name: 'Máslo', status: 'active', cyclesPerHour: 30 },
-                             { name: 'Sýr',   status: 'active', cyclesPerHour: 12 }] },
+            ], productions: [{ name: 'Máslo', status: 'active', cyclesPerHour: 30, costsPerHour: 9,
+                                inputs: [{ name: 'Mléko', amount: 200 }], outputs: [{ name: 'Máslo', amount: 90 }] },
+                             { name: 'Sýr',   status: 'active', cyclesPerHour: 12, costsPerHour: 14,
+                                inputs: [{ name: 'Mléko', amount: 300 }], outputs: [{ name: 'Sýr', amount: 110 }] }] },
             { name: 'Pekárna', items: [
                 { name: 'Mouka', amount: 5200, capacity: 20000 },
                 { name: 'Chléb', amount: 1100, capacity: 20000 },
-            ], productions: [{ name: 'Chléb', status: 'active', cyclesPerHour: 40 }] },
+            ], productions: [{ name: 'Chléb', status: 'active', cyclesPerHour: 40, costsPerHour: 12,
+                                inputs: [{ name: 'Mouka', amount: 200 }], outputs: [{ name: 'Chléb', amount: 150 }] }] },
             { name: 'Pila', items: [
                 { name: 'Klády',  amount: 14800, capacity: 30000 },
                 { name: 'Řezivo', amount:  2300, capacity: 30000 },
-            ], productions: [{ name: 'Řezivo', status: 'noInput', cyclesPerHour: 25 }] },
+            ], productions: [{ name: 'Řezivo', status: 'noInput', cyclesPerHour: 25, costsPerHour: 0,
+                                inputs: [{ name: 'Klády', amount: 500 }], outputs: [{ name: 'Řezivo', amount: 400 }] }] },
             { name: 'BGA Bergmann', items: [
                 { name: 'Siláž',     amount: 60000, capacity: 100000 },
                 { name: 'Digestát',  amount: 12000, capacity: 50000 },
-            ], productions: [{ name: 'Elektřina', status: 'active', cyclesPerHour: 100 }] },
+            ], productions: [{ name: 'Elektřina', status: 'active', cyclesPerHour: 100, costsPerHour: 4,
+                                inputs: [{ name: 'Siláž', amount: 400 }], outputs: [{ name: 'Digestát', amount: 120 }] }] },
         ],
         prices:       basePrices(),
         events:       [],
@@ -300,7 +307,12 @@ function scenarioHarvestReady(_tick) {
             { husbandryName: 'Kravín', type: 'COW', count: 14, foodPercent: 72, waterPercent: 80, productivity: 88 },
         ],
         storage: [
-            { storageName: 'Hlavní silo', items: [{ name: 'Pšenice', amount: 48000, capacity: 200000 }] },
+            { storageName: 'Hlavní silo', items: [
+                { name: 'Pšenice',  amount: 48000, capacity: 200000 },
+                { name: 'Řepka',    amount: 31000, capacity: 200000 },
+                { name: 'Ječmen',   amount: 18000, capacity: 200000 },
+                { name: 'Kukuřice', amount:  9000, capacity: 200000 },
+            ] },
         ],
         productions:  baseProductions(),
         prices:       basePrices(),
@@ -366,8 +378,21 @@ function scenarioAnimalNeeds(_tick) {
             { name: 'Fendt 516 Vario', typeName: 'Traktor', isInUse: false, motorHours: 38.0, fuelPercent: 88, fuelLiters: 176, fuelCapacity: 200 },
         ],
         animals: [
-            { husbandryName: 'Kravín',  type: 'COW',     count: 14, foodPercent: 12, waterPercent:  8, productivity: 45 },
-            { husbandryName: 'Vepřín',  type: 'PIG',     count: 24, foodPercent:  8, waterPercent: 15, productivity: 38 },
+            { husbandryName: 'Kravín', type: 'COW', count: 14, maxCount: 20, productivity: 45,
+              foodPercent: 12,  foodLiters: 600,  foodCapacity: 5000,
+              waterPercent: 8,  waterLiters: 80,  waterCapacity: 1000,
+              strawPercent: 30, strawLiters: 300, strawCapacity: 1000,
+              milkPercent: 86,  milkLiters: 1720, milkCapacity: 2000,
+              manurePercent: 40, manureLiters: 800, manureCapacity: 2000,
+              clusters: [
+                { subType: 'COW_HOLSTEIN', count: 9, age: 24, health: 92, reproduction: 80, sellPrice: 1450 },
+                { subType: 'COW_ANGUS',    count: 5, age: 18, health: 88, reproduction: 60, sellPrice: 1600 },
+              ] },
+            { husbandryName: 'Vepřín', type: 'PIG', count: 24, maxCount: 50, productivity: 38,
+              foodPercent: 8,   foodLiters: 200,  foodCapacity: 4000,
+              waterPercent: 15, waterLiters: 150, waterCapacity: 1000,
+              manurePercent: 55, manureLiters: 1100, manureCapacity: 2000,
+              clusters: [{ subType: 'PIG_LANDRACE', count: 24, age: 8, health: 70, reproduction: 40, sellPrice: 320 }] },
             { husbandryName: 'Ovčín',   type: 'SHEEP',   count: 10, foodPercent: 65, waterPercent: 72, productivity: 82 },
             { husbandryName: 'Kurník',  type: 'CHICKEN', count: 40, foodPercent: 90, waterPercent: 88, productivity: 95 },
         ],
@@ -616,6 +641,50 @@ function scenarioMixedAiTasks(_tick) {
     };
 }
 
+/**
+ * layout-stress — many sections of very uneven height (short fields, lots of
+ * storages, several productions/animals). Reproduces the masonry packing gap
+ * where single-column sections pile under the span-2 sections and leave the
+ * right columns empty. Used to validate the grid auto-flow fix.
+ */
+function scenarioLayoutStress(_tick) {
+    const silo = (name, amount, cap) => ({ storageName: name, items: [{ name: 'Pšenice', amount, capacity: cap }] });
+    const storages = [];
+    for (let i = 1; i <= 14; i++) storages.push(silo(`Sklad ${i}`, 2000 * i, 200000));
+    const prod = (name, status) => ({
+        name, items: [{ name: 'Vstup', amount: 4000, capacity: 20000 }, { name: 'Výstup', amount: 1200, capacity: 20000 }],
+        productions: [{ name: 'Recept', status, cyclesPerHour: status === 'active' ? 40 : 0, costsPerHour: status === 'active' ? 10 : 0,
+            inputs: [{ name: 'Vstup', amount: 200 }], outputs: [{ name: 'Výstup', amount: 150 }] }],
+    });
+    return {
+        exportedAt: now(), gameDay: 60, gameTime: '10:00', gameYear: 2, gameMonth: 4,
+        dayInMonth: 6, daysPerMonth: 10,
+        weather: baseWeather({ typeId: 0, title: 'Jasno', temperature: 18 }),
+        farmBalance: 512000,
+        fields: [
+            { id: 1, area: 2.4, owned: true, fruitTypeId: 'WHEAT',  fruitName: 'Pšenice', growthState: 4, maxGrowthState: 6, growthPercent: 70, isReadyToHarvest: false, needsSowing: false, daysToHarvest: 3, needsPlowing: false, needsCultivating: false, needsLime: false, fertilizationLevel: 1, weedLevel: 0, stoneLevel: 0, sprayLevel: 1 },
+            { id: 2, area: 3.1, owned: true, fruitTypeId: 'BARLEY', fruitName: 'Ječmen',  growthState: 5, maxGrowthState: 6, growthPercent: 100, isReadyToHarvest: true, needsSowing: false, daysToHarvest: 0, needsPlowing: false, needsCultivating: false, needsLime: false, fertilizationLevel: 2, weedLevel: 0, stoneLevel: 0, sprayLevel: 2 },
+        ],
+        vehicles: [
+            { name: 'Fendt 942 Vario',   typeName: 'Traktor', isInUse: true,  motorHours: 234, fuelPercent: 64, fuelLiters: 256, fuelCapacity: 400 },
+            { name: 'CLAAS LEXION 8900', typeName: 'Kombajn', isInUse: false, motorHours: 412, fuelPercent: 78, fuelLiters: 491, fuelCapacity: 630 },
+            { name: 'MAN TGX',           typeName: 'Nákladní',isInUse: false, motorHours: 88,  fuelPercent: 30, fuelLiters: 120, fuelCapacity: 400 },
+        ],
+        animals: [
+            { husbandryName: 'Kravín',  type: 'COW',     count: 18, foodPercent: 60, waterPercent: 70, productivity: 90 },
+            { husbandryName: 'Vepřín',  type: 'PIG',     count: 30, foodPercent: 45, waterPercent: 80, productivity: 75 },
+            { husbandryName: 'Ovčín',   type: 'SHEEP',   count: 12, foodPercent: 88, waterPercent: 60, productivity: 82 },
+            { husbandryName: 'Kurník',  type: 'CHICKEN', count: 50, foodPercent: 92, waterPercent: 88, productivity: 95 },
+        ],
+        storage: storages,
+        productions: [prod('Pekárna', 'active'), prod('Pila', 'active'), prod('Mlékárna', 'noInput'),
+                      prod('Lihovar', 'active'), prod('Tkalcovna', 'outputFull'), prod('Cukrovar', 'active')],
+        prices: basePrices(),
+        events: [],
+        availableFruits: AVAIL_FRUITS,
+    };
+}
+
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 const SCENARIOS = {
@@ -631,6 +700,7 @@ const SCENARIOS = {
     'mixed-ai-tasks':   scenarioMixedAiTasks,
     'vehicles-rich':    scenarioVehiclesRich,
     'productions-many': scenarioProductionsMany,
+    'layout-stress':    scenarioLayoutStress,
 };
 
 /**

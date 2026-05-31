@@ -55,7 +55,6 @@
                 <nav class="settings-tabs" id="settings-tabs">
                     <button type="button" data-tab="notif" class="active">🔔 Notifikace</button>
                     <button type="button" data-tab="sections">📋 Sekce</button>
-                    <button type="button" data-tab="vehicles">🚜 Vozidla</button>
                     <button type="button" data-tab="theme">🎨 Vzhled</button>
                     <button type="button" data-tab="sync">☁ Sync</button>
                     <button type="button" data-tab="diag" hidden>🐞 Diagnostika</button>
@@ -94,44 +93,6 @@
                         <button class="danger" id="sec-reset-all" type="button"
                                 title="Zruší pořadí i to, co jsi skryl">Resetovat vše</button>
                     </div>
-                </section>
-
-                <section class="settings-panel" data-panel="vehicles" hidden>
-                    <label style="margin-bottom:8px;display:block">Sekce vozidel</label>
-                    <p class="settings-hint">
-                        V rozšířeném zobrazení vidíš pod každým vozidlem i jeho
-                        nářadí (vlečky, semenovody, sila kombajnu) s aktuálním
-                        naplněním. Sekce se taky roztáhne přes dva sloupce, ať
-                        je víc místa pro detail.
-                    </p>
-                    <label class="section-row" style="cursor:default">
-                        <span class="section-row-label">Rozšířené zobrazení (nářadí + 2 sloupce)</span>
-                        <span class="section-row-toggle">
-                            <input type="checkbox" id="vehicles-expanded">
-                            <span class="switch-knob"></span>
-                        </span>
-                    </label>
-                    <label class="section-row" style="cursor:default">
-                        <span class="section-row-label">Zobrazit i prázdné nářadí v základním pohledu</span>
-                        <span class="section-row-toggle">
-                            <input type="checkbox" id="vehicles-show-empty-impl">
-                            <span class="switch-knob"></span>
-                        </span>
-                    </label>
-                    <label class="section-row" style="cursor:default">
-                        <span class="section-row-label">Zobrazit kondici + rychlost vozidla</span>
-                        <span class="section-row-toggle">
-                            <input type="checkbox" id="vehicles-show-condition">
-                            <span class="switch-knob"></span>
-                        </span>
-                    </label>
-                    <label class="section-row" style="cursor:default">
-                        <span class="section-row-label">Skrýt vzduch (AIR) u nářadí</span>
-                        <span class="section-row-toggle">
-                            <input type="checkbox" id="vehicles-hide-air">
-                            <span class="switch-knob"></span>
-                        </span>
-                    </label>
                 </section>
 
                 <section class="settings-panel" data-panel="theme" hidden>
@@ -327,55 +288,6 @@
             };
         }
 
-        // ─── Vehicles panel — basic vs expanded toggle ────────────────────
-        const vehExp = document.getElementById('vehicles-expanded');
-        if (vehExp && window.DashState) {
-            const KEY = window.DashState.KEYS.vehiclesExpanded;
-            vehExp.checked = !!window.DashState.get(KEY, false);
-            vehExp.onchange = () => {
-                window.DashState.set(KEY, vehExp.checked);
-                if (window.ServerSync) window.ServerSync.syncWrite(KEY, vehExp.checked);
-                applyVehiclesExpanded();
-            };
-        }
-        // ─── Vehicles panel — show empty implements in basic view ─────────
-        const vehShowEmpty = document.getElementById('vehicles-show-empty-impl');
-        if (vehShowEmpty && window.DashState) {
-            const KEY = 'vehicleShowEmptyImplements';
-            // Default ON — attached implements (incl. empty trailers) should be
-            // visible from the moment they're hitched, per user request. Toggle
-            // still lets the user hide empties if they want less clutter.
-            vehShowEmpty.checked = window.DashState.get(KEY, true) !== false;
-            vehShowEmpty.onchange = () => {
-                window.DashState.set(KEY, vehShowEmpty.checked);
-                if (window.ServerSync) window.ServerSync.syncWrite(KEY, vehShowEmpty.checked);
-                // Re-render vehicles to pick up the new filter; uses the
-                // last live data cached on FS25App.
-                if (window.FS25App && window.FS25App.rerender) window.FS25App.rerender();
-            };
-        }
-        // ─── Vehicles panel — show condition + speed ──────────────────────
-        const vehShowCond = document.getElementById('vehicles-show-condition');
-        if (vehShowCond && window.DashState) {
-            const KEY = 'vehicleShowCondition';
-            vehShowCond.checked = window.DashState.get(KEY, true) !== false;
-            vehShowCond.onchange = () => {
-                window.DashState.set(KEY, vehShowCond.checked);
-                if (window.ServerSync) window.ServerSync.syncWrite(KEY, vehShowCond.checked);
-                if (window.FS25App && window.FS25App.rerender) window.FS25App.rerender();
-            };
-        }
-        // ─── Vehicles panel — hide AIR fill units ─────────────────────────
-        const vehHideAir = document.getElementById('vehicles-hide-air');
-        if (vehHideAir && window.DashState) {
-            const KEY = 'vehicleHideAir';
-            vehHideAir.checked = !!window.DashState.get(KEY, false);
-            vehHideAir.onchange = () => {
-                window.DashState.set(KEY, vehHideAir.checked);
-                if (window.ServerSync) window.ServerSync.syncWrite(KEY, vehHideAir.checked);
-                if (window.FS25App && window.FS25App.rerender) window.FS25App.rerender();
-            };
-        }
         // ─── Appearance panel — language selector ─────────────────────────
         const langSel = document.getElementById('lang-select');
         if (langSel && window.I18n) {
@@ -388,17 +300,6 @@
         // ─── Diagnostics panel — record / list / download ─────────────────
         wireDiagPanel();
     }
-
-    // Toggle the .expanded-vehicles class on the vehicles section based on
-    // DashState. Re-applied on load, on user toggle, and on cross-device
-    // sync (handled by serverSync.js patches).
-    function applyVehiclesExpanded() {
-        if (!window.DashState) return;
-        const on  = !!window.DashState.get(window.DashState.KEYS.vehiclesExpanded, false);
-        const sec = document.querySelector('.section[data-tt-key="vehicles"]');
-        if (sec) sec.classList.toggle('expanded-vehicles', on);
-    }
-    window.applyVehiclesExpanded = applyVehiclesExpanded;
 
     function renderSectionList() {
         const wrap = document.getElementById('section-list');
@@ -817,10 +718,11 @@
     function disableMockup() { setMockup(false); }
     function enableMockup() {
         setMockup(true);
-        // Jump straight to the Diagnostics tab so the new controls are in view.
+        // Mockup mode is a dev tool — reveal the (normally hidden) Diagnostics
+        // tab so its controls are reachable, then jump straight to it.
         openNotifModal();
         const dt = document.querySelector('[data-tab="diag"]');
-        if (dt) dt.click();
+        if (dt) { dt.hidden = false; dt.click(); }
         alert(tr('Mockup režim zapnut. V Nastavení → 🐞 Diagnostika ho zase vypneš přepínačem.'));
     }
     function wireMockupGesture() {

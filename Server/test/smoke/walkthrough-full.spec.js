@@ -46,14 +46,12 @@ test.describe('Walkthrough — Dashboard interactions', () => {
         const sec = page.locator('.section[data-tt-key="vehicles"]');
         const before = await sec.evaluate(el => el.classList.contains('expanded-vehicles'));
 
-        // Open settings, switch to Vozidla tab. Checkboxes use the CSS-hidden
-        // toggle-switch pattern (.switch-knob is the visible affordance, the
-        // <input> itself is sr-only). Dispatch the change via JS to bypass
-        // the visibility check — we're testing the handler wiring, not CSS.
-        await page.locator('#notif-toggle').click();
-        await page.locator('.settings-tabs button[data-tab="vehicles"]').click();
+        // Settings moved to per-section panel — click the ⚙ button on the vehicles header.
+        // Checkboxes use the CSS-hidden toggle-switch pattern; dispatch change via JS.
+        await page.locator('.sec-cfg-btn[data-sec-cfg="vehicles"]').click();
+        await page.waitForTimeout(300);
         await page.evaluate(() => {
-            const cb = document.getElementById('vehicles-expanded');
+            const cb = document.querySelector('#sec-cfg-panel input[data-cfg-key="vehiclesExpanded"]');
             cb.checked = !cb.checked;
             cb.dispatchEvent(new Event('change', { bubbles: true }));
         });
@@ -69,12 +67,13 @@ test.describe('Walkthrough — Dashboard interactions', () => {
         await expect(page.locator('#kpi-balance')).not.toHaveText('—', { timeout: 12_000 });
         await page.waitForTimeout(1500);
 
-        await page.locator('#notif-toggle').click();
-        await page.locator('.settings-tabs button[data-tab="vehicles"]').click();
+        // Settings moved to per-section panel
+        await page.locator('.sec-cfg-btn[data-sec-cfg="vehicles"]').click();
+        await page.waitForTimeout(300);
         const beforeChecked = await page.evaluate(() =>
-            document.getElementById('vehicles-show-empty-impl').checked);
+            document.querySelector('#sec-cfg-panel input[data-cfg-key="vehicleShowEmptyImplements"]').checked);
         await page.evaluate(() => {
-            const cb = document.getElementById('vehicles-show-empty-impl');
+            const cb = document.querySelector('#sec-cfg-panel input[data-cfg-key="vehicleShowEmptyImplements"]');
             cb.checked = !cb.checked;
             cb.dispatchEvent(new Event('change', { bubbles: true }));
         });

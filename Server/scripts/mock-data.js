@@ -153,13 +153,22 @@ let animalFood = {
 let animalCounts = { cow: 14, pig: 24, sheep: 10, chicken: 40 };
 // Stateful production items — drift each tick to trigger flash testing
 let productionState = [
-    { name: 'Pekárna',     cap: 20000, items: { 'Mouka': 5200, 'Voda': 8500, 'Chléb': 1100 } },
-    { name: 'Pila',        cap: 30000, items: { 'Klády': 14800, 'Řezivo': 2300 } },
-    { name: 'Krmivárna',   cap: 25000, items: { 'Pšenice': 8200, 'Ječmen': 6100, 'Krmivo': 1600 } },
-    { name: 'Řeznictví',   cap: 18000, items: { 'Vepř': 320, 'Hovězí': 145, 'Maso': 820 } },
-    { name: 'Mlékárna',    cap: 22000, items: { 'Mléko': 9400, 'Máslo': 720, 'Sýr': 410 } },
-    { name: 'Olejárna',    cap: 24000, items: { 'Slunečnice': 6300, 'Řepka': 4100, 'Olej': 1850 } },
-    { name: 'Větrný mlýn', cap: 16000, items: { 'Pšenice': 3800, 'Mouka': 1200 } },
+    { name: 'Pekárna',     cap: 20000, items: { 'Mouka': 5200, 'Voda': 8500, 'Chléb': 1100 },
+      recipes: [{ name: 'Chléb', in: { 'Mouka': 200, 'Voda': 100 }, out: { 'Chléb': 150 }, cost: 12 }] },
+    { name: 'Pila',        cap: 30000, items: { 'Klády': 14800, 'Řezivo': 2300 },
+      recipes: [{ name: 'Řezivo', in: { 'Klády': 500 }, out: { 'Řezivo': 400 }, cost: 8 }] },
+    { name: 'Krmivárna',   cap: 25000, items: { 'Pšenice': 8200, 'Ječmen': 6100, 'Krmivo': 1600 },
+      recipes: [{ name: 'Krmivo', in: { 'Pšenice': 150, 'Ječmen': 150 }, out: { 'Krmivo': 280 }, cost: 6 }] },
+    { name: 'Řeznictví',   cap: 18000, items: { 'Vepř': 320, 'Hovězí': 145, 'Maso': 820 },
+      recipes: [{ name: 'Maso', in: { 'Vepř': 40, 'Hovězí': 30 }, out: { 'Maso': 60 }, cost: 18 }] },
+    { name: 'Mlékárna',    cap: 22000, items: { 'Mléko': 9400, 'Máslo': 720, 'Sýr': 410 },
+      recipes: [{ name: 'Máslo', in: { 'Mléko': 200 }, out: { 'Máslo': 90 }, cost: 9 },
+                { name: 'Sýr',   in: { 'Mléko': 300 }, out: { 'Sýr': 110 }, cost: 14 }] },
+    { name: 'Olejárna',    cap: 24000, items: { 'Slunečnice': 6300, 'Řepka': 4100, 'Olej': 1850 },
+      recipes: [{ name: 'Olej (slun.)', in: { 'Slunečnice': 180 }, out: { 'Olej': 120 }, cost: 10 },
+                { name: 'Olej (řepka)', in: { 'Řepka': 180 },      out: { 'Olej': 130 }, cost: 11 }] },
+    { name: 'Větrný mlýn', cap: 16000, items: { 'Pšenice': 3800, 'Mouka': 1200 },
+      recipes: [{ name: 'Mouka', in: { 'Pšenice': 250 }, out: { 'Mouka': 200 }, cost: 5 }] },
 ];
 
 function generateData() {
@@ -303,7 +312,20 @@ function generateData() {
         productions: productionState.map(p => ({
             name:  p.name,
             items: Object.entries(p.items).map(([name, amount]) => ({ name, amount, capacity: p.cap })),
-            productions: [{ name: 'Recept #1', status: 'active', cyclesPerHour: ri(10, 80) }],
+            productions: (p.recipes || []).map((rec, idx) => {
+                // First recipe runs; a later one may stall on missing input so
+                // the status palette (active / noInput / outputFull) is exercised.
+                const status = idx === 0 ? 'active' : (ri(0, 1) ? 'active' : 'noInput');
+                const running = status === 'active';
+                return {
+                    name:          rec.name,
+                    status,
+                    cyclesPerHour: running ? ri(10, 80) : 0,
+                    costsPerHour:  running ? rec.cost : 0,
+                    inputs:  Object.entries(rec.in).map(([name, amount])  => ({ name, amount })),
+                    outputs: Object.entries(rec.out).map(([name, amount]) => ({ name, amount })),
+                };
+            }),
         })),
         vehicles: VEHICLES.map((v, i) => {
             const s = vehicleFuel[i];

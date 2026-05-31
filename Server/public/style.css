@@ -345,9 +345,10 @@ main {
 .masonry {
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
-    /* `row` (not `row dense`) — places each section into the next available
-       cell in DOM order so the user's drag-reorder is respected. */
-    grid-auto-flow: row;
+    /* Sections are placed explicitly by applyMasonrySpans() (greedy shortest-
+       column packer), so auto-flow only matters as a fallback for not-yet-
+       measured sections. */
+    grid-auto-flow: row dense;
     /* 2 px row unit — fine enough that the `grid-row: span N` inline value
        written by applyMasonrySpans() lands within a couple of pixels of
        each section's true height. Larger row units (8 px, 4 px) leave
@@ -695,6 +696,242 @@ tr.flash-down > td { background-color: rgba(224, 82, 82, .35)                   
     outline-offset: 1px;
 }
 
+/* ─── Per-section settings button ───────────────────────────────────── */
+.sec-cfg-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 13px;
+    padding: 2px 5px;
+    border-radius: 4px;
+    color: var(--muted);
+    line-height: 1;
+    transition: color .15s, background .15s;
+    flex-shrink: 0;
+}
+.sec-cfg-btn:hover  { color: var(--text); background: var(--surface2); }
+.sec-cfg-btn.active { color: var(--accent); }
+/* Non-default-settings indicator — small accent dot on the ⚙ button (V-2) */
+.sec-cfg-btn.has-custom { position: relative; }
+.sec-cfg-btn.has-custom::after {
+    content: '';
+    position: absolute;
+    top: 1px; right: 1px;
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 0 1px var(--surface);
+}
+
+/* ─── Per-section settings panel (dropdown) ─────────────────────────── */
+#sec-cfg-panel {
+    position: fixed;
+    z-index: 9999;
+    width: 280px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0,0,0,.4);
+    font-size: 13px;
+    color: var(--text);
+}
+.sec-cfg-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 9px 12px 7px;
+    border-bottom: 1px solid var(--border);
+    font-weight: 600;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: .05em;
+    color: var(--muted);
+}
+.sec-cfg-close {
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 16px;
+    line-height: 1;
+    color: var(--muted);
+    padding: 0 2px;
+}
+.sec-cfg-close:hover { color: var(--text); }
+.sec-cfg-body { padding: 4px 0; }
+#sec-cfg-panel .section-row {
+    padding: 5px 12px;
+    background: none;
+    border: none;
+    border-radius: 0;
+}
+#sec-cfg-panel .section-row:hover { background: var(--surface2); border-color: transparent; }
+.sec-cfg-adv-toggle {
+    display: block;
+    width: 100%;
+    background: none;
+    border: none;
+    border-top: 1px solid var(--border);
+    cursor: pointer;
+    padding: 7px 12px;
+    text-align: left;
+    font-size: 11px;
+    color: var(--muted);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .05em;
+}
+.sec-cfg-adv-toggle:hover { color: var(--text); background: var(--surface2); }
+.sec-cfg-adv { padding: 2px 0; }
+.sec-cfg-group { padding: 2px 0 4px; }
+.sec-cfg-group + .sec-cfg-group { border-top: 1px solid var(--border); }
+.sec-cfg-group-label {
+    padding: 6px 12px 3px;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    color: var(--muted);
+}
+.sec-cfg-group-note {
+    padding: 2px 12px 4px;
+    font-size: 10px;
+    line-height: 1.3;
+    color: var(--muted);
+    opacity: .8;
+    font-style: italic;
+}
+.sec-cfg-select {
+    background: var(--surface2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 2px 6px;
+    font-size: 12px;
+    cursor: pointer;
+}
+.sec-cfg-select:hover { border-color: var(--accent); }
+
+/* Reset footer (V-1) */
+.sec-cfg-footer {
+    border-top: 1px solid var(--border);
+    padding: 7px 12px;
+    text-align: right;
+}
+.sec-cfg-reset {
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    cursor: pointer;
+    padding: 4px 10px;
+    font-size: 11px;
+    color: var(--muted);
+}
+.sec-cfg-reset:hover { color: var(--text); border-color: var(--accent); }
+
+/* Mobile: stretch to full viewport width */
+@media (max-width: 600px) {
+    #sec-cfg-panel {
+        left: 0 !important;
+        right: 0 !important;
+        width: auto !important;
+        border-radius: 0 0 8px 8px;
+        border-left: none;
+        border-right: none;
+    }
+}
+
+/* ─── Expanded sections (2-column masonry span) ──────────────────────── */
+.masonry > .section.expanded-animals,
+.masonry > .section.expanded-storage,
+.masonry > .section.expanded-productions {
+    grid-column: span 2;
+}
+
+/* ─── Expanded ANIMALS — unstuck bars + inline litres + richer sub ─────── */
+.expanded-animals .animal-row {
+    grid-template-columns: 24px minmax(0, 1.6fr) minmax(0, 1fr) minmax(0, 1fr);
+}
+/* Bars become an inner grid (label | bar | litres) so litres line up vertically. */
+.expanded-animals .ac-bars { display: grid; grid-template-columns: 14px 1fr auto; row-gap: 3px; column-gap: 6px; align-items: center; }
+.expanded-animals .ac-barpair { display: contents; }
+.expanded-animals .ac-barpair .bar-wrap { width: auto; min-width: 0; flex: 1 1 auto; }
+.ac-bar-liters { font-size: 10px; color: var(--muted); font-variant-numeric: tabular-nums; min-width: 78px; text-align: right; white-space: nowrap; }
+.ac-herd-value { color: color-mix(in srgb, var(--muted) 60%, var(--accent)); white-space: nowrap; }
+
+@media (max-width: 700px) {
+    .expanded-animals .animal-row { grid-template-columns: 24px minmax(0, 1fr) 88px 88px; }
+    .expanded-animals .ac-bars { display: flex; }
+    .expanded-animals .ac-barpair { display: inline-flex; }
+    .ac-bar-liters { min-width: 0; }
+}
+
+/* ─── Fields — wider zoned growth bar (uses the always-2col width) ─────── */
+/* The growth column is where the field table has the most free width.
+   Give it a longer bar with a ripening gradient (green → wheat gold). */
+.field-growth { width: 40%; }
+.field-growth .bar-wrap { min-width: 160px; width: 100%; }
+.bar-zoned .bar-fill {
+    background: linear-gradient(90deg, var(--accent) 0%, var(--accent2) 100%) !important;
+}
+@media (max-width: 700px) {
+    .field-growth { width: auto; }
+    .field-growth .bar-wrap { min-width: 90px; }
+}
+
+/* ─── Expanded STORAGE — stacked overview bar + 2-column body ──────────── */
+.st-stack {
+    display: inline-flex; height: 10px; border-radius: 5px; overflow: hidden;
+    flex: 1 1 auto; min-width: 120px; max-width: 420px; margin: 0 10px;
+    vertical-align: middle;
+}
+.st-stack > span { display: block; box-shadow: 0 0 0 1px var(--bg) inset; }
+.st-stack .st-seg-free { background: color-mix(in srgb, var(--text) 12%, transparent); box-shadow: none; }
+.st-free { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.expanded-storage .st-items {
+    display: grid; grid-template-columns: 1fr 1fr; column-gap: 18px; row-gap: 2px;
+    padding: 2px 0 4px 22px;
+}
+.st-item { display: flex; align-items: center; gap: 7px; font-size: 12px; font-variant-numeric: tabular-nums; padding: 1px 0; }
+.st-item.flash-up   { background-color: color-mix(in srgb, var(--accent) 30%, transparent); }
+.st-item.flash-down { background-color: rgba(224, 82, 82, .30); }
+.st-dot { width: 9px; height: 9px; border-radius: 50%; flex: 0 0 auto; box-shadow: 0 0 0 1px var(--border); }
+.st-item-name { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.st-item-amt { color: var(--muted); white-space: nowrap; }
+.st-item-pct { min-width: 36px; text-align: right; }
+@media (max-width: 700px) {
+    .expanded-storage .st-items { grid-template-columns: 1fr; }
+    .st-stack { max-width: 180px; }
+}
+
+/* ─── Expanded PRODUCTIONS (B) — stocks left · recipes right ───────────── */
+.prod-split > td { padding: 2px 0 6px; }
+.ps-grid { display: grid; grid-template-columns: 1fr 1fr; column-gap: 16px; align-items: start; padding-left: 22px; }
+.ps-grid > .ps-col-recipes { border-left: 1px solid var(--border); padding-left: 14px; }
+.ps-group-label { font-size: 10px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 2px 0; }
+.ps-stock-row, .ps-recipe-row {
+    display: flex; align-items: center; gap: 8px; font-size: 11px;
+    font-variant-numeric: tabular-nums; padding: 1px 0; min-width: 0;
+}
+.ps-stock-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ps-stock-row .bar-wrap { width: 64px; min-width: 64px; flex: 0 0 64px; }
+.ps-stock-amt { color: var(--muted); white-space: nowrap; }
+.ps-stock-row.flash-up   { background-color: color-mix(in srgb, var(--accent) 30%, transparent); }
+.ps-stock-row.flash-down { background-color: rgba(224, 82, 82, .30); }
+.ps-recipe-row { border-left: 3px solid transparent; padding-left: 6px; }
+.ps-recipe-row.is-running { border-left-color: var(--accent); }
+.ps-recipe-row.is-missing { border-left-color: var(--red); }
+.ps-recipe-row.is-full    { border-left-color: var(--accent2); }
+.ps-recipe-name { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ps-recipe-io { color: var(--muted); flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ps-throughput, .ps-cost { color: var(--muted); white-space: nowrap; }
+.ps-sum { font-size: 10px; margin-top: 3px; padding-left: 6px; }
+.ps-empty { font-size: 11px; padding: 2px 0; }
+@media (max-width: 700px) {
+    .ps-grid { grid-template-columns: 1fr; }
+    .ps-grid > .ps-col-recipes { border-left: none; padding-left: 0; }
+    .ps-recipe-io { display: none; }
+}
+
 /* Field-need chips — used by the calendar Gantt (fixed grid) AND the main
    dashboard Pole–přehled table (inline wrapping flex). */
 .need-chip {
@@ -957,12 +1194,49 @@ tr.flash-down > td { background-color: rgba(224, 82, 82, .35)                   
     gap: 2px;
     min-width: 0;
 }
-.expanded-vehicles .v-implements {
-    display: flex;
-}
 .expanded-vehicles {
-    /* Take two masonry columns so the wider sub-rows breathe. */
+    /* Take two masonry columns so the dense row breathes. */
     grid-column: span 2;
+}
+
+/* ─── Expanded VEHICLES — dense row: fuel+litres · cond · speed · mh · chips ── */
+/* 5 stable columns (vc-right stays one cell → robust to hidden cond/speed). */
+.expanded-vehicles .vehicle-row {
+    grid-template-columns: 10px minmax(120px, 1fr) max-content max-content minmax(0, 1.4fr);
+}
+.expanded-vehicles .vc-fuel .bar-wrap { width: 100px; min-width: 100px; flex: 0 0 auto; }
+.expanded-vehicles .vc-fuel-num { font-variant-numeric: tabular-nums; }
+/* The detailed per-fillUnit stack is replaced by inline chips in expanded. */
+.expanded-vehicles .v-implements { display: none; }
+
+.vc-impl-chips { display: none; }
+.expanded-vehicles .vc-impl-chips {
+    display: flex; gap: 4px; overflow: hidden; min-width: 0;
+    grid-column: 5; grid-row: 1; justify-self: end; align-items: center;
+}
+.vc-chip {
+    display: inline-flex; align-items: center; gap: 4px; max-width: 150px; flex: 0 0 auto;
+    background: var(--surface2); border-radius: 10px; padding: 1px 8px;
+    font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.vc-chip .bar-wrap { width: 30px; min-width: 30px; flex: 0 0 30px; }
+.vc-chip .bar-pct { display: none; }          /* value shown as .vc-chip-val instead */
+.vc-chip-lbl { overflow: hidden; text-overflow: ellipsis; max-width: 90px; }
+.vc-chip-val { color: var(--muted); }
+.vc-chip-more { background: none; color: var(--muted); padding: 1px 4px; }
+
+/* AdBlue: thin gold strip under the fuel bar (colour only, no number).
+   Expanded-only so the compact default row stays unchanged. */
+.expanded-vehicles .vc-fuel.has-adblue .bar-wrap { position: relative; }
+.expanded-vehicles .vc-fuel.has-adblue .bar-wrap::after {
+    content: ''; position: absolute; left: 0; right: 0; bottom: -3px; height: 2px;
+    background: var(--accent2); opacity: .7; border-radius: 1px;
+}
+
+@media (max-width: 700px) {
+    .expanded-vehicles .vehicle-row { grid-template-columns: 10px 1fr max-content; }
+    .expanded-vehicles .vc-impl-chips { display: none; }
+    .expanded-vehicles .v-implements { display: flex; }   /* back to vertical stack */
 }
 .vi-row {
     display: flex;

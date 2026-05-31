@@ -98,17 +98,6 @@ const PAGES = [
 ];
 
 test.describe('Scenario screenshots', () => {
-    // Clear accumulated history data before this suite so KOMODIT V DB counts
-    // and commodity dropdown defaults are deterministic regardless of which
-    // other spec files ran first in the same Playwright session.
-    test.beforeAll(async () => {
-        const fs   = require('fs');
-        const path = require('path');
-        const DATA_DIR = path.resolve(__dirname, '..', '..', '..', '..', '.tmp', 'smoke', 'data');
-        try { fs.rmSync(DATA_DIR, { recursive: true, force: true }); } catch (_) {}
-        fs.mkdirSync(DATA_DIR, { recursive: true });
-    });
-
     // Disable server sync so state written by one test doesn't bleed into the next.
     test.beforeEach(async ({ page }) => {
         await page.addInitScript(() => {

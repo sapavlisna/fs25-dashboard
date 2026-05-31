@@ -36,6 +36,7 @@
 <script src="app.js" defer></script>
 <script src="tabletools.js" defer></script>
 <script src="sortable.js" defer></script>
+<script src="sectionCfg.js" defer></script>
 </head>
 <body>
 
@@ -106,6 +107,7 @@
             <span style="margin-left:auto;font-size:11px;font-weight:400">
                 <a href="/calendar.html" style="color:var(--accent)">→ Kalendář</a>
             </span>
+            <button class="sec-cfg-btn" data-sec-cfg="fields" title="Nastavení sekce Pole">⚙</button>
             <label class="flash-toggle" title="Flash změn — zvýrazní změny růstu pole (zeleně = vyrostlo, červeně = sklizeno)">
                 <input type="checkbox" data-flash-toggle="fields" checked>
             </label>
@@ -143,7 +145,8 @@
         <div class="section-header">
             <span class="drag-handle" title="Přetáhni pro přesun sekce" aria-label="Přesunout sekci">⠿</span>
             🚜 Vozidla <span class="count" id="cnt-vehicles">0</span>
-            <label class="flash-toggle" style="margin-left:auto" title="Flash změn — zvýrazní změny naplnění nářadí (zeleně = přibylo, červeně = ubylo)">
+            <button class="sec-cfg-btn" data-sec-cfg="vehicles" style="margin-left:auto" title="Nastavení sekce Vozidla">⚙</button>
+            <label class="flash-toggle" title="Flash změn — zvýrazní změny naplnění nářadí (zeleně = přibylo, červeně = ubylo)">
                 <input type="checkbox" data-flash-toggle="vehicles" checked>
             </label>
         </div>
@@ -161,7 +164,8 @@
         <div class="section-header">
             <span class="drag-handle" title="Přetáhni pro přesun sekce" aria-label="Přesunout sekci">⠿</span>
             🐄 Zvířata <span class="count" id="cnt-animals">0</span>
-            <label class="flash-toggle" style="margin-left:auto" title="Flash změn — zvýrazní změny počtu zvířat (zeleně = přírůstek, červeně = úbytek)">
+            <button class="sec-cfg-btn" data-sec-cfg="animals" style="margin-left:auto" title="Nastavení sekce Zvířata">⚙</button>
+            <label class="flash-toggle" title="Flash změn — zvýrazní změny počtu zvířat (zeleně = přírůstek, červeně = úbytek)">
                 <input type="checkbox" data-flash-toggle="animals" checked>
             </label>
         </div>
@@ -179,7 +183,8 @@
         <div class="section-header">
             <span class="drag-handle" title="Přetáhni pro přesun sekce" aria-label="Přesunout sekci">⠿</span>
             📦 Sklady <span class="count" id="cnt-storage">0</span>
-            <label class="flash-toggle" style="margin-left:auto" title="Flash změn — zvýrazní změny hodnot (zeleně = přibylo, červeně = ubylo)">
+            <button class="sec-cfg-btn" data-sec-cfg="storage" style="margin-left:auto" title="Nastavení sekce Sklady">⚙</button>
+            <label class="flash-toggle" title="Flash změn — zvýrazní změny hodnot (zeleně = přibylo, červeně = ubylo)">
                 <input type="checkbox" data-flash-toggle="storage" checked>
             </label>
         </div>
@@ -213,7 +218,8 @@
         <div class="section-header">
             <span class="drag-handle" title="Přetáhni pro přesun sekce" aria-label="Přesunout sekci">⠿</span>
             🏭 Výrobny <span class="count" id="cnt-productions">0</span>
-            <label class="flash-toggle" style="margin-left:auto" title="Flash změn — zvýrazní změny zaplnění výrobny (zeleně = přibylo, červeně = ubylo)">
+            <button class="sec-cfg-btn" data-sec-cfg="productions" style="margin-left:auto" title="Nastavení sekce Výrobny">⚙</button>
+            <label class="flash-toggle" title="Flash změn — zvýrazní změny zaplnění výrobny (zeleně = přibylo, červeně = ubylo)">
                 <input type="checkbox" data-flash-toggle="productions" checked>
             </label>
         </div>
@@ -248,6 +254,7 @@
             <span class="drag-handle" title="Přetáhni pro přesun sekce" aria-label="Přesunout sekci">⠿</span>
             💰 Výkupní ceny (<span class="cur-unit">€</span> / t)
             <button id="btn-hide-zero-prices" class="section-btn" style="margin-left:auto" title="Skrýt všechny komodity, které momentálně nemáš na skladě">Skrýt vše bez skladu</button>
+            <button class="sec-cfg-btn" data-sec-cfg="prices" title="Nastavení sekce Ceny">⚙</button>
             <label class="flash-toggle" title="Flash změn — zvýrazní změny ceny (zeleně = vyrostla, červeně = klesla)">
                 <input type="checkbox" data-flash-toggle="prices" checked>
             </label>
@@ -300,6 +307,15 @@ function bar(pct, extra = '') {
         <div class="bar-bg"><div class="bar-fill ${cls}" style="width:${pct}%"></div></div>
         <span class="bar-pct">${pct}%</span>
     </div>`;
+}
+
+// Level / capacity as a compact string — tonnes when capacity > 1000 l,
+// litres otherwise. Returns '' when capacity is unknown/zero so callers can
+// omit the cell. Shared by expanded animal/vehicle/production rows.
+function fmtLT(lvl, cap) {
+    if (cap == null || cap <= 0) return '';
+    if (cap > 1000) return `${((lvl || 0) / 1000).toFixed(1)}/${(cap / 1000).toFixed(1)} t`;
+    return `${fmt(lvl || 0)}/${fmt(cap)} l`;
 }
 
 // Inline donut chart (SVG) — shows a fill ratio in the silo header.
@@ -558,7 +574,7 @@ function noteFlashRows(section, items, getKey, getValue) {
 }
 
 function getFlashCls(section, rowKey) {
-    if (!isFlashEnabled(section)) return '';
+    if (!isFlashEnabled(section, _flashChannelOf(rowKey))) return '';
     const f = flashes.get(`${section}::${rowKey}`);
     if (!f || f.expiresAt <= Date.now()) return '';
     return f.dir === 'up' ? ' flash-up' : ' flash-down';
@@ -629,7 +645,7 @@ function noteImplementFlashes(vehicles) {
 // as getFlashCls. Impl flash WINS over fuel flash — reaching full /
 // empty is more noteworthy than a 1 l fuel tick.
 function getImplFlashCls(vName) {
-    if (!isFlashEnabled('vehicles')) return '';
+    if (!isFlashEnabled('vehicles', 'impl')) return '';
     const now = Date.now();
     const prefix = `vehicles::impl::${vName}::`;
     let dir = null;
@@ -654,6 +670,11 @@ function flashSnapshot(section) {
     for (const [k, f] of flashes) {
         if (!k.startsWith(section + '::')) continue;
         if (f.expiresAt <= now) continue;
+        // Respect sub-channel toggles so disabling a channel busts the memo
+        // and the section re-renders without the now-suppressed flash.
+        const rest = k.slice(section.length + 2);
+        const channel = _flashChannelOf(rest) || (k.includes('::impl::') ? 'impl' : null);
+        if (channel && !isFlashEnabled(section, channel)) continue;
         out.push(k + ':' + f.dir);
     }
     out.sort();
@@ -679,14 +700,39 @@ function scheduleFlashCleanup() {
 }
 
 // Per-section flash toggle — read from DashState.flashEnabled, default true.
-function isFlashEnabled(section) {
+// `channel` (optional) is a sub-channel within a section (e.g. 'header' /
+// 'item' for storage & productions, 'impl' for vehicles). A section is
+// flashing for a channel only when BOTH the master section toggle and the
+// (optional) channel toggle are on. Channels default to on.
+function isFlashEnabled(section, channel) {
     const map = DashState.get(DashState.KEYS.flashEnabled, {}) || {};
-    return map[section] !== false;
+    if (map[section] === false) return false;
+    if (channel && map[`${section}::${channel}`] === false) return false;
+    return true;
 }
 function setFlashEnabled(section, on) {
     const map = DashState.get(DashState.KEYS.flashEnabled, {}) || {};
     map[section] = !!on;
     DashState.set(DashState.KEYS.flashEnabled, map);
+}
+// Sub-channel toggle (storage/productions header vs item, vehicles impl).
+function setFlashChannel(section, channel, on) {
+    const map = DashState.get(DashState.KEYS.flashEnabled, {}) || {};
+    map[`${section}::${channel}`] = !!on;
+    DashState.set(DashState.KEYS.flashEnabled, map);
+}
+function isFlashChannelEnabled(section, channel) {
+    const map = DashState.get(DashState.KEYS.flashEnabled, {}) || {};
+    return map[`${section}::${channel}`] !== false;
+}
+// Extract the sub-channel from a rowKey ('header::…' / 'item::…') — only
+// these two prefixes denote real channels; anything else (sell-point names,
+// field ids, husbandry names) is not a channel.
+function _flashChannelOf(rowKey) {
+    if (typeof rowKey !== 'string') return null;
+    if (rowKey.startsWith('header::')) return 'header';
+    if (rowKey.startsWith('item::'))   return 'item';
+    return null;
 }
 
 // Two physical storages can share `${type}:${storageName}` (Hof Bergmann has
@@ -800,9 +846,8 @@ function fmtEta(sec) {
 function aiTaskBadge(t) {
     if (!t) return null;
     const job = AI_JOB_CS[t.jobClass] || t.jobClass || '?';
-    // Remaining time: AutoDrive sends raw seconds, Courseplay sends a
-    // preformatted string ("1h 29min") on its CpStatus.
-    const etaText = t.remainingText || fmtEta(t.etaSeconds);
+    const showETA = DashState.get('vehicleShowWorkerETA', true) !== false;
+    const etaText = showETA ? (t.remainingText || fmtEta(t.etaSeconds)) : null;
     let parts = [];
     if (t.progress != null) parts.push(`${t.progress} %`);
     if (t.source === 'autodrive') {
@@ -847,23 +892,28 @@ function vehicleCardHTML(v, opts) {
     // Impl-boundary flash wins over fuel flash — a trailer reaching 100 %
     // or 0 % is more important to surface than a 1 l fuel tick.
     const flashCls = getImplFlashCls(v.name) || getFlashCls('vehicles', v.name);
-    const ai = aiTaskBadge(v.aiTask);
+    const showWorker = DashState.get('vehicleShowWorkerBadge', true) !== false;
+    const ai = showWorker ? aiTaskBadge(v.aiTask) : null;
     const aiHTML = ai
         ? `<span class="vc-ai" title="${esc(ai.tooltip)}">${esc(ai.text)}</span>`
         : '';
     const implHTML    = implementsHTML(v.implements, v.name);
     const implSummary = implementsSummary(v.implements, v.name);
+    const implChips   = vehicleImplChips(v);
     const rightHTML   = vehicleRightHTML(v);
+    const fuelCls     = v.adBlueCapacity ? 'vc-fuel has-adblue' : 'vc-fuel';
+    const adblueTitle = v.adBlueCapacity ? ` · AdBlue ${v.adBluePercent ?? 0} %` : '';
     return `<div class="vehicle-row ${v.isInUse ? 'in-use' : ''}${flashCls}" ${TableTools.dndAttrs('vehicles', v.name)} title="${esc(rowTitle)}">
         <span class="${dotCls}"></span>
         <span class="vc-name">${esc(v.name)}</span>
-        <div class="vc-fuel" title="${esc(fuelTitle)}">
+        <div class="${fuelCls}" title="${esc(fuelTitle + adblueTitle)}">
             ${bar(fp)}
             <span class="vc-fuel-num">${fmt(v.fuelLiters)}/${fmt(v.fuelCapacity)} l</span>
         </div>
         ${aiHTML}
         ${rightHTML}
         ${implSummary}
+        ${implChips}
         ${implHTML}
     </div>`;
 }
@@ -883,7 +933,8 @@ function vehicleRightHTML(v) {
     if (v.speedKmh != null && v.speedKmh > 0) {
         parts.push(`<span class="vc-speed" title="Aktuální rychlost">${v.speedKmh} km/h</span>`);
     }
-    parts.push(`<span class="vc-mh" title="Motohodiny">${v.motorHours ?? 0} mh</span>`);
+    const showMH = DashState.get('vehicleShowEngineHours', true) !== false;
+    if (showMH) parts.push(`<span class="vc-mh" title="Motohodiny">${v.motorHours ?? 0} mh</span>`);
     return `<span class="vc-right">${parts.join('')}</span>`;
 }
 
@@ -906,9 +957,39 @@ function vehicleRightHTML(v) {
 function fillUnitIsEmpty(u) {
     return (u.levelL ?? 0) <= 0 || (u.percent ?? 0) <= 0;
 }
+
+// Static lookup: fillType name → category for group-hide settings.
+// Types not in this map fall into 'other' (always visible).
+const FILL_CAT = {
+    WHEAT:'crops', BARLEY:'crops', CANOLA:'crops', CORN:'crops', SUNFLOWER:'crops',
+    SORGHUM:'crops', OILSEEDRADISH:'crops', POTATO:'crops', SUGARBEET:'crops',
+    SUGARCANE:'crops', RICE:'crops', SOYBEAN:'crops', GRAPE:'crops', COTTON:'crops',
+    POPLAR:'crops', HEMP:'crops', SPELT:'crops', GRASS_WINDROW:'crops',
+    LIQUID_FERTILIZER:'liquids', HERBICIDE:'liquids', SLURRY:'liquids',
+    DIGESTATE:'liquids', MILK:'liquids',
+    FERTILIZER:'solids', SEEDS:'solids', LIME:'solids', PIGFOOD:'solids',
+    GRASS:'biomass', DRYGRASS:'biomass', CHAFF:'biomass', STRAW:'biomass',
+    SILAGE:'biomass', WOODCHIPS:'biomass', POPLAR_WOODCHIPS:'biomass',
+};
+function fillCat(ft) { return FILL_CAT[ft] || 'other'; }
+
 function displayFillUnits(impl, showEmpty, hideAir) {
     let units = impl.fillUnits || [];
     if (hideAir) units = units.filter(u => u.fillType !== 'AIR');
+    const hideCrops   = !!DashState.get('vehicleImplHideCrops', false);
+    const hideLiquids = !!DashState.get('vehicleImplHideLiquids', false);
+    const hideSolids  = !!DashState.get('vehicleImplHideSolids', false);
+    const hideBiomass = !!DashState.get('vehicleImplHideBiomasa', false);
+    if (hideCrops || hideLiquids || hideSolids || hideBiomass) {
+        units = units.filter(u => {
+            const c = fillCat(u.fillType);
+            if (hideCrops   && c === 'crops')   return false;
+            if (hideLiquids && c === 'liquids')  return false;
+            if (hideSolids  && c === 'solids')   return false;
+            if (hideBiomass && c === 'biomass')  return false;
+            return true;
+        });
+    }
     const nonEmpty = units.filter(u => !fillUnitIsEmpty(u));
     if (nonEmpty.length > 0) return nonEmpty;
     if (!showEmpty || units.length === 0) return [];
@@ -988,14 +1069,53 @@ function implementsHTML(implements, vehicleName) {
     return `<div class="v-implements">${rows.join('')}</div>`;
 }
 
+// Compact implement chips for the EXPANDED vehicle row — uses the freed
+// horizontal width to show 1-2 implements inline (label · mini-bar · value),
+// with a "+N" pill for the rest. An actively working vehicle shows real
+// tonnage instead of % so the player can tell "is the trailer full enough
+// to drive out". CSS shows these only under .expanded-vehicles.
+function vehicleImplChips(v) {
+    const showEmpty = DashState.get('vehicleShowEmptyImplements', true) !== false;
+    const hideAir   = !!DashState.get('vehicleHideAir', false);
+    const active    = !!(v.isInUse || v.aiTask);
+    const units = [];
+    for (const impl of (v.implements || [])) {
+        const implName = impl.name && impl.name !== v.name ? impl.name : '';
+        for (const u of displayFillUnits(impl, showEmpty, hideAir)) units.push({ u, implName });
+    }
+    if (!units.length) return '';
+    const LIMIT = 2;
+    const shown = units.slice(0, LIMIT);
+    const extra = units.length - shown.length;
+    const chip = ({ u, implName }) => {
+        const pct    = u.percent ?? 0;
+        const noFill = !u.fillType || u.fillType === 'EMPTY';
+        const label  = noFill ? '—' : (u.typeTitle || u.fillType);
+        const cap    = u.capacityL || 0;
+        const lv     = u.levelL || 0;
+        const valTxt = (active && !noFill && cap > 0) ? fmtLT(lv, cap) : `${pct}%`;
+        return `<span class="vc-chip" title="${esc(implName || label)}"><span class="vc-chip-lbl">${esc(label)}</span>${bar(pct)}<span class="vc-chip-val">${valTxt}</span></span>`;
+    };
+    let html = shown.map(chip).join('');
+    if (extra > 0) html += `<span class="vc-chip vc-chip-more" title="Další nářadí: ${extra}">+${extra}</span>`;
+    return `<span class="vc-impl-chips">${html}</span>`;
+}
+
 let _vehiclesMemo = null;
 function renderVehicles(vehicles) {
+    const vCfgKeys = ['vehiclesExpanded','vehicleShowCondition','vehicleShowEmptyImplements',
+        'vehicleHideAir','vehicleShowEngineHours','vehicleShowWorkerBadge','vehicleShowWorkerETA',
+        'vehicleImplHideCrops','vehicleImplHideLiquids','vehicleImplHideSolids','vehicleImplHideBiomasa',
+        'vehiclesActiveOnly'];
     const memoKey = JSON.stringify(vehicles)
         + '|' + [...TableTools.getHidden('vehicles')].sort().join(',')
         + '|' + (TableTools.getOrder('vehicles') || []).join(',')
-        + '|' + flashSnapshot('vehicles');
+        + '|' + flashSnapshot('vehicles')
+        + '|' + vCfgKeys.map(k => DashState.get(k, '')).join(',');
     if (memoKey === _vehiclesMemo) return;
     _vehiclesMemo = memoKey;
+
+    const activeOnly = !!DashState.get('vehiclesActiveOnly', false);
 
     $('cnt-vehicles').textContent = vehicles.length;
 
@@ -1006,6 +1126,7 @@ function renderVehicles(vehicles) {
     const hiddenList = [];
     for (const v of ordered) {
         if (hidden.has(String(v.name))) hiddenList.push(v);
+        else if (activeOnly && !v.isInUse) { /* filtered out — not hidden, just not shown */ }
         else                            visible.push(v);
     }
 
@@ -1028,17 +1149,28 @@ function animalCardHTML(a, opts) {
     const mn = a.manurePercent;
     const lm = a.liquidManurePercent;
 
+    const showAlarm   = DashState.get('animalsShowAlarm',        true) !== false;
+    const showRepro   = DashState.get('animalsShowReproduction', true) !== false;
+    const showFood    = DashState.get('animalsShowFood',         true) !== false;
+    const showWater   = DashState.get('animalsShowWater',        true) !== false;
+    const showBedding = DashState.get('animalsShowBedding',      true) !== false;
+    const showMilk    = DashState.get('animalsShowMilk',         true) !== false;
+    const showManure  = DashState.get('animalsShowManure',       true) !== false;
+    const showSlurry  = DashState.get('animalsShowSlurry',       true) !== false;
+    const loThr = Number(DashState.get('animalsAlarmInput',  25)) || 25;  // low-input alarm %
+    const hiThr = Number(DashState.get('animalsAlarmOutput', 90)) || 90;  // full-output alarm %
+
     // Alert: low food/water/straw (inputs); high milk/manure (outputs full → needs collection)
-    const isAlert = (a.count > 0) && (
-        fp < 25 ||
-        (wp != null && wp < 25) ||
-        (sp != null && sp < 25) ||
-        (mp != null && mp >= 90) ||
-        (mn != null && mn >= 90) ||
-        (lm != null && lm >= 90)
+    const isAlert = showAlarm && (a.count > 0) && (
+        fp < loThr ||
+        (wp != null && wp < loThr) ||
+        (sp != null && sp < loThr) ||
+        (mp != null && mp >= hiThr) ||
+        (mn != null && mn >= hiThr) ||
+        (lm != null && lm >= hiThr)
     );
     const alertMsg = isAlert
-        ? (fp < 25 || (wp != null && wp < 25) || (sp != null && sp < 25) ? 'Doplnit!' : 'Odvézt!')
+        ? (fp < loThr || (wp != null && wp < loThr) || (sp != null && sp < loThr) ? 'Doplnit!' : 'Odvézt!')
         : '';
     const badge = isAlert ? `<span class="alert-badge">⚠ ${alertMsg}</span>` : '';
     const icon = resolveAnimalIcon(a);
@@ -1046,18 +1178,25 @@ function animalCardHTML(a, opts) {
     // Inputs (consumed by animals, low % = bad → needs refilling) on the
     // left; outputs (produced by animals, high % = bad → needs collecting)
     // on the right. Each husbandry shows only the bars it actually exposes.
+    const expanded = !!(opts && opts.expanded);
     const inputs = [
-        { lbl: 'K', pct: fp,                      title: 'Krmivo' },
-        ...(wp != null ? [{ lbl: 'V', pct: wp,    title: 'Voda' }]       : []),
-        ...(sp != null ? [{ lbl: 'P', pct: sp,    title: 'Podestýlka' }] : []),
+        ...(showFood                        ? [{ lbl: 'K',  pct: fp, title: 'Krmivo',     lvl: a.foodLiters,  cap: a.foodCapacity }]  : []),
+        ...(showWater   && wp != null       ? [{ lbl: 'V',  pct: wp, title: 'Voda',       lvl: a.waterLiters, cap: a.waterCapacity }] : []),
+        ...(showBedding && sp != null       ? [{ lbl: 'P',  pct: sp, title: 'Podestýlka', lvl: a.strawLiters, cap: a.strawCapacity }] : []),
     ];
     const outputs = [
-        ...(mp != null ? [{ lbl: 'M', pct: mp,    title: 'Mléko' }]      : []),
-        ...(mn != null ? [{ lbl: 'H', pct: mn,    title: 'Hnůj' }]       : []),
-        ...(lm != null ? [{ lbl: 'Kj', pct: lm,  title: 'Kejda' }]      : []),
+        ...(showMilk   && mp != null        ? [{ lbl: 'M',  pct: mp, title: 'Mléko', lvl: a.milkLiters,         cap: a.milkCapacity }]         : []),
+        ...(showManure && mn != null        ? [{ lbl: 'H',  pct: mn, title: 'Hnůj',  lvl: a.manureLiters,       cap: a.manureCapacity }]       : []),
+        ...(showSlurry && lm != null        ? [{ lbl: 'Kj', pct: lm, title: 'Kejda', lvl: a.liquidManureLiters, cap: a.liquidManureCapacity }] : []),
     ];
-    const barPair = p =>
-        `<span class="ac-barpair"><span class="ac-bar-lbl" title="${p.title}">${p.lbl}</span>${bar(p.pct)}</span>`;
+    // In expanded mode each bar gets an inline litres/tonnes cell (empty span
+    // when capacity is unknown — keeps the grid column aligned across rows).
+    const barPair = p => {
+        const liters = expanded
+            ? `<span class="ac-bar-liters">${fmtLT(p.lvl, p.cap)}</span>`
+            : '';
+        return `<span class="ac-barpair"><span class="ac-bar-lbl" title="${p.title}">${p.lbl}</span>${bar(p.pct)}${liters}</span>`;
+    };
     const inputsHTML  = inputs.map(barPair).join('');
     const outputsHTML = outputs.map(barPair).join('');
 
@@ -1081,18 +1220,33 @@ function animalCardHTML(a, opts) {
         unsupported: { icon: '⚪', cls: 'c-muted',  hint: 'Druh nepodporuje reprodukci' },
     };
     const rd = reproStatus ? REPRO_DISPLAY[reproStatus] : null;
-    const reproBadge = (a.count > 0 && reproPct != null)
+    const reproBadge = (showRepro && a.count > 0 && reproPct != null)
         ? (rd
             ? ` · <span class="${rd.cls}" title="${rd.hint}. Nejvyšší cluster: ${reproPct} %.">${rd.icon} ${reproPct} %</span>`
             : ` · <span class="${reproPct >= 90 ? 'c-green' : ''}" title="Reprodukce — nejvyšší % napříč plemeny (100 % = nové mládě)">🐣 ${reproPct} %</span>`)
         : '';
+
+    // Expanded sub-line carries more of the freed width: N/max ks (orange at
+    // capacity), breed count, and the total herd value (count × sellPrice).
+    let subHTML;
+    if (expanded) {
+        const breeds    = (a.clusters || []).length;
+        const herdValue = (a.clusters || []).reduce((s, c) => s + ((c.count || 0) * (c.sellPrice || 0)), 0);
+        const atCap     = a.maxCount && a.count >= a.maxCount;
+        const countTxt  = `<span class="${atCap ? 'c-orange' : ''}" title="${atCap ? 'Plná kapacita — nelze množit/nakupovat' : ''}">${a.count}/${a.maxCount ?? '—'} ks</span>`;
+        const breedTxt  = breeds ? ` · ${breeds} plem` : '';
+        const valueTxt  = herdValue > 0 ? ` · <span class="ac-herd-value" title="Hodnota stáda (počet × prodejní cena)">💰 ${fmtMoney(herdValue)}</span>` : '';
+        subHTML = `${countTxt}${breedTxt} · zdr. ${a.productivity ?? 0} %${reproBadge}${valueTxt}`;
+    } else {
+        subHTML = `${a.count} ks · zdr. ${a.productivity ?? 0} %${reproBadge}`;
+    }
 
     const flashCls = getFlashCls('animals', a.husbandryName);
     return `<div class="animal-row ${isAlert ? 'alert' : ''}${flashCls}" ${TableTools.dndAttrs('animals', a.husbandryName)} data-animal-name="${esc(a.husbandryName)}" title="Klikni pro detail">
         <span class="ac-icon">${icon}</span>
         <div class="ac-meta">
             <div class="ac-name">${esc(a.husbandryName)} ${badge}</div>
-            <div class="ac-sub">${a.count} ks · zdr. ${a.productivity ?? 0} %${reproBadge}</div>
+            <div class="ac-sub">${subHTML}</div>
         </div>
         <div class="ac-bars ac-bars-inputs"  title="Vstupy">${inputsHTML}</div>
         <div class="ac-bars ac-bars-outputs" title="Výstupy">${outputsHTML}</div>
@@ -1212,10 +1366,15 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') closeAnimalM
 
 let _animalsMemo = null;
 function renderAnimals(animals) {
+    const aCfgKeys = ['animalsExpanded','animalsShowAlarm','animalsShowReproduction',
+        'animalsShowFood','animalsShowWater','animalsShowBedding',
+        'animalsShowMilk','animalsShowManure','animalsShowSlurry',
+        'animalsAlarmInput','animalsAlarmOutput'];
     const memoKey = JSON.stringify(animals)
         + '|' + [...TableTools.getHidden('animals')].sort().join(',')
         + '|' + (TableTools.getOrder('animals') || []).join(',')
-        + '|' + flashSnapshot('animals');
+        + '|' + flashSnapshot('animals')
+        + '|' + aCfgKeys.map(k => DashState.get(k, '')).join(',');
     if (memoKey === _animalsMemo) return;
     _animalsMemo = memoKey;
 
@@ -1237,13 +1396,15 @@ function renderAnimals(animals) {
     const ordered = TableTools.applyOrder(animals, 'animals', a => a.husbandryName);
     const { visible, hidden } = TableTools.split(ordered, 'animals', a => a.husbandryName);
 
+    const aExpanded = !!DashState.get('animalsExpanded', false);
     body.innerHTML = visible.length
-        ? visible.map(a => animalCardHTML(a, {})).join('')
+        ? visible.map(a => animalCardHTML(a, { expanded: aExpanded })).join('')
         : '<div class="empty">Všechny chovy jsou skryté.</div>';
 
+    // Hidden zone never expands — it's a compact parking area.
     $('cnt-anim-hidden').textContent = hidden.length;
     hBody.innerHTML = hidden.length
-        ? hidden.map(a => animalCardHTML(a, {})).join('')
+        ? hidden.map(a => animalCardHTML(a, { expanded: false })).join('')
         : '<div class="tt-hidden-empty">Přetáhni sem chov pro skrytí.</div>';
 }
 
@@ -1344,35 +1505,77 @@ function fieldConditionBadge(f) {
 // renderer is a no-op.
 let _fieldsMemo = null;
 function renderFields(fields) {
+    const ownedOnly   = DashState.get('fieldsOwnedOnly',  true)  !== false;
+    const showDays    = DashState.get('fieldsShowDays',   true)  !== false;
+    const showChips   = DashState.get('fieldsShowChips',  true)  !== false;
+    const hideEmpty   = !!DashState.get('fieldsHideEmpty',   false);
+    const hideStubble = !!DashState.get('fieldsHideStubble', false);
+    const colSpray  = !!DashState.get('fieldsColSpray', false);
+    const colPlow   = !!DashState.get('fieldsColPlow',  false);
+    const colLime   = !!DashState.get('fieldsColLime',  false);
+    const colWeed   = !!DashState.get('fieldsColWeed',  false);
+    const colStone  = !!DashState.get('fieldsColStone', false);
+
+    const fCfgKey = [ownedOnly, showDays, showChips, hideEmpty, hideStubble, colSpray, colPlow, colLime, colWeed, colStone].join(',');
     const memoKey = JSON.stringify(fields)
         + '|' + [...TableTools.getHidden('fields')].sort().join(',')
         + '|' + (TableTools.getOrder('fields') || []).join(',')
-        + '|' + JSON.stringify(flashSnapshot('fields'));
+        + '|' + JSON.stringify(flashSnapshot('fields'))
+        + '|' + fCfgKey;
     if (memoKey === _fieldsMemo) return;
     _fieldsMemo = memoKey;
 
-    const owned = fields.filter(f => f.owned);
-    $('cnt-fields').textContent = `${owned.length} / ${fields.length}`;
+    const allOwned  = fields.filter(f => f.owned);
+    let displayed = ownedOnly ? allOwned : fields;
+    // O-1 state filters: hide empty (no crop) / hide stubble + withered.
+    if (hideEmpty)   displayed = displayed.filter(f => f.fruitTypeId);
+    if (hideStubble) displayed = displayed.filter(f => !f.isCut && !f.isWithered);
+    $('cnt-fields').textContent = `${allOwned.length} / ${fields.length}`;
     const tbody = $('fields-body');
     const hBody = $('fields-hidden-body');
 
-    if (!owned.length) {
-        tbody.innerHTML = '<tr><td colspan="7" class="empty">Žádná vlastněná pole.</td></tr>';
-        hBody.innerHTML = '<tr><td colspan="7" class="tt-hidden-empty">Přetáhni sem pole pro skrytí.</td></tr>';
+    // Extra column count for colspan calculations
+    const extraCount = [colSpray, colPlow, colLime, colWeed, colStone].filter(Boolean).length;
+    const colTotal = 6 + (showDays ? 1 : 0) + extraCount;
+
+    // Update thead dynamically to match visible columns
+    const theadRow = document.querySelector('table[data-sort-key="fields"] thead tr');
+    if (theadRow) {
+        const extraTh = [
+            colSpray ? '<th class="num" title="Hnojení (0–2; vyšší = pohnojeno)">Hnoj</th>' : '',
+            colPlow  ? '<th class="num" title="Potřebuje orbu">Orat</th>'         : '',
+            colLime  ? '<th class="num" title="Potřebuje vápno">Vápno</th>'       : '',
+            colWeed  ? '<th class="num" title="Úroveň plevele (0–3)">Plevel</th>' : '',
+            colStone ? '<th class="num" title="Úroveň kamenů (0–3)">Kameny</th>'  : '',
+        ].join('');
+        theadRow.innerHTML =
+            `<th class="num" title="Interní ID pole v mapě (NE číslo zemědělské půdy z UI)">#</th>
+             <th class="num" title="Číslo zemědělské půdy — to, co ukazuje hra">ZP</th>
+             <th>Plodina</th>
+             <th class="num">Rozloha</th>
+             <th>Stav</th>
+             <th>Růst</th>
+             ${showDays ? '<th class="num">Dní do sklizně</th>' : ''}
+             ${extraTh}`;
+    }
+
+    if (!displayed.length) {
+        tbody.innerHTML = `<tr><td colspan="${colTotal}" class="empty">Žádná ${ownedOnly ? 'vlastněná ' : ''}pole.</td></tr>`;
+        hBody.innerHTML = `<tr><td colspan="${colTotal}" class="tt-hidden-empty">Přetáhni sem pole pro skrytí.</td></tr>`;
         $('cnt-fields-hidden').textContent = 0;
         return;
     }
 
     const STATE_KEY = 'fields';
     const getKey = f => f.id;
-    const ordered = TableTools.applyOrder(owned, STATE_KEY, getKey);
+    const ordered = TableTools.applyOrder(displayed, STATE_KEY, getKey);
     const { visible, hidden } = TableTools.split(ordered, STATE_KEY, getKey);
 
     const rowHTML = (f) => {
         const stateTag = fieldStateTag(f);
         let growthCell;
         if (f.isReadyToHarvest)      growthCell = '<span class="c-green">100%</span>';
-        else if (f.fruitTypeId)      growthCell = bar(f.growthPercent ?? 0);
+        else if (f.fruitTypeId)      growthCell = bar(f.growthPercent ?? 0, 'bar-zoned');
         else                         growthCell = '—';
         const days = f.daysToHarvest > 0
             ? `<span class="c-yellow">${f.daysToHarvest}</span>`
@@ -1384,44 +1587,96 @@ function renderFields(fields) {
             ? `<span title="Zemědělská půda ${f.farmlandId} (z map UI)">${f.farmlandId}</span>`
             : '<span class="c-muted" title="Mod nezná farmland binding pro toto pole">—</span>';
         const flashCls = getFlashCls('fields', f.id);
+        // Spray (fertilising) level 0–2 — higher is better (green at 2, red at 0).
+        const sprayLvl = f.sprayLevel ?? 0;
+        const sprayCls = sprayLvl >= 2 ? 'c-green' : sprayLvl === 0 ? 'c-red' : 'c-yellow';
+        const extraTd = [
+            colSpray ? `<td class="num"><span class="${sprayCls}">${sprayLvl}/2</span></td>` : '',
+            colPlow  ? `<td class="num">${f.needsPlowing ? '✓' : '—'}</td>` : '',
+            colLime  ? `<td class="num">${f.needsLime    ? '✓' : '—'}</td>` : '',
+            colWeed  ? `<td class="num">${f.weedLevel  > 0 ? f.weedLevel  : '—'}</td>` : '',
+            colStone ? `<td class="num">${f.stoneLevel > 0 ? f.stoneLevel : '—'}</td>` : '',
+        ].join('');
         return `<tr class="${flashCls.trim()}" ${TableTools.dndAttrs(STATE_KEY, f.id)}>
             <td class="num">${f.id}</td>
             <td class="num">${farmlandCell}</td>
             <td>${fruitCell}${fieldConditionBadge(f)}</td>
             <td class="num"${f.farmlandAreaHa != null && f.farmlandAreaHa !== f.area ? ` title="Pole: ${f.area} ha · Parcela (Zemědělská půda): ${f.farmlandAreaHa} ha"` : ''}>${f.area} ha</td>
-            <td>${stateTag}${fieldNeedsChips(f)}</td>
-            <td style="min-width:120px">${growthCell}</td>
-            <td class="num">${days}</td>
+            <td>${stateTag}${showChips ? fieldNeedsChips(f) : ''}</td>
+            <td class="field-growth">${growthCell}</td>
+            ${showDays ? `<td class="num">${days}</td>` : ''}
+            ${extraTd}
         </tr>`;
     };
 
     tbody.innerHTML = visible.length
         ? visible.map(rowHTML).join('')
-        : '<tr><td colspan="7" class="empty">Všechna pole jsou skrytá.</td></tr>';
+        : `<tr><td colspan="${colTotal}" class="empty">Všechna pole jsou skrytá.</td></tr>`;
 
     $('cnt-fields-hidden').textContent = hidden.length;
     hBody.innerHTML = hidden.length
         ? hidden.map(rowHTML).join('')
-        : '<tr><td colspan="7" class="tt-hidden-empty">Přetáhni sem pole pro skrytí.</td></tr>';
+        : `<tr><td colspan="${colTotal}" class="tt-hidden-empty">Přetáhni sem pole pro skrytí.</td></tr>`;
 }
 
 // Persistent collapse state — survives WebSocket re-renders.
-// Default: every newly seen group starts collapsed (compact view).
+// defaultCollapsed applies only to groups not yet seen (user hasn't interacted).
 const collapsedGroups = new Set();
 const seenGroups      = new Set();
-function groupState(key) {
+function groupState(key, defaultCollapsed = true) {
     if (!seenGroups.has(key)) {
         seenGroups.add(key);
-        collapsedGroups.add(key);  // default: collapsed
+        if (defaultCollapsed) collapsedGroups.add(key);
     }
     return collapsedGroups.has(key);
 }
 
+// Deterministic commodity → palette colour (fixed CSS-var cycle, NOT hash→HSL
+// which muddies in light/high-contrast themes). Cached so a commodity keeps
+// its colour even when hideEmpty reorders the list.
+const STORAGE_PALETTE = ['var(--accent)', 'var(--accent2)', 'var(--teal)', 'var(--orange)', 'var(--accent3)', 'var(--red)'];
+const _commodityColor = new Map();
+function colorForCommodity(name) {
+    if (_commodityColor.has(name)) return _commodityColor.get(name);
+    let h = 0;
+    for (let i = 0; i < (name || '').length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
+    const c = STORAGE_PALETTE[h % STORAGE_PALETTE.length];
+    _commodityColor.set(name, c);
+    return c;
+}
+
+// Proportional stacked bar for a storage header — fills the empty header
+// centre with a colour-coded breakdown of what's inside + the free remainder.
+// Segments under 3 % merge into a neutral "ostatní" block.
+function stackBarHTML(items, totalCap, totalAmount) {
+    const parts = [];
+    let other = 0;
+    for (const it of items) {
+        const amt = it.amount || 0;
+        if (amt <= 0) continue;
+        if (totalCap > 0 && amt / totalCap < 0.03) { other += amt; continue; }
+        const ipct = totalCap > 0 ? Math.round(amt / totalCap * 100) : 0;
+        parts.push(`<span title="${esc(it.name)}: ${fmt(amt)} l (${ipct} %)" style="flex:${amt}; background:${colorForCommodity(it.name)}"></span>`);
+    }
+    if (other > 0) parts.push(`<span title="Ostatní: ${fmt(other)} l" style="flex:${other}; background:color-mix(in srgb, var(--text) 30%, transparent)"></span>`);
+    const free = Math.max(0, totalCap - totalAmount);
+    if (free > 0) parts.push(`<span class="st-seg-free" title="Volné: ${fmt(free)} l" style="flex:${free}"></span>`);
+    return `<span class="st-stack">${parts.join('')}</span>`;
+}
+
 function storageRowsHTML(st, opts) {
+    const expanded = !!(opts && opts.expanded);
+    const defaultCollapsed = DashState.get('storageDefaultCollapsed', true) !== false;
+    const hideEmpty   = !!DashState.get('storageHideEmpty',    false);
+    const showCap     = DashState.get('storageShowCapacity', true) !== false;
+    const showPct     = DashState.get('storageShowPercent',  true) !== false;
+    const showBar     = DashState.get('storageShowBar',      true) !== false;
+
     const key = `${st.type || 'silo'}:${st.storageName}`;
-    const collapsed = groupState(key);
+    const collapsed = groupState(key, defaultCollapsed);
     const indicator = collapsed ? '▶' : '▼';
-    const items = st.items || [];
+    let items = st.items || [];
+    if (hideEmpty) items = items.filter(i => (i.amount || 0) > 0);
     const totalAmount = items.reduce((s, i) => s + (i.amount || 0), 0);
     const totalCap    = items.reduce((s, i) => s + (i.capacity || 0), 0);
     const pct = totalCap > 0 ? Math.round(totalAmount / totalCap * 100) : 0;
@@ -1431,32 +1686,58 @@ function storageRowsHTML(st, opts) {
         ? `<span class="group-meta">${items.length} ${itemWord} · ${fmt(totalAmount)}${totalCap > 0 ? ' / ' + fmt(totalCap) : ''} l</span>`
         : `<span class="group-meta">${t('prázdné')}</span>`;
     const pctTxt = totalCap > 0 ? `<span class="silo-pct">${pct} %</span>` : '';
-    // Flash uses a different (dedup) key so two storages with identical
-    // `${type}:${name}` don't share flash state. Hide/collapse keep `key`.
     const fKey = storageFlashKey(st);
     const hdrFlashCls = getFlashCls('storage', `header::${fKey}`);
-    const header = `<tr class="st-row collapsible${hdrFlashCls}" ${TableTools.dndAttrs('storages', key)} data-group="${esc(key)}"><td colspan="4"><span class="group-toggle">${indicator}</span> ${donut} ${esc(st.storageName)} ${summary} ${pctTxt}</td></tr>`;
-    const rows = items.map(item => {
-        const ipct = item.capacity > 0 ? Math.round(item.amount / item.capacity * 100) : 0;
-        const cls = ipct >= 95 ? 'full' : ipct >= 70 ? 'warn' : '';
-        const hidden = collapsed ? ' hidden-row' : '';
-        const flashCls = getFlashCls('storage', `item::${fKey}::${item.name}`);
-        return `<tr class="group-item${hidden}${flashCls}" data-group="${esc(key)}">
-            <td>${esc(item.name)}</td>
-            <td class="num">${fmt(item.amount)}</td>
-            <td class="num">${item.capacity > 0 ? fmt(item.capacity) : '—'}</td>
-            <td><div class="bar-wrap"><div class="bar-bg"><div class="bar-fill ${cls}" style="width:${ipct}%"></div></div><span class="bar-pct">${item.capacity > 0 ? ipct+'%' : ''}</span></div></td>
-        </tr>`;
-    }).join('');
+
+    // Expanded: stacked overview bar fills the empty header centre (≥2 commodities).
+    const segCount = items.filter(i => (i.amount || 0) > 0).length;
+    const stack = (expanded && segCount >= 2 && totalCap > 0)
+        ? `${stackBarHTML(items, totalCap, totalAmount)}<span class="st-free">volné ${fmt(totalCap - totalAmount)} l</span>`
+        : '';
+
+    const header = `<tr class="st-row collapsible${hdrFlashCls}" ${TableTools.dndAttrs('storages', key)} data-group="${esc(key)}"><td colspan="4"><span class="group-toggle">${indicator}</span> ${donut} ${esc(st.storageName)} ${summary} ${stack} ${pctTxt}</td></tr>`;
+
+    let rows;
+    if (expanded) {
+        // Compact 2-column body: dot legend + name + amount + %. No per-item
+        // bar (the header stacked bar carries the visual; width goes to col 2).
+        const hiddenCls = collapsed ? ' hidden-row' : '';
+        const itemDivs = items.map(item => {
+            const ipct = item.capacity > 0 ? Math.round(item.amount / item.capacity * 100) : 0;
+            const fcls = getFlashCls('storage', `item::${fKey}::${item.name}`);
+            const pctTag = (showPct && item.capacity > 0) ? `<span class="st-item-pct">${ipct}%</span>` : '';
+            return `<div class="st-item${fcls}"><span class="st-dot" style="background:${colorForCommodity(item.name)}"></span><span class="st-item-name">${esc(item.name)}</span><span class="st-item-amt">${fmt(item.amount)} l</span>${pctTag}</div>`;
+        }).join('');
+        rows = `<tr class="group-item st-body-row${hiddenCls}" data-group="${esc(key)}"><td colspan="4"><div class="st-items">${itemDivs}</div></td></tr>`;
+    } else {
+        rows = items.map(item => {
+            const ipct = item.capacity > 0 ? Math.round(item.amount / item.capacity * 100) : 0;
+            const cls = ipct >= 95 ? 'full' : ipct >= 70 ? 'warn' : '';
+            const hidden = collapsed ? ' hidden-row' : '';
+            const flashCls = getFlashCls('storage', `item::${fKey}::${item.name}`);
+            const barHTML = showBar
+                ? `<div class="bar-bg"><div class="bar-fill ${cls}" style="width:${ipct}%"></div></div>${showPct && item.capacity > 0 ? `<span class="bar-pct">${ipct}%</span>` : ''}`
+                : (showPct && item.capacity > 0 ? `<span class="bar-pct">${ipct}%</span>` : '');
+            return `<tr class="group-item${hidden}${flashCls}" data-group="${esc(key)}">
+                <td>${esc(item.name)}</td>
+                <td class="num">${fmt(item.amount)}</td>
+                <td class="num">${showCap && item.capacity > 0 ? fmt(item.capacity) : '—'}</td>
+                <td><div class="bar-wrap">${barHTML}</div></td>
+            </tr>`;
+        }).join('');
+    }
     return header + rows;
 }
 
 let _storageMemo = null;
 function renderStorage(storage) {
+    const sCfgKeys = ['storageExpanded','storageDefaultCollapsed','storageHideEmpty',
+        'storageShowCapacity','storageShowPercent','storageShowBar'];
     const memoKey = JSON.stringify(storage)
         + '|' + [...TableTools.getHidden('storages')].sort().join(',')
         + '|' + (TableTools.getOrder('storages') || []).join(',')
-        + '|' + flashSnapshot('storage');
+        + '|' + flashSnapshot('storage')
+        + '|' + sCfgKeys.map(k => DashState.get(k, '')).join(',');
     if (memoKey === _storageMemo) return;
     _storageMemo = memoKey;
 
@@ -1492,12 +1773,13 @@ function renderStorage(storage) {
     visible.length = 0; visible.push(...ordered);
     hiddenList.sort((a, b) => (a.storageName || '').localeCompare(b.storageName || ''));
 
-    tbody.innerHTML = visible.map(st => storageRowsHTML(st, {})).join('')
+    const stExpanded = !!DashState.get('storageExpanded', false);
+    tbody.innerHTML = visible.map(st => storageRowsHTML(st, { expanded: stExpanded })).join('')
         || '<tr><td colspan="4" class="empty">Všechny sklady jsou skryté.</td></tr>';
 
     $('cnt-stor-hidden').textContent = hiddenList.length;
     hBody.innerHTML = hiddenList.length
-        ? hiddenList.map(st => storageRowsHTML(st, {})).join('')
+        ? hiddenList.map(st => storageRowsHTML(st, { expanded: stExpanded })).join('')
         : '<tr><td colspan="4" class="tt-hidden-empty">Přetáhni sem sklad pro skrytí.</td></tr>';
 }
 
@@ -1508,9 +1790,19 @@ const PRODUCTION_STATUS_LABEL = {
     outputFull: '<span class="tag tag-growing">výstup plný</span>',
 };
 
+// Throughput (l/h) of a recipe = cycles/hour × total output volume per cycle.
+function recipeLph(r) {
+    return r.cyclesPerHour ? Math.round(r.cyclesPerHour * (r.outputs || []).reduce((s, o) => s + (o.amount || 0), 0)) : 0;
+}
+
 function productionRowsHTML(p, opts) {
+    const expanded          = !!(opts && opts.expanded);
+    const defaultCollapsed  = DashState.get('productionsDefaultCollapsed', true) !== false;
+    const showInputsOutputs = DashState.get('productionsShowInputs',       true) !== false;
+    const showCycles        = DashState.get('productionShowCycles',        true) !== false;
+
     const key = `prod:${p.name}`;
-    const collapsed = groupState(key);
+    const collapsed = groupState(key, defaultCollapsed);
     const indicator = collapsed ? '▶' : '▼';
     const items   = p.items || [];
     const recipes = p.productions || [];
@@ -1521,11 +1813,55 @@ function productionRowsHTML(p, opts) {
     const activeRecipes = recipes.filter(r => r.status === 'active').length;
     const recipeWord = recipes.length === 1 ? t('recept') : t('recepty');
     const runningTxt = activeRecipes ? ` · ${activeRecipes} ${t('běží')}` : '';
-    const summary = `<span class="group-meta">${recipes.length} ${recipeWord}${runningTxt}${items.length ? ' · ' + fmt(totalAmount) + (totalCap > 0 ? ' / ' + fmt(totalCap) : '') + ' l' : ''}</span>`;
+    // Σ €/h across running recipes — the "is this making or losing money" number.
+    // Header total shown only in expanded mode (keeps the compact header stable).
+    const costSum = recipes.filter(r => r.status === 'active').reduce((s, r) => s + (r.costsPerHour || 0), 0);
+    const costTxt = (expanded && costSum > 0) ? ` · Σ ${fmt(costSum)} €/h` : '';
+    const summary = `<span class="group-meta">${recipes.length} ${recipeWord}${runningTxt}${items.length ? ' · ' + fmt(totalAmount) + (totalCap > 0 ? ' / ' + fmt(totalCap) : '') + ' l' : ''}${costTxt}</span>`;
     const pctTxt = totalCap > 0 ? `<span class="silo-pct">${pct} %</span>` : '';
     const hdrFlashCls = getFlashCls('productions', `header::${p.name}`);
     const header = `<tr class="st-row collapsible${hdrFlashCls}" ${TableTools.dndAttrs('productions', key)} data-group="${esc(key)}"><td colspan="4"><span class="group-toggle">${indicator}</span> ${donut} ${esc(p.name)} ${summary} ${pctTxt}</td></tr>`;
     const hiddenCls = collapsed ? ' hidden-row' : '';
+
+    // ── Expanded variant B: stocks (left) · recipes (right) ──────────────────
+    if (expanded && recipes.length) {
+        const inNames  = new Set(recipes.flatMap(r => (r.inputs  || []).map(i => i.name)));
+        const outNames = new Set(recipes.flatMap(r => (r.outputs || []).map(o => o.name)));
+        const stockRow = (it) => {
+            const ipct = it.capacity > 0 ? Math.round(it.amount / it.capacity * 100) : 0;
+            const fcls = getFlashCls('productions', `item::${p.name}::${it.name}`);
+            const mid  = (inNames.has(it.name) && outNames.has(it.name)) ? '🔁 ' : '';
+            return `<div class="ps-stock-row${fcls}"><span class="ps-stock-name">${mid}${esc(it.name)}</span>${bar(ipct)}<span class="ps-stock-amt">${fmt(it.amount)} l</span></div>`;
+        };
+        const outItems = items.filter(it => outNames.has(it.name) && !inNames.has(it.name));
+        const inItems  = items.filter(it => !(outNames.has(it.name) && !inNames.has(it.name)));
+        const stockCol = `<div class="ps-col-stock">
+            ${inItems.length  ? `<div class="ps-group-label">📥 Vstupy</div>${inItems.map(stockRow).join('')}`   : ''}
+            ${outItems.length ? `<div class="ps-group-label">📤 Výstupy</div>${outItems.map(stockRow).join('')}` : ''}
+            ${items.length === 0 ? '<div class="ps-empty c-muted">Žádné zásoby</div>' : ''}
+        </div>`;
+
+        const recipeRow = (r) => {
+            const statusCls = r.status === 'active' ? 'is-running'
+                            : r.status === 'noInput' ? 'is-missing'
+                            : r.status === 'outputFull' ? 'is-full' : '';
+            const tag = PRODUCTION_STATUS_LABEL[r.status] || `<span class="tag">${esc(r.status || '?')}</span>`;
+            const io = showInputsOutputs
+                ? `<span class="ps-recipe-io">${(r.inputs || []).map(i => esc(i.name)).join('+') || '—'}→${(r.outputs || []).map(o => esc(o.name)).join('+') || '—'}</span>`
+                : '';
+            const lph  = recipeLph(r);
+            const thr  = (showCycles && lph) ? `<span class="ps-throughput">${fmt(lph)} l/h</span>` : '';
+            const cost = (r.status === 'active' && r.costsPerHour) ? `<span class="ps-cost">${fmt(r.costsPerHour)} €/h</span>` : '';
+            return `<div class="ps-recipe-row ${statusCls}"><span class="ps-recipe-name"><strong>${esc(r.name)}</strong></span>${io}${thr}${cost}${tag}</div>`;
+        };
+        const lphSum  = recipes.reduce((s, r) => s + recipeLph(r), 0);
+        const sumRow  = recipes.length > 1 ? `<div class="ps-sum c-muted">Σ ${fmt(lphSum)} l/h · ${fmt(costSum)} €/h</div>` : '';
+        const recipeCol = `<div class="ps-col-recipes"><div class="ps-group-label">⚙️ Recepty</div>${recipes.map(recipeRow).join('')}${sumRow}</div>`;
+
+        const body = `<tr class="group-item prod-split${hiddenCls}" data-group="${esc(key)}"><td colspan="4"><div class="ps-grid">${stockCol}${recipeCol}</div></td></tr>`;
+        return header + body;
+    }
+
     const stockRows = items.map(item => {
         const ipct = item.capacity > 0 ? Math.round(item.amount / item.capacity * 100) : 0;
         const cls = ipct >= 95 ? 'full' : ipct >= 70 ? 'warn' : '';
@@ -1539,11 +1875,14 @@ function productionRowsHTML(p, opts) {
     }).join('');
     const recipeRows = recipes.map(r => {
         const tag = PRODUCTION_STATUS_LABEL[r.status] || `<span class="tag">${esc(r.status || '?')}</span>`;
-        const ins  = (r.inputs  || []).map(i => `${esc(i.name)} ${fmt(i.amount)}l`).join(' + ') || '—';
-        const outs = (r.outputs || []).map(o => `${esc(o.name)} ${fmt(o.amount)}l`).join(' + ') || '—';
+        const ins  = showInputsOutputs ? ((r.inputs  || []).map(i => `${esc(i.name)} ${fmt(i.amount)}l`).join(' + ') || '—') : '';
+        const outs = showInputsOutputs ? ((r.outputs || []).map(o => `${esc(o.name)} ${fmt(o.amount)}l`).join(' + ') || '—') : '';
+        const ioStr = showInputsOutputs ? `${ins} → ${outs}` : '';
+        const cycleStr = (showCycles && r.cyclesPerHour) ? ` · ${r.cyclesPerHour} /hod` : '';
+        const sub = (ioStr || cycleStr) ? `<br><span class="c-muted" style="font-size:0.85em">${ioStr}${cycleStr}</span>` : '';
         return `<tr class="group-item${hiddenCls}" data-group="${esc(key)}">
-            <td>⚙️ <strong>${esc(r.name)}</strong><br><span class="c-muted" style="font-size:0.85em">${ins} → ${outs}${r.cyclesPerHour ? ' · ' + r.cyclesPerHour + ' /hod' : ''}</span></td>
-            <td colspan="2" class="num">${r.cyclesPerHour ? fmt(r.cyclesPerHour) + ' /h' : '—'}</td>
+            <td>⚙️ <strong>${esc(r.name)}</strong>${sub}</td>
+            <td colspan="2" class="num">${showCycles && r.cyclesPerHour ? fmt(r.cyclesPerHour) + ' /h' : '—'}</td>
             <td>${tag}</td>
         </tr>`;
     }).join('');
@@ -1553,12 +1892,17 @@ function productionRowsHTML(p, opts) {
 
 let _productionsMemo = null;
 function renderProductions(productions) {
+    const pCfgKeys = ['productionsExpanded','productionsActiveOnly','productionsDefaultCollapsed',
+        'productionsShowInputs','productionShowCycles'];
     const memoKey = JSON.stringify(productions)
         + '|' + [...TableTools.getHidden('productions')].sort().join(',')
         + '|' + (TableTools.getOrder('productions') || []).join(',')
-        + '|' + flashSnapshot('productions');
+        + '|' + flashSnapshot('productions')
+        + '|' + pCfgKeys.map(k => DashState.get(k, '')).join(',');
     if (memoKey === _productionsMemo) return;
     _productionsMemo = memoKey;
+
+    const activeOnly = !!DashState.get('productionsActiveOnly', false);
 
     $('cnt-productions').textContent = productions.length;
     const tbody = $('productions-body');
@@ -1572,11 +1916,14 @@ function renderProductions(productions) {
     }
 
     const hidden = TableTools.getHidden('productions');
-    const visible = [];
+    let visible = [];
     const hiddenList = [];
     for (const p of productions) {
         const key = `prod:${p.name}`;
         (hidden.has(key) ? hiddenList : visible).push(p);
+    }
+    if (activeOnly) {
+        visible = visible.filter(p => (p.productions || []).some(r => r.status === 'active'));
     }
     // Custom D&D order wins; otherwise: active first, then by name.
     const customOrder = TableTools.getOrder('productions');
@@ -1594,12 +1941,13 @@ function renderProductions(productions) {
     }
     hiddenList.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
 
-    tbody.innerHTML = visible.map(p => productionRowsHTML(p, {})).join('')
+    const pExpanded = !!DashState.get('productionsExpanded', false);
+    tbody.innerHTML = visible.map(p => productionRowsHTML(p, { expanded: pExpanded })).join('')
         || '<tr><td colspan="4" class="empty">Všechny výrobny jsou skryté.</td></tr>';
 
     $('cnt-prod-hidden').textContent = hiddenList.length;
     hBody.innerHTML = hiddenList.length
-        ? hiddenList.map(p => productionRowsHTML(p, {})).join('')
+        ? hiddenList.map(p => productionRowsHTML(p, { expanded: pExpanded })).join('')
         : '<tr><td colspan="4" class="tt-hidden-empty">Přetáhni sem výrobnu pro skrytí.</td></tr>';
 }
 
@@ -1619,19 +1967,21 @@ function buildStockMap(data) {
 
 let _pricesMemo = null;
 function renderPrices(prices) {
-    // Prices' stock badges depend on the storage + productions data via
-    // buildStockMap — include those in the memo key so a silo change forces
-    // a re-render even if the sell-point prices themselves were stable.
     const d = window.__lastData || {};
+    const pricesCfgKeys = ['pricesOwnedOnly','pricesShowStock'];
     const memoKey = JSON.stringify(prices)
         + '|' + JSON.stringify(d.storage || [])
         + '|' + JSON.stringify(d.productions || [])
         + '|' + [...TableTools.getHidden('prices')].sort().join(',')
         + '|' + [...TableTools.getHidden('priceItems')].sort().join(',')
         + '|' + (TableTools.getOrder('prices') || []).join(',')
-        + '|' + flashSnapshot('prices');
+        + '|' + flashSnapshot('prices')
+        + '|' + pricesCfgKeys.map(k => DashState.get(k, '')).join(',');
     if (memoKey === _pricesMemo) return;
     _pricesMemo = memoKey;
+
+    const ownedOnly  = !!DashState.get('pricesOwnedOnly', false);
+    const showStock  = DashState.get('pricesShowStock', true) !== false;
 
     const tbody = $('prices-body');
     const hTbody = $('prices-hidden-body');
@@ -1663,7 +2013,8 @@ function renderPrices(prices) {
             if (aHas !== bHas) return bHas - aHas;
             return (a.name || '').localeCompare(b.name || '');
         });
-        const allItems = sp.items || [];
+        const allItemsRaw = sp.items || [];
+        const allItems = ownedOnly ? allItemsRaw.filter(it => stock[it.name] > 0) : allItemsRaw;
         const visibleItems = sortItems(allItems.filter(it => !hiddenItems.has(String(it.name))));
         const hiddenItemRows = sortItems(allItems.filter(it => hiddenItems.has(String(it.name))));
 
@@ -1674,7 +2025,7 @@ function renderPrices(prices) {
             const cls = item.pricePerTon >= 800 ? 'c-green' : item.pricePerTon >= 500 ? 'c-yellow' : '';
             const hCls = collapsed ? ' hidden-row' : '';
             const has = stock[item.name] || 0;
-            const stockTxt = has > 0 ? ` <span class="c-muted" style="font-size:0.85em">(${fmt(has)} l)</span>` : '';
+            const stockTxt = (showStock && has > 0) ? ` <span class="c-muted" style="font-size:0.85em">(${fmt(has)} l)</span>` : '';
             const itemBtn = canHideItem
                 ? TableTools.hideBtn(ITEM_KEY, item.name, 'Skrýt komoditu')
                 : TableTools.unhideBtn(ITEM_KEY, item.name, 'Zobrazit komoditu');
@@ -1770,21 +2121,65 @@ window.applyHiddenSections = applyHiddenSections;
 // columns flow independently and there are no vertical gaps below shorter
 // neighbours of sec-fields. Called after every render that might have
 // changed section heights (WS tick that bypassed the memo, drag end, etc.)
+// Balanced masonry via explicit grid placement. CSS auto-flow (even `dense`)
+// leaves big gaps when two span-2 sections (e.g. Pole + expanded Vozidla) end
+// up stacked in the left columns while the single-column sections pile to one
+// side. Instead we run a greedy shortest-column packer in JS: each section, in
+// DOM order, is placed into the column (or adjacent column-pair, for span-2)
+// whose current height is lowest, and gets an explicit grid-column / grid-row.
+// This keeps the grid balanced for ANY user section order. (1-column viewport
+// skips placement and uses natural flow.)
 function applyMasonrySpans() {
     const grid = document.getElementById('masonry');
     if (!grid) return;
-    // Keep these in sync with .masonry { grid-auto-rows / gap } in style.css.
-    const rowH = 2;
-    const gap  = 5;
-    grid.querySelectorAll(':scope > .section').forEach(section => {
-        if (section.style.display === 'none') return;
-        // Strip the inline span so the natural height can be measured.
-        section.style.gridRow = '';
-        const h = section.getBoundingClientRect().height;
-        if (!h) return;
-        const span = Math.ceil((h + gap) / (rowH + gap));
-        section.style.gridRow = 'span ' + span;
+    // Keep in sync with .masonry { grid-auto-rows / gap } in style.css.
+    const ROW = 2, GAP = 5, UNIT = ROW + GAP;
+    const cs = getComputedStyle(grid);
+    const colCount = (cs.gridTemplateColumns.match(/px|fr|%/g) || []).length || cs.gridTemplateColumns.split(' ').filter(Boolean).length;
+
+    const sections = [...grid.querySelectorAll(':scope > .section')].filter(s => s.style.display !== 'none');
+    if (!sections.length) return;
+
+    if (colCount <= 1) {
+        // Single column — clear explicit placement, let it stack naturally.
+        for (const s of sections) { s.style.gridColumn = ''; s.style.gridRow = ''; }
+        return;
+    }
+
+    // Pass 1 — set each section's column SPAN (not start) so it measures at the
+    // correct width, then read natural heights.
+    const items = sections.map(s => {
+        const wide = s.classList.contains('sec-fields') || /(^|\s)expanded-/.test(s.className);
+        const span = wide ? Math.min(2, colCount) : 1;
+        s.style.gridRow = '';
+        s.style.gridColumn = span === 2 ? 'span 2' : '';
+        return { s, span, h: 0 };
     });
+    for (const it of items) it.h = it.s.getBoundingClientRect().height;
+
+    // Pass 2 — greedy shortest-column placement with explicit start + span.
+    // Wide (span-2) sections are placed FIRST so they sit side-by-side across
+    // the top band (e.g. Pole + expanded Vozidla), instead of stacking in the
+    // left columns and forcing every single-column section to one side. Within
+    // each group DOM order is preserved (stable sort). This keeps the grid
+    // balanced regardless of how the user ordered the sections.
+    const placeOrder = items.slice().sort((a, b) => b.span - a.span);
+    const colTop = new Array(colCount).fill(0);   // current px height per column
+    for (const it of placeOrder) {
+        if (!it.h) continue;
+        let bestC = 0, bestTop = Infinity;
+        for (let c = 0; c + it.span <= colCount; c++) {
+            let top = 0;
+            for (let k = c; k < c + it.span; k++) top = Math.max(top, colTop[k]);
+            if (top < bestTop - 0.5) { bestTop = top; bestC = c; }
+        }
+        const rowStart = Math.round(bestTop / UNIT) + 1;
+        const rowSpan  = Math.max(1, Math.ceil((it.h + GAP) / UNIT));
+        it.s.style.gridColumn = `${bestC + 1} / span ${it.span}`;
+        it.s.style.gridRow    = `${rowStart} / span ${rowSpan}`;
+        const newTop = (rowStart - 1) * UNIT + rowSpan * UNIT;
+        for (let k = bestC; k < bestC + it.span; k++) colTop[k] = newTop;
+    }
 }
 
 // Existing call sites still invoke relayoutMasonry — alias it to the new
@@ -1826,6 +2221,194 @@ window.addEventListener('DOMContentLoaded', () => {
     const btnHideZero = document.getElementById('btn-hide-zero-prices');
     if (btnHideZero) btnHideZero.addEventListener('click', hideAllZeroStockPrices);
 
+    // ── Per-section settings panels ──────────────────────────────────────────
+    if (window.SectionCfg) {
+        SectionCfg.init();
+
+        // Flash sub-channel item — lives in the flashEnabled map (not a plain
+        // DashState key), so it carries its own get/set + rerender onchange.
+        const _flashItem = (section, channel, label) => ({
+            key: `flash:${section}:${channel}`,
+            label,
+            default: true,
+            get: () => isFlashChannelEnabled(section, channel),
+            set: v => setFlashChannel(section, channel, v),
+            onchange: () => { if (window.FS25App && window.FS25App.rerender) window.FS25App.rerender(); },
+        });
+
+        SectionCfg.define('fields', {
+            title: '🌱 Pole',
+            basic: [
+                { key: 'fieldsOwnedOnly', label: 'Zobrazit jen vlastní pole',   default: true  },
+                { key: 'fieldsShowDays',  label: 'Sloupec Dní do sklizně',      default: true  },
+                { key: 'fieldsShowChips', label: 'Inline akce (Orat, Sít, …)',  default: true  },
+            ],
+            advanced: [
+                {
+                    group: 'Filtr stavu',
+                    items: [
+                        { key: 'fieldsHideEmpty',   label: 'Skrýt prázdná pole',          default: false },
+                        { key: 'fieldsHideStubble', label: 'Skrýt strniště + zvadlá',     default: false },
+                    ],
+                },
+                {
+                    group: 'Extra sloupce',
+                    items: [
+                        { key: 'fieldsColSpray', label: 'Hnojení (0–2)',             default: false },
+                        { key: 'fieldsColPlow',  label: 'Orat (potřebuje orbu)',     default: false },
+                        { key: 'fieldsColLime',  label: 'Vápno (potřebuje vápno)',   default: false },
+                        { key: 'fieldsColWeed',  label: 'Plevel (0–3)',              default: false },
+                        { key: 'fieldsColStone', label: 'Kameny (0–3)',              default: false },
+                    ],
+                },
+            ],
+        });
+
+        SectionCfg.define('vehicles', {
+            title: '🚜 Vozidla',
+            basic: [
+                { key: 'vehiclesExpanded',            label: 'Rozšířené zobrazení (2 sloupce)', default: false, expanded: true },
+                { key: 'vehicleShowCondition',         label: 'Kondice + rychlost',              default: true  },
+                { key: 'vehicleShowEmptyImplements',   label: 'Prázdné nářadí v základním pohledu', default: true },
+                { key: 'vehicleHideAir',               label: 'Skrýt vzduch (AIR)',              default: false },
+                { key: 'vehiclesActiveOnly',           label: 'Jen pracující vozidla',           default: false },
+            ],
+            advanced: [
+                {
+                    group: 'Vozidlo',
+                    items: [
+                        { key: 'vehicleShowEngineHours', label: 'Motorové hodiny',    default: true  },
+                        { key: 'vehicleShowWorkerBadge', label: 'AI/CP/AD worker badge', default: true },
+                        { key: 'vehicleShowWorkerETA',   label: 'ETA u workera',      default: true  },
+                    ],
+                },
+                {
+                    group: 'Nářadí – skrýt skupiny',
+                    note: 'Ostatní typy (voda, mléko, mod-typy) se zobrazují vždy.',
+                    items: [
+                        { key: 'vehicleImplHideCrops',   label: 'Plodiny (obilí, řepka, …)',      default: false },
+                        { key: 'vehicleImplHideLiquids', label: 'Kapaliny (hnojivo, herbicid)',    default: false },
+                        { key: 'vehicleImplHideSolids',  label: 'Pevné vstupy (semena, vápno)',    default: false },
+                        { key: 'vehicleImplHideBiomasa', label: 'Biomasa (tráva, siláž, sláma)',   default: false },
+                    ],
+                },
+            ],
+        });
+
+        SectionCfg.define('animals', {
+            title: '🐄 Zvířata',
+            basic: [
+                { key: 'animalsExpanded',         label: 'Rozšířené zobrazení (2 sloupce)', default: false, expanded: true },
+                { key: 'animalsShowAlarm',         label: 'Alarm badge (Doplnit/Odvézt)',   default: true  },
+                { key: 'animalsShowReproduction',  label: 'Reprodukce badge',               default: true  },
+            ],
+            advanced: [
+                {
+                    group: 'Vstupy',
+                    items: [
+                        { key: 'animalsShowFood',    label: 'Krmivo (K)',     default: true },
+                        { key: 'animalsShowWater',   label: 'Voda (V)',       default: true },
+                        { key: 'animalsShowBedding', label: 'Podestýlka (P)', default: true },
+                    ],
+                },
+                {
+                    group: 'Výstupy',
+                    items: [
+                        { key: 'animalsShowMilk',   label: 'Mléko (M)',  default: true },
+                        { key: 'animalsShowManure', label: 'Hnůj (H)',   default: true },
+                        { key: 'animalsShowSlurry', label: 'Kejda (Kj)', default: true },
+                    ],
+                },
+                {
+                    group: 'Práh alarmu',
+                    note: 'Kdy se rozsvítí ⚠ — nízké vstupy / plné výstupy.',
+                    items: [
+                        { key: 'animalsAlarmInput', label: 'Vstupy pod', type: 'select', default: 25, options: [
+                            { value: 10, label: '10 %' }, { value: 25, label: '25 %' },
+                            { value: 40, label: '40 %' }, { value: 50, label: '50 %' } ] },
+                        { key: 'animalsAlarmOutput', label: 'Výstupy nad', type: 'select', default: 90, options: [
+                            { value: 75, label: '75 %' }, { value: 85, label: '85 %' },
+                            { value: 90, label: '90 %' }, { value: 95, label: '95 %' } ] },
+                    ],
+                },
+            ],
+        });
+
+        SectionCfg.define('storage', {
+            title: '📦 Sklady',
+            basic: [
+                { key: 'storageExpanded',         label: 'Rozšířené zobrazení (2 sloupce)', default: false, expanded: true },
+                { key: 'storageDefaultCollapsed',  label: 'Nové skupiny sbalit',             default: true  },
+                { key: 'storageHideEmpty',         label: 'Skrýt komodity s 0 l',            default: false },
+            ],
+            advanced: [
+                {
+                    group: 'Zobrazení',
+                    items: [
+                        { key: 'storageShowCapacity', label: 'Kapacita (l)',    default: true },
+                        { key: 'storageShowPercent',  label: '% zaplnění',     default: true },
+                        { key: 'storageShowBar',      label: 'Progress bar',   default: true },
+                    ],
+                },
+                {
+                    group: 'Zvýraznění změn (flash)',
+                    note: 'Hlavní vypínač flashe je v hlavičce sekce.',
+                    items: [
+                        _flashItem('storage', 'header', 'Souhrn skladu'),
+                        _flashItem('storage', 'item',   'Jednotlivé komodity'),
+                    ],
+                },
+            ],
+        });
+
+        SectionCfg.define('productions', {
+            title: '🏭 Výrobny',
+            basic: [
+                { key: 'productionsExpanded',         label: 'Rozšířené zobrazení (2 sloupce)', default: false, expanded: true },
+                { key: 'productionsActiveOnly',        label: 'Zobrazit jen aktivní výrobny',    default: false },
+                { key: 'productionsDefaultCollapsed',  label: 'Nové skupiny sbalit',             default: true  },
+            ],
+            advanced: [
+                {
+                    group: 'Detail receptury',
+                    items: [
+                        { key: 'productionsShowInputs', label: 'Vstupy + výstupy receptury', default: true },
+                        { key: 'productionShowCycles',  label: 'Cykly / hodinu',             default: true },
+                    ],
+                },
+                {
+                    group: 'Zvýraznění změn (flash)',
+                    note: 'Hlavní vypínač flashe je v hlavičce sekce.',
+                    items: [
+                        _flashItem('productions', 'header', 'Souhrn výrobny'),
+                        _flashItem('productions', 'item',   'Jednotlivé zásobníky'),
+                    ],
+                },
+            ],
+        });
+
+        SectionCfg.define('prices', {
+            title: '💰 Výkupní ceny',
+            basic: [
+                { key: 'pricesOwnedOnly', label: 'Jen komodity s mým skladem', default: false },
+                { key: 'pricesShowStock', label: 'Zobrazit dostupné množství', default: true  },
+            ],
+            advanced: [],
+        });
+
+        // Wire ⚙ buttons
+        document.querySelectorAll('.sec-cfg-btn').forEach(btn => {
+            btn.addEventListener('click', e => {
+                e.stopPropagation();
+                SectionCfg.toggle(btn.dataset.secCfg, btn);
+            });
+        });
+
+        // Apply expanded states + dirty indicators from DashState on initial load
+        SectionCfg.applyAllExpanded();
+        SectionCfg.applyDirtyIndicators();
+    }
+
     // Flash toggles — restore persisted state and wire change handlers. Re-render
     // the affected section immediately so the user sees the toggle take effect.
     const FLASH_RERENDER = {
@@ -1856,7 +2439,6 @@ window.addEventListener('DOMContentLoaded', () => {
     applySectionOrder();
     applyHiddenSections();   // hide sections the user toggled off in Settings → Sekce
     applyKpiState();
-    if (typeof window.applyVehiclesExpanded === 'function') window.applyVehiclesExpanded();
 
     relayoutMasonry();
 
@@ -1892,10 +2474,31 @@ window.addEventListener('DOMContentLoaded', () => {
                 applyHiddenSections();
             }
             if (touched.has('hiddenSections')) applyHiddenSections();
-            if (touched.has('vehiclesExpanded') && typeof window.applyVehiclesExpanded === 'function') {
-                window.applyVehiclesExpanded();
-                relayoutMasonry();
+            // Expanded state for each section
+            const EXPANDED_SECTIONS = ['vehicles','animals','storage','productions'];
+            for (const s of EXPANDED_SECTIONS) {
+                if (touched.has(s + 'Expanded') && window.SectionCfg) {
+                    SectionCfg.applyExpanded(s, s + 'Expanded');
+                    relayoutMasonry();
+                }
             }
+            // Other per-section settings — trigger rerender
+            const RERENDER_KEYS = [
+                'fieldsOwnedOnly','fieldsShowDays','fieldsShowChips',
+                'fieldsColPlow','fieldsColLime','fieldsColWeed','fieldsColStone',
+                'vehicleShowCondition','vehicleShowEmptyImplements','vehicleHideAir',
+                'vehicleShowEngineHours','vehicleShowWorkerBadge','vehicleShowWorkerETA',
+                'vehicleImplHideCrops','vehicleImplHideLiquids','vehicleImplHideSolids','vehicleImplHideBiomasa',
+                'animalsShowAlarm','animalsShowReproduction','animalsShowFood','animalsShowWater',
+                'animalsShowBedding','animalsShowMilk','animalsShowManure','animalsShowSlurry',
+                'storageDefaultCollapsed','storageHideEmpty','storageShowCapacity','storageShowPercent','storageShowBar',
+                'productionsActiveOnly','productionsDefaultCollapsed','productionsShowInputs','productionShowCycles',
+                'pricesOwnedOnly','pricesShowStock',
+            ];
+            if (RERENDER_KEYS.some(k => touched.has(k))) {
+                if (window.FS25App && window.FS25App.rerender) window.FS25App.rerender();
+            }
+            if (window.SectionCfg) SectionCfg.applyDirtyIndicators();
             if (touched.has('order:kpi') || touched.has('hidden:kpi')) applyKpiState();
             const SCOPES = ['fields', 'vehicles', 'animals', 'storages', 'productions', 'prices', 'priceItems'];
             for (const scope of SCOPES) {

@@ -74,6 +74,10 @@ test.describe('diagnostic capture', () => {
         await page.goto('/');
         await page.locator('#notif-toggle').click();
         await page.locator('#notif-modal-overlay.open').waitFor();
+        // The Diagnostics tab is hidden by default — unlock it by clicking the
+        // ⚙ icon in the modal header 4× (the counter resets when the modal closes).
+        const gear = page.locator('#settings-gear-icon');
+        for (let i = 0; i < 4; i++) await gear.click();
         await page.locator('[data-tab="diag"]').click();
 
         await page.locator('#diag-note').fill('ui-test');

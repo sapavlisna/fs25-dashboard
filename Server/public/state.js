@@ -41,14 +41,68 @@
         get, set, setHas, setToggle,
         KEYS: {
             theme:                  'theme',
-            hiddenVehicles:         'hiddenVehicles',          // array of vehicle.name (or stable id)
-            hiddenStorages:         'hiddenStorages',          // array of `${type}:${storageName}` keys
-            hiddenProductions:      'hiddenProductions',       // array of production name keys
-            emptyAnimalsCollapsed:  'emptyAnimalsCollapsed',   // bool, default true
-            collapsedGroups:        'collapsedGroups',         // array of group keys (silo/sell)
-            flashEnabled:           'flashEnabled',            // map<sectionKey, bool> — change-flash on/off per section
-            hiddenSections:         'hiddenSections',          // array of section element ids (e.g. ['sec-storage']) — hidden on main dashboard
-            vehiclesExpanded:       'vehiclesExpanded',        // bool, default false — show implements sub-rows + 2-column layout for vehicles section
+            hiddenVehicles:         'hiddenVehicles',
+            hiddenStorages:         'hiddenStorages',
+            hiddenProductions:      'hiddenProductions',
+            emptyAnimalsCollapsed:  'emptyAnimalsCollapsed',
+            collapsedGroups:        'collapsedGroups',
+            flashEnabled:           'flashEnabled',
+            hiddenSections:         'hiddenSections',
+            vehiclesExpanded:       'vehiclesExpanded',
+
+            // ── Vehicles (per-section) ─────────────────────────────────────
+            vehicleShowEngineHours:   'vehicleShowEngineHours',   // bool, default true
+            vehicleShowWorkerBadge:   'vehicleShowWorkerBadge',   // bool, default true
+            vehicleShowWorkerETA:     'vehicleShowWorkerETA',     // bool, default true
+            vehicleImplHideCrops:     'vehicleImplHideCrops',     // bool, default false
+            vehicleImplHideLiquids:   'vehicleImplHideLiquids',   // bool, default false
+            vehicleImplHideSolids:    'vehicleImplHideSolids',    // bool, default false
+            vehicleImplHideBiomasa:   'vehicleImplHideBiomasa',   // bool, default false
+            vehiclesActiveOnly:       'vehiclesActiveOnly',       // bool, default false — show only in-use vehicles
+
+            // ── Fields ────────────────────────────────────────────────────
+            fieldsOwnedOnly:          'fieldsOwnedOnly',           // bool, default true
+            fieldsShowDays:           'fieldsShowDays',            // bool, default true
+            fieldsShowChips:          'fieldsShowChips',           // bool, default true
+            fieldsHideEmpty:          'fieldsHideEmpty',           // bool, default false — hide fields with no crop
+            fieldsHideStubble:        'fieldsHideStubble',         // bool, default false — hide cut/withered/stubble
+            fieldsColSpray:           'fieldsColSpray',            // bool, default false — hnojení sloupec (0–2)
+            fieldsColPlow:            'fieldsColPlow',             // bool, default false
+            fieldsColLime:            'fieldsColLime',             // bool, default false
+            fieldsColWeed:            'fieldsColWeed',             // bool, default false
+            fieldsColStone:           'fieldsColStone',            // bool, default false
+
+            // ── Animals ───────────────────────────────────────────────────
+            animalsExpanded:          'animalsExpanded',           // bool, default false
+            animalsShowAlarm:         'animalsShowAlarm',          // bool, default true
+            animalsShowReproduction:  'animalsShowReproduction',   // bool, default true
+            animalsShowFood:          'animalsShowFood',           // bool, default true
+            animalsShowWater:         'animalsShowWater',          // bool, default true
+            animalsShowBedding:       'animalsShowBedding',        // bool, default true
+            animalsShowMilk:          'animalsShowMilk',           // bool, default true
+            animalsShowManure:        'animalsShowManure',         // bool, default true
+            animalsShowSlurry:        'animalsShowSlurry',         // bool, default true
+            animalsAlarmInput:        'animalsAlarmInput',         // number %, default 25 — low-input alarm threshold
+            animalsAlarmOutput:       'animalsAlarmOutput',        // number %, default 90 — full-output alarm threshold
+
+            // ── Storage ───────────────────────────────────────────────────
+            storageExpanded:          'storageExpanded',           // bool, default false
+            storageDefaultCollapsed:  'storageDefaultCollapsed',   // bool, default true
+            storageHideEmpty:         'storageHideEmpty',          // bool, default false
+            storageShowCapacity:      'storageShowCapacity',       // bool, default true
+            storageShowPercent:       'storageShowPercent',        // bool, default true
+            storageShowBar:           'storageShowBar',            // bool, default true
+
+            // ── Productions ───────────────────────────────────────────────
+            productionsExpanded:         'productionsExpanded',        // bool, default false
+            productionsActiveOnly:        'productionsActiveOnly',      // bool, default false
+            productionsDefaultCollapsed:  'productionsDefaultCollapsed',// bool, default true
+            productionsShowInputs:        'productionsShowInputs',      // bool, default true
+            productionShowCycles:         'productionShowCycles',       // bool, default true
+
+            // ── Prices ────────────────────────────────────────────────────
+            pricesOwnedOnly:          'pricesOwnedOnly',           // bool, default false
+            pricesShowStock:          'pricesShowStock',           // bool, default true
         },
     };
 })();
