@@ -1,0 +1,26 @@
+[
+ {
+  "type": "missing-scenario",
+  "detail": "st-prices-all-hidden: scenarioPricesAllHidden delegates to scenarioPricesMultiSellPoint() which has sell points 'Silo Bergmann' and 'BGA Bergmann', but the test hides only 'Silo' (no such sell point exists). Neither sell point gets hidden, the visible list is non-empty, and the 'Všechna výkupní místa jsou skrytá' empty message is never triggered. The scenario needs a single sell point named exactly 'Silo' (or the test must match the actual sell-point names). File: mock-scenarios.js:1735, spec: prices.spec.js:175-189."
+ },
+ {
+  "type": "missing-scenario",
+  "detail": "st-prices-forecast-no-data-for-commodity: scenarioPricesForecastNoDataForCommodity (mock-scenarios.js:1744) returns basePayload() without overriding priceForecast, so the server injects basePriceForecast() which contains ALL 7 AVAIL_FRUITS including 'Pšenice'. When the test selects 'Pšenice' in #sel-filltype-forecast, entry IS found, the 'Mód pro tuto komoditu neposílá sezónní křivku.' path (history.html:507-511) is never reached, and the toContainText assertion at prices.spec.js:277 always fails. The scenario must include a priceForecast whose fillTypes does NOT contain 'Pšenice'."
+ },
+ {
+  "type": "missing-assert",
+  "detail": "st-prices-forecast-watch-marker: the assertion (prices.spec.js:343-347) only verifies that forecastChart.data.datasets.length > 0 — a condition satisfied by ANY rendered forecast chart, regardless of whether the gold border (#fde047) or the 🔔 canvas marker is actually applied to the watched bar. The state-specific rendering at history.html:549-564 (watchedSet, borderColors='#fde047', bgColors+='ff', canvas 🔔 glyph at line 605-608) is never actually exercised by the assertion. The test should verify at least one borderColor entry equals '#fde047' or that the chart's borderColor array has a non-transparent entry at the watched index."
+ },
+ {
+  "type": "missing-scenario",
+  "detail": "st-prices-balance-trend-up/down/flat: scenarios at mock-scenarios.js:1751-1753 only vary farmBalance and farmBalanceDeltaDay in the WebSocket payload. history.html reads the balance trend from /api/history/balance (JSONL rows via the REST API, not from the live WS payload). With no history rows injected, the chart shows empty state (rows.length < 2 check at history.html:252) and kpi-trend is never updated. The assertions in prices.spec.js:385-433 (c-green/c-red/delta-up/delta-down) will never pass against a fresh mock server with no JSONL history. Scenarios need a mechanism to seed at least 2 balance-history rows."
+ },
+ {
+  "type": "missing-doc",
+  "detail": "The collapsedGroups toggle also collapses the 'Skryté komodity' sub-row (mock-scenarios.js logic at index.html:2054-2056 adds hidden-row to it when collapsed === true). This sub-row state is not listed as a separate documented state, and no scenario/assertion covers the interaction between a collapsed group and its hidden-items sub-row."
+ },
+ {
+  "type": "missing-doc",
+  "detail": "The 'stockTxt' span (documented state 'ceny – zobrazena zásoba') shows stock in litres (formatted '(5 000 l)'), but the documented domClass example says 'c-muted (inline span s hodnotou zásoby)' without noting the unit. The actual code at index.html:2044 always appends ' l' (litres). No corresponding assertion in prices.spec.js:126-135 checks for the unit suffix — test only asserts /\\d/ is present. This is a doc omission and a weak assert."
+ }
+]

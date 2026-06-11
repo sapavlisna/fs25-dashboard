@@ -30,7 +30,13 @@ function readJsonl(filePath) {
 }
 
 function appendJsonl(filePath, obj) {
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
     fs.appendFileSync(filePath, JSON.stringify(obj) + '\n');
+}
+
+function writeJsonl(filePath, rows) {
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    fs.writeFileSync(filePath, rows.map(r => JSON.stringify(r)).join('\n') + (rows.length ? '\n' : ''));
 }
 
 // ─── State ────────────────────────────────────────────────────────────────────
@@ -312,8 +318,70 @@ function getAvailableSellPoints() {
     return [...seen].sort().map(sell_point => ({ sell_point }));
 }
 
+// ─── Test-only history seeding ─────────────────────────────────────────────────
+// Used by the DASHBOARD_MOCK=1 server's POST /mock/seed-history (+ the
+// /mock/balance-rows, /mock/price-rows aliases) so smoke tests can inject a
+// known balance/price history without a running game. Rewrites the JSONL
+// files with exactly the supplied rows (last-wins semantics on re-seed) and
+// resets the dedup/seen state so a fresh seed isn't blocked by an earlier one.
+//
+// Each balance row needs { game_day, balance }; each price row needs
+// { game_day, sell_point, fill_type, price_ton }. Missing fields are filled
+// with neutral defaults so callers can pass the minimal shape.
+function seedHistory({ balance, prices, freezeDay } = {}) {
+    const now = new Date().toISOString();
+
+    if (Array.isArray(balance)) {
+        const rows = balance.map(r => ({
+            recorded_at: r.recorded_at || now,
+            save_id:     r.save_id != null ? r.save_id : '',
+            game_day:    r.game_day,
+            balance:     r.balance,
+        }));
+        writeJsonl(FILES.balance, rows);
+        // Suppress the live watcher from re-appending the current game-day's
+        // balance row (which would clobber a seeded row for that same day).
+        // freezeDay = the live payload's current gameDay; setting it as
+        // lastSavedDay makes saveSnapshot skip the daily append.
+        lastSavedDay = freezeDay != null
+            ? freezeDay
+            : (rows.length ? rows[rows.length - 1].game_day : -1);
+    }
+
+    if (Array.isArray(prices)) {
+        // Distinct rows must keep distinct game_days — getPriceHistory dedupes
+        // on `game_day|fill_type|sell_point`, so two rows for the same
+        // commodity/point with no game_day would collapse into one. When a
+        // caller omits game_day, derive it from per-(point,fill) sequence.
+        const seq = {};
+        const rows = prices.map(r => {
+            let gd = r.game_day;
+            if (gd == null) {
+                const k = `${r.sell_point}|${r.fill_type}`;
+                seq[k] = (seq[k] || 0) + 1;
+                gd = seq[k];
+            }
+            return {
+                recorded_at: r.recorded_at || r.ts || now,
+                save_id:     r.save_id != null ? r.save_id : '',
+                game_day:    gd,
+                sell_point:  r.sell_point,
+                fill_type:   r.fill_type,
+                price_ton:   r.price_ton != null ? r.price_ton : r.price_per_ton,
+            };
+        });
+        writeJsonl(FILES.prices, rows);
+    }
+
+    return {
+        balance: Array.isArray(balance) ? balance.length : 0,
+        prices:  Array.isArray(prices)  ? prices.length  : 0,
+    };
+}
+
 module.exports = {
     saveSnapshot,
+    seedHistory,
     getPriceHistory,
     getBalanceHistory,
     getBalanceBefore,

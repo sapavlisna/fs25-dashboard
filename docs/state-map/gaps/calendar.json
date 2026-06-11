@@ -1,0 +1,62 @@
+[
+ {
+  "type": "missing-scenario",
+  "detail": "Gantt bar – sklizeno / strniště (muted): All isCut:true fields in all scenarios have fruitTypeId:'' so the muted-background + 'Sklizeno' label branch (calendar.html:991) is never reachable. A scenario with fruitTypeId:'WHEAT' + isCut:true + !isWithered + !isReadyToHarvest is needed."
+ },
+ {
+  "type": "missing-assert",
+  "detail": "Gantt bar – sklizeno / strniště: st-calendar-bar-cut uses 'plan-3-years' (no cut fields) and asserts only `expect(bars).toBeTruthy()` — the locator object is always truthy. Test never verifies a bar with 'Sklizeno' label or muted colour exists."
+ },
+ {
+  "type": "missing-scenario",
+  "detail": "Need pill – plevel urgentní (červená): No calendar-spec scenario has an owned field with weedLevel >= 2. scenarioFieldsActionChips/scenarioThemesCondBadgeAll have weedLevel:2 but are not referenced in calendar.spec.js. The test comment at line 285 explicitly admits this."
+ },
+ {
+  "type": "missing-assert",
+  "detail": "Need pill – plevel urgentní: st-calendar-weed-urgent (line 284) uses 'plan-3-years' (weedLevel:0 on all fields) and asserts `expect(urgentPills).toBeTruthy()` — a Playwright locator is always truthy regardless of match count. The urgent pill is never actually confirmed to be present or visible."
+ },
+ {
+  "type": "missing-scenario",
+  "detail": "Need pill – kameny urgentní (červená): No calendar-spec scenario exposes stoneLevel >= 2 on an owned field. st-calendar-stones-urgent (line 304) uses 'plan-3-years' (stoneLevel:0) and the same toBeTruthy() non-assertion."
+ },
+ {
+  "type": "missing-assert",
+  "detail": "Need pill – kameny urgentní: st-calendar-stones-urgent asserts `expect(urgentPills).toBeTruthy()` — same locator-always-truthy defect as the weed-urgent case; state is never actually exercised."
+ },
+ {
+  "type": "missing-scenario",
+  "detail": "Need pill – uválet (modrá): AVAIL_FRUITS in mock-scenarios.js has no needsRolling property on any fruit type, and no scenario sets rollerLevel:0 with a fruit that has needsRolling:true. The 'Uválet' pill (calendar.html:801) can never render under any mock scenario."
+ },
+ {
+  "type": "missing-assert",
+  "detail": "Need pill – uválet: st-calendar-needs-roller (line 360) uses 'plan-3-years', comments 'may or may not be present', and asserts `expect(rollerPill).toBeTruthy()`. The pill is guaranteed never to appear because the scenario data lacks needsRolling; the test silently passes without exercising the state."
+ },
+ {
+  "type": "missing-scenario",
+  "detail": "Gantt bar – bez plodiny a bez needsSowing (žádný bar): coveredBy is empty in the spec. No scenario has a visible owned-field row with fruitTypeId:'' AND needsSowing:false. 'empty-farm' has zero fields entirely; the test (line 228) checks the empty-container state, not an empty gantt-cells td for a present row."
+ },
+ {
+  "type": "missing-assert",
+  "detail": "Gantt bar – bez plodiny a bez needsSowing: st-calendar-bar-empty-no-sowing (line 228) checks #gantt-container .empty visibility (the zero-fields state) — it does not assert the empty timeline cell for a field that is present but has no fruit and no needsSowing flag."
+ },
+ {
+  "type": "missing-assert",
+  "detail": "WS odpojeno: st-calendar-ws-disconnected (line 80) only asserts that #ws-dot is visible after a successful connect; it never closes the WebSocket, never checks for the 'error' class, and never checks for the 'Odpojeno – reconnect za 5s…' text. The documented state is not covered."
+ },
+ {
+  "type": "missing-assert",
+  "detail": "Plán editor – tlačítko + Přidat rok disabled: st-calendar-plan-add-year-disabled (line 470) ends with `expect(addYearBtn).toBeVisible()` without asserting `disabled` attribute or the tooltip text. No test actually populates a field plan up to PLAN_MAX_YEARS and verifies the button becomes disabled."
+ },
+ {
+  "type": "missing-scenario",
+  "detail": "Gantt scrollbar thumb – drag stav: coveredBy is empty. No spec test triggers a mousedown on #gantt-scroll-thumb or checks for the 'dragging' class (opacity:1; cursor:grabbing). The drag state documented at calendar.html:1195 has zero coverage."
+ },
+ {
+  "type": "missing-assert",
+  "detail": "Řádek Gantt – skrytý (cal-hidden-row): st-calendar-gantt-row-hidden (line 421) wraps the hidden-row assertion in `if (await hiddenRow.count() > 0)` — when the hidden-row mechanic fails to apply (e.g. addInitScript fires before scenario data but the default localStorage key format differs), the test silently passes without ever asserting the opacity or class."
+ },
+ {
+  "type": "missing-assert",
+  "detail": "Fertbadge – žádná plodina (skrytý): st-calendar-fert-hidden (line 272) asserts `expect(ferts).toBeTruthy()` on the locator, not that fert badges are absent for rows without fruitTypeId. The documented 'badge se nevykreslí' behaviour is never actually verified."
+ }
+]

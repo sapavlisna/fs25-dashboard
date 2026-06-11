@@ -1,0 +1,46 @@
+[
+ {
+  "type": "missing-assert",
+  "detail": "st-storage-donut-absent: spec (storage.spec.js:163) queries storageGroup(page, 'Neznámé silo') but scenario scenarioStorageDonutAbsent uses ST_SILO = 'Testovací silo'. The locator tr.st-row[data-group=\"silo:Neznámé silo\"] will never find a row, so the donut.not.toBeVisible() assertion passes vacuously without exercising the code path."
+ },
+ {
+  "type": "missing-assert",
+  "detail": "st-storage-silo-empty-items: spec (storage.spec.js:179) queries storageGroup(page, 'Prázdné silo') and storageItems(page, 'Prázdné silo'), but scenario scenarioStorageSiloEmptyItems uses ST_SILO = 'Testovací silo'. Both assertions are never reached against real DOM — the group-meta 'prázdné' and item count=0 checks pass or fail against absent elements."
+ },
+ {
+  "type": "missing-assert",
+  "detail": "st-storage-hide-empty-filter: spec (storage.spec.js:204,207) uses page.locator('.item-name', { hasText }) to locate items inside tr.group-item, but compact (non-expanded) rows render item name as plain <td>${esc(item.name)}</td> — no .item-name class. The class .st-item-name only exists in expanded mode. The 'not.toBeVisible()' assertion on Pšenice passes vacuously (no match), and the 'toBeVisible()' assertion on Ječmen will fail."
+ },
+ {
+  "type": "wrong-threshold",
+  "detail": "st-storage-show-bar-off: spec (storage.spec.js:239) expects bar-pct to contain '40%', but scenario scenarioStorageShowBarOff sets amount=50000 / capacity=200000 → ipct = Math.round(50000/200000*100) = 25, so the rendered text is '25%'. The asserted value '40%' will never match."
+ },
+ {
+  "type": "missing-assert",
+  "detail": "st-storage-expanded-multi-commodity-stack: spec (storage.spec.js:296) uses selector [class^=\"st-seg\"] and expects count=3 (2 items + free). However stackBarHTML renders item spans with no class attribute (only style and title). Only the free segment has class=\"st-seg-free\". The selector [class^=\"st-seg\"] matches only 1 element, not 3 — assertion fails at runtime."
+ },
+ {
+  "type": "missing-assert",
+  "detail": "st-storage-hidden-by-user: test is marked test.fixme (storage.spec.js:325) with a comment acknowledging the test never seeds localStorage 'hidden:storages'. The state is functionally untested — no working assertion verifies that a silo actually moves to #storages-hidden-body."
+ },
+ {
+  "type": "missing-doc",
+  "detail": "Undocumented state: when storage.length > 0 but all storages are in the hidden zone, renderStorage (index.html:1794) renders tbody with '<tr><td colspan=\"4\" class=\"empty\">Všechny sklady jsou skryté.</td></tr>'. This is a distinct intermediate state (not storage-empty, not hidden-wrap showing rows) with no entry in the documented states list, no dedicated scenario, and no assertion."
+ },
+ {
+  "type": "missing-doc",
+  "detail": "bar-fill warn state (coveredBy:\"\") and donut-warn state (coveredBy:\"\") are both fully covered: storage.spec.js:92-111 (storage-warn-boundary-ok scenario) explicitly asserts bar-fill.toHaveClass(/warn/) and donut.toHaveClass(/donut-warn/). Documentation incorrectly lists coveredBy as empty for these two states."
+ },
+ {
+  "type": "missing-doc",
+  "detail": "bar-fill full state (coveredBy:\"\") and donut-full state (coveredBy:\"\") are both fully covered: storage.spec.js:136-156 (storage-full-boundary-ok scenario) asserts bar-fill full class, donut-full class, and bell-info visibility. Documentation incorrectly lists coveredBy as empty for both states."
+ },
+ {
+  "type": "missing-doc",
+  "detail": "storageShowBar=false state (coveredBy:\"\") has a scenario (storage-show-bar-off) and an assertion in storage.spec.js:225-240. Documentation lists coveredBy as empty."
+ },
+ {
+  "type": "missing-doc",
+  "detail": "storageShowPercent=false state (coveredBy:\"\") has a scenario (storage-show-percent-off) and an assertion in storage.spec.js:243-253. Documentation lists coveredBy as empty."
+ }
+]

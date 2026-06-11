@@ -18,6 +18,10 @@ const PORT = 3099;
 module.exports = defineConfig({
     testDir: __dirname,
     testMatch: '**/*.spec.js',
+    // animals-flash.spec.js runs under its own harness (playwright.flash.config.js,
+    // port 3098 + flash-global-setup.js) — under this config it lacks
+    // __FLASH_MOCK_FILE and fails instantly.
+    testIgnore: '**/animals-flash.spec.js',
     globalSetup: require.resolve('./global-setup.js'),
     timeout: 45_000,
     fullyParallel: false,         // single server — one test at a time
@@ -68,6 +72,7 @@ module.exports = defineConfig({
                 DASHBOARD_DATA_FILE: MOCK_FILE,
                 DASHBOARD_DATA_DIR:  DATA_DIR,
                 DASHBOARD_MOCK:      '1',
+                FS25_DOCS_DIR:       SANDBOX,
             },
         },
     ],

@@ -31,11 +31,12 @@
         }
     }
 
-    // All settings items for a section (basic + advanced flattened).
+    // All settings items for a section (basic + advanced + flash flattened).
     function _allItems(def) {
         return [
             ...(def.basic || []),
             ...(def.advanced || []).flatMap(g => g.items || []),
+            ...(def.flash || []).flatMap(g => g.items || []),
         ];
     }
 
@@ -155,9 +156,11 @@
         if (btn) btn.classList.add('active');
 
         const basicHTML = (def.basic || []).map(_rowHTML).join('');
-        let advHTML = '';
-        if (def.advanced && def.advanced.length) {
-            const groups = def.advanced.map(g => {
+        // Collapsible block (advanced / flash) — same markup, different label
+        // + body class so each toggles independently. `cls` is the body class.
+        const _collapsible = (groups, cls, label) => {
+            if (!groups || !groups.length) return '';
+            const inner = groups.map(g => {
                 const items = (g.items || []).map(_rowHTML).join('');
                 const note = g.note ? `<div class="sec-cfg-group-note">${g.note}</div>` : '';
                 return `<div class="sec-cfg-group">
@@ -166,9 +169,11 @@
                     ${note}
                 </div>`;
             }).join('');
-            advHTML = `<button class="sec-cfg-adv-toggle" type="button">▶ Rozšířené nastavení</button>
-                <div class="sec-cfg-adv" hidden>${groups}</div>`;
-        }
+            return `<button class="${cls}-toggle sec-cfg-collapse-toggle" type="button" data-collapse="${cls}">▶ ${label}</button>
+                <div class="${cls}" hidden>${inner}</div>`;
+        };
+        const advHTML   = _collapsible(def.advanced, 'sec-cfg-adv',   'Rozšířené nastavení');
+        const flashHTML = _collapsible(def.flash,    'sec-cfg-flash', 'Flash nastavení');
 
         panel.innerHTML = `
             <div class="sec-cfg-header">
@@ -178,6 +183,7 @@
             <div class="sec-cfg-body">
                 ${basicHTML}
                 ${advHTML}
+                ${flashHTML}
             </div>
             <div class="sec-cfg-footer">
                 <button class="sec-cfg-reset" type="button" title="Vrátit všechna nastavení této sekce na výchozí">↺ Výchozí</button>
@@ -215,16 +221,16 @@
             };
         });
 
-        const advToggle = panel.querySelector('.sec-cfg-adv-toggle');
-        if (advToggle) {
-            advToggle.onclick = () => {
-                const adv = panel.querySelector('.sec-cfg-adv');
-                const willOpen = adv.hidden;
-                adv.hidden = !willOpen;
-                advToggle.textContent = (willOpen ? '▼' : '▶') + ' Rozšířené nastavení';
+        panel.querySelectorAll('.sec-cfg-collapse-toggle').forEach(tog => {
+            tog.onclick = () => {
+                const body = panel.querySelector('.' + tog.dataset.collapse);
+                if (!body) return;
+                const willOpen = body.hidden;
+                body.hidden = !willOpen;
+                tog.textContent = (willOpen ? '▼ ' : '▶ ') + tog.textContent.slice(2);
                 if (typeof relayoutMasonry === 'function') relayoutMasonry();
             };
-        }
+        });
 
         // Reset to defaults — re-render the panel so checkboxes reflect new state.
         panel.querySelector('.sec-cfg-reset').onclick = () => {

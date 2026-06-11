@@ -1,0 +1,30 @@
+[
+ {
+  "type": "missing-assert",
+  "detail": "State 'Alert dismissed individually (✕ on row)' AND 'Alert row click → scroll + flash + dismiss' (bell.js:206-213, 214-227). The only test that touches dismiss is interactions.spec.js:127-157 ('bell opens on low-fuel scenario and row click dismisses alert'). It uses DEAD selectors that no longer match current bell.js DOM: it reads `#bell-badge` (real id is `#bell-count`, bell.js:168) and locates rows via `#bell-list .bell-row` (real class is `.bell-item`, bell.js:300). Therefore `rows.count()` is always 0, the `if (rowCount > 0)` block never executes, and the decrement assertion `expect(newCount).toBeLessThan(rowCount)` is NEVER reached. The dismiss behavior is asserted-in-name-only and factually unexercised. No scenario/assert in bell.spec.js covers individual dismiss either."
+ },
+ {
+  "type": "missing-scenario",
+  "detail": "State 'Dismiss all (Skrýt vše)' (#bell-dismiss-all → empties list, shows #bell-empty, hides #bell-actions; bell.js:313-317, 178, 190). No scenario drives a multi-alert payload and clicks #bell-dismiss-all, and no spec asserts that #bell-list empties / #bell-empty becomes visible / #bell-actions hides after dismiss-all. Completely uncovered."
+ },
+ {
+  "type": "missing-scenario",
+  "detail": "State 'Alert row click → scroll + flash target' (.card-flash applied to #sec-* ; bell.js:222-223, 232-237). No scenario/assert verifies that clicking a bell row adds .card-flash to the target section (or, on side pages, redirects to /#sec-… via handleDeepLink). The scroll+flash cross-effect is documented but has zero coverage."
+ },
+ {
+  "type": "missing-scenario",
+  "detail": "State 'Vehicles — fuel alert hidden via TableTools' (hiddenVehicles.has(name) drops the vehicle from lowFuel; bell.js:110-118). No bell scenario + spec hides a low-fuel vehicle via TableTools(hidden:vehicles)/DashState.hiddenVehicles and then asserts the veh-fuel item disappears and the badge drops. drag.spec.js:184-189 only checks that dragging hides the ROW in the vehicles table — it never asserts the bell's lowFuel gate. The bell-side effect of the hidden set is uncovered."
+ },
+ {
+  "type": "missing-assert",
+  "detail": "State 'Panel list row — warning severity styling' (style.css:271 → .bell-item.bell-warning .bell-item-icon color var(--orange)). bell.spec.js asserts the .bell-item.bell-warning CLASS is present (anim-food/water/straw) and the urgent test exists, but NO test asserts the icon actually receives the orange color (computed color of .bell-item-icon). Severity-driven recolor is documented as a distinct visual state and is only structurally (class) asserted, not visually."
+ },
+ {
+  "type": "missing-assert",
+  "detail": "State 'Panel list row — info severity styling (no icon recolor)' (bell.js:300; intentionally NO CSS recolor rule at style.css:270-271). The documented contract is that info icons keep the default emoji color (visually distinct from urgent/warning). No test asserts that .bell-item.bell-info .bell-item-icon has NO color override — i.e. the negative styling guarantee that distinguishes info from warning/urgent is unverified; a future CSS regression adding a bell-info recolor would not be caught."
+ },
+ {
+  "type": "missing-scenario",
+  "detail": "State 'Badge — 9+ overflow' (n > 9 → textContent '9+'; bell.js:286). Documented (and flagged dead given only 7 alert keys), but there is no scenario that produces >9 alert groups and no assertion of the '9+' text. Even acknowledging it is currently unreachable, the branch has no coverage proving the cap renders '9+' rather than the raw number, so a future genAlerts growth past 9 has no regression guard."
+ }
+]

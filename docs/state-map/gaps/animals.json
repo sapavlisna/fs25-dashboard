@@ -1,0 +1,14 @@
+[
+ {
+  "type": "missing-assert",
+  "detail": "flash bar-label 'Voda' (waterPercent) je JEDINÝ animal flash kanál bez reálné aserce. animals-flash.spec.js PARAMS (řádky 53-108) má food/straw/milk/manure/slurry/health/repro/count, ale NEMÁ 'water' — a flash-global-setup.js buildKravin (řádky 35-56) waterPercent vůbec nenastavuje (→ null → vodní bar se nevykreslí), takže ho flash spec nikdy netestuje. Druhý spec animals.spec.js má scénář st-animals-flash-barlabel (scenarioAnimalsFlashBarlabel, mění waterPercent 60→65), ALE test na řádcích 500-510 nemá ŽÁDNOU expect() aserci — jen page.goto + komentář 'Flash may have cleared by screenshot time'. Stav 'flash bar-label vstup up/down' pro waterPercent je tedy fakticky nepokrytý. Doporučení: přidat water do PARAMS + waterPercent/waterLiters/waterCapacity do buildKravin."
+ },
+ {
+  "type": "missing-assert",
+  "detail": "V animals.spec.js jsou 4 flash testy (st-animals-flash-count ř.485-498, st-animals-flash-barlabel ř.500-510, st-animals-flash-health ř.512-522, st-animals-flash-repro ř.524-535) zcela BEZ expect() — pouze gotoDashboard + komentáře typu 'best-effort'/'Flash may have already fired and cleared'. Tyto čtyři stavy (count up/down, bar-label up/down, productivity::health, repro badge) jsou v doc označeny coveredBy=animals-flash.spec — což je správné: reálné aserce žijí v animals-flash.spec.js (waitForFlashClass + toHaveClass(/flash-up|down/) na ř.189-227). Tj. testy v animals.spec.js jsou prázdné placeholdery; nemaскují gap u count/health/repro (ty pokrývá flash spec), ale u water ano (viz výše)."
+ },
+ {
+  "type": "missing-doc",
+  "detail": "Doc pole 'coveredBy' je systematicky zastaralé a podhodnocuje skutečné pokrytí — uvádí prázdné/screenshot-only u stavů, které mají dedikovaný st-animals-* scénář (mock-scenarios.js ř.2178-2213) i tvrdou aserci v animals.spec.js. Konkrétně FALEŠNĚ označeno jako nepokryté: 'řádek alert vstup nízký' (doc: 'animal-needs screenshot-only' → reálně st-animals-alarm-loThr-boundary-24 asertuje .alert + 'Doplnit!' ř.194-203); 'řádek alert výstup plný' (doc: 'žádný scénář s výstupem>=90' → reálně scenarioAnimalsBarFullOutput milkPercent=96 + st-animals-alarm-hiThr-boundary-90 asertují 'Odvézt!' ř.103-110, 228-237); repro paused/blocked/young/unsupported/fallback-low/skryté (coveredBy='' → reálně st-animals-repro-* asertují c-green/c-red/c-orange/c-muted/ikony ř.294-368); expanded atCap/herdValue/liters-tonnes (coveredBy='' → st-animals-expanded-* ř.408-447); modal cluster repro buňky (coveredBy='' → st-animals-modal-repro-cells ř.543-563); modal fill řádky viditelnost (coveredBy='' → st-animals-modal-fillrows-visibility ř.565-591); vodní bar viditelnost null (doc: 'buildKravin NEnastavuje water → flash NEpokrývá' → viditelnost JE pokryta st-animals-bars-visibility-water-null Vepřín ř.376-384). Doporučení: regenerovat coveredBy proti animals.spec.js + mock-scenarios registru."
+ }
+]

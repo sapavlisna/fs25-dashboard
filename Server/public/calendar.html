@@ -982,35 +982,73 @@ function renderGantt(allFields) {
             ? `Pole: ${f.area} ha · Parcela: ${f.farmlandAreaHa} ha`
             : '';
 
+        // Compute all plan tasks once; derive anchors for state + future crop bars.
+        const _planTasksAll = computeFieldTasksInView(f.id)
+            .sort((a, b) => a.startDayOffset - b.startDayOffset);
+        const _planTasksEarly = _planTasksAll.filter(t => t.type === 'sow' && t.startDayOffset > 0);
+        const _nextSowDays = _planTasksEarly.length ? _planTasksEarly[0].startDayOffset : 30;
+
+        // Render teal bars for every planned sow→harvest cycle that starts in the future.
+        // Each crop gets its own bar so rotations with different crops show the right label.
+        const _futureCropBars = () => {
+            const sowTasks  = _planTasksAll.filter(t => t.type === 'sow');
+            const harvTasks = _planTasksAll.filter(t => t.type === 'harvest');
+            let out = '';
+            for (const sow of sowTasks) {
+                if (sow.startDayOffset <= 0) continue;   // already past sowing
+                const harv = harvTasks.find(h => h.startDayOffset > sow.startDayOffset);
+                if (!harv) continue;
+                const x = Math.min(sow.startDayOffset * PX_PER_DAY, timelineW);
+                const w = Math.min((harv.startDayOffset - sow.startDayOffset) * PX_PER_DAY, timelineW - x);
+                if (w <= 4) continue;
+                out += `<div class="gantt-bar"
+                    style="left:${x}px;width:${w}px;background:var(--teal);opacity:0.6;"
+                    title="Plánováno: ${esc(sow.cropName)}"
+                >${esc(sow.cropName)}</div>`;
+            }
+            return out;
+        };
+
         let bars = '';
-        if (f.fruitTypeId) {
-            const barStart  = 0;
+        if (f.fruitTypeId && !f.isCut && !f.isWithered) {
+            // Actively growing (or ready to harvest) — normal growth bar.
             const barWidth  = Math.max(1, f.daysToHarvest || 0) * PX_PER_DAY;
-            const color     = f.isReadyToHarvest ? 'var(--accent)'
-                              : (f.isWithered ? 'var(--red)'
-                              : (f.isCut ? 'var(--muted)' : 'var(--teal)'));
+            const color     = f.isReadyToHarvest ? 'var(--accent)' : 'var(--teal)';
             const phase     = (f.maxGrowthState > 0 && f.growthState <= f.maxGrowthState) ? ` ${f.growthState}/${f.maxGrowthState}` : '';
             const barLabel  = f.isReadyToHarvest ? 'Sklízet!'
-                            : f.isWithered      ? `${esc(f.fruitName)} · Zvadlé`
-                            : f.isCut           ? `${esc(f.fruitName)} · Sklizeno`
                             :                     `${esc(f.fruitName)}${phase} · ${f.growthPercent}%`;
             const barTitle  = f.isReadyToHarvest ? `Pole #${f.id} · ${esc(f.fruitName)} · Sklízet teď`
-                            : f.isWithered      ? `Pole #${f.id} · ${esc(f.fruitName)} · Zvadlé`
-                            : f.isCut           ? `Pole #${f.id} · ${esc(f.fruitName)} · Sklizeno (strniště)`
                             :                     `Pole #${f.id} · ${esc(f.fruitName)} · ${f.growthPercent}%${phase ? ` (fáze${phase})` : ''} · ${f.daysToHarvest || 0} ${(f.daysToHarvest || 0) === 1 ? 'den' : 'dní'} do sklizně`;
-            if (barStart * PX_PER_DAY < timelineW) {
-                bars += `<div class="gantt-bar"
-                    style="left:${barStart}px; width:${Math.min(barWidth, timelineW - barStart)}px; background:${color};"
-                    title="${barTitle}"
-                    data-field='${JSON.stringify(f).replace(/'/g,"&#39;")}'
-                    onclick="event.stopPropagation(); openModal(this)"
-                >${barLabel}</div>`;
-            }
-        } else if (f.needsSowing) {
-            bars += `<div class="gantt-bar" style="left:0;width:48px;background:var(--accent2);"
-                title="Pole #${f.id} · Čeká na zasetí"
+            bars += `<div class="gantt-bar"
+                style="left:0; width:${Math.min(barWidth, timelineW)}px; background:${color};"
+                title="${barTitle}"
                 data-field='${JSON.stringify(f).replace(/'/g,"&#39;")}'
-                onclick="event.stopPropagation(); openModal(this)">Sít</div>`;
+                onclick="event.stopPropagation(); openModal(this)"
+            >${barLabel}</div>`;
+            bars += _futureCropBars();
+        } else if (f.fruitTypeId && (f.isCut || f.isWithered)) {
+            // Harvested stubble or withered — state bar until next sow, then future crop bars.
+            const barWidth  = Math.max(14, _nextSowDays) * PX_PER_DAY;
+            const color     = f.isWithered ? 'var(--red)' : 'var(--muted)';
+            const stateWord = f.isWithered ? 'Zvadlé' : 'Strniště';
+            const barTitle  = `Pole #${f.id} · ${esc(f.fruitName)} · ${stateWord}${f.needsPlowing ? ' · je třeba zorat' : ' · je třeba kultivovat'}`;
+            bars += `<div class="gantt-bar"
+                style="left:0; width:${Math.min(barWidth, timelineW)}px; background:${color};"
+                title="${barTitle}"
+                data-field='${JSON.stringify(f).replace(/'/g,"&#39;")}'
+                onclick="event.stopPropagation(); openModal(this)"
+            >${stateWord}</div>`;
+            bars += _futureCropBars();
+        } else if (f.needsSowing) {
+            // No crop — field is in preparation (plowed / cultivated / ready to sow).
+            const barWidth  = Math.max(14, _nextSowDays) * PX_PER_DAY;
+            const stateLabel = f.needsPlowing ? 'K zorání' : 'K setí';
+            bars += `<div class="gantt-bar"
+                style="left:0;width:${Math.min(barWidth, timelineW)}px;background:var(--accent2);"
+                title="Pole #${f.id} · ${esc(stateLabel)}"
+                data-field='${JSON.stringify(f).replace(/'/g,"&#39;")}'
+                onclick="event.stopPropagation(); openModal(this)">${esc(stateLabel)}</div>`;
+            bars += _futureCropBars();
         }
 
         // Plan-task bars — one lane per crop in the rotation. Crops are
@@ -1021,9 +1059,7 @@ function renderGantt(allFields) {
         // +24 px each. If a crop's tasks happen to time-overlap inside
         // its own lane (rare — generateTasksForYear emits sequential
         // events), the later one bumps to a sub-lane so nothing overdraws.
-        const planTasks = computeFieldTasksInView(f.id)
-            .slice()
-            .sort((a, b) => a.startDayOffset - b.startDayOffset);
+        const planTasks = _planTasksAll.slice();
         const cropOrder = new Map();
         for (const t of planTasks) {
             if (!cropOrder.has(t.cropName)) cropOrder.set(t.cropName, cropOrder.size);
@@ -1071,15 +1107,11 @@ function renderGantt(allFields) {
             // bars combine task type + crop ("sklizeň – Ječmen") so it's
             // obvious which crop is being harvested when multiple rotate;
             // everything else just shows the task type.
-            const isLongLabel = (t.type === 'sow' || t.type === 'harvest') && t.cropName;
-            const labelText = t.type === 'sow' && t.cropName
-                ? t.cropName
-                : (t.type === 'harvest' && t.cropName ? `${taskLabel} – ${t.cropName}` : taskLabel);
-            // Sow/harvest labels can be long ("Slunečnice"); hide them on
-            // narrow bars where ellipsis would just be noise. Other task
-            // types are short — let them render even at 30 px, CSS ellipsis
-            // handles overflow gracefully.
-            const showLabel = labelText && (!isLongLabel || w >= 60);
+            // Crop name is in the state bar above — sow/harvest tasks don't repeat it.
+            const labelText = t.type === 'sow' ? 'Setí'
+                            : t.type === 'harvest' ? 'Sklizeň'
+                            : taskLabel;
+            const showLabel = labelText && w >= 30;
             const innerText = showLabel
                 ? `<span class="gantt-plan-task-label">${esc(labelText)}</span>`
                 : '';
@@ -1700,21 +1732,24 @@ const TASK_LABELS_CS = {
 // the sowing/harvest period). Returns {start, end} as FS25 periods or
 // null when the array is empty.
 function findMonthWindow(arr) {
+    // arr is a 0-indexed JS array from a 1-indexed Lua table (p=1..12 → arr[0..11]).
+    // Period m (1=March) maps to arr[m-1].
+    const get = m => arr[m - 1];
     let start = null;
     for (let m = 1; m <= 12; m++) {
-        if (arr[m]) {
+        if (get(m)) {
             const prev = m === 1 ? 12 : m - 1;
-            if (!arr[prev]) { start = m; break; }
+            if (!get(prev)) { start = m; break; }
         }
     }
     if (start === null) {
-        for (let m = 1; m <= 12; m++) { if (arr[m]) { start = m; break; } }
+        for (let m = 1; m <= 12; m++) { if (get(m)) { start = m; break; } }
     }
     if (start === null) return null;
     let end = start;
     for (let i = 1; i < 12; i++) {
         const m = ((start - 1 + i) % 12) + 1;
-        if (arr[m]) end = m;
+        if (get(m)) end = m;
         else break;
     }
     return { start, end };
@@ -1735,16 +1770,18 @@ function generateTasksForYear(fruitType, isFirstYear, isFollowingDifferentCrop, 
 
     // Harvest window: first run of trues at or after sowEnd that begins on
     // a "false → true" boundary (or the very first iteration past sowEnd).
+    // harv is 0-indexed (Lua 1-indexed → arr[m-1]).
+    const getH = m => harv[m - 1];
     let harvWin = null;
     for (let i = 1; i <= 12; i++) {
         const m = ((sowWin.end - 1 + i) % 12) + 1;
-        if (!harv[m]) continue;
+        if (!getH(m)) continue;
         const prev = m === 1 ? 12 : m - 1;
-        if (i === 1 || !harv[prev]) {
+        if (i === 1 || !getH(prev)) {
             let end = m;
             for (let j = 1; j < 12; j++) {
                 const next = ((m - 1 + j) % 12) + 1;
-                if (harv[next]) end = next;
+                if (getH(next)) end = next;
                 else break;
             }
             harvWin = { start: m, end };

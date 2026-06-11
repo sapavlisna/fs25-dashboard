@@ -1,0 +1,62 @@
+[
+ {
+  "type": "missing-assert",
+  "detail": "Všechny 3 trend-KPI testy (trend-up/down/flat) jsou test.fixme s komentářem BUG(HISTORY-MOCK-ENDPOINTS) — POST /mock/balance-rows není implementován v serveru, tedy žádný z těchto testů nikdy neproběhne. Stavy 'Zůstatek roste', 'Klesá' a 'Beze změny' nemají žádnou funkční aserci."
+ },
+ {
+  "type": "missing-scenario",
+  "detail": "scenarioEmptyFarm NEPOSKYTUJE prázdný stav balance DB — je to WS payload scénář, ne DB seed. /api/history/balance čte z JSONL, nikoli z WS payloadu. Dokumentace (coveredBy: scenarioEmptyFarm) je zavádějící pro stavy 'Žádná data pro graf zůstatku' a 'Žádná data pro graf cen' — ty závisí na obsahu DB, ne na WS scénáři."
+ },
+ {
+  "type": "wrong-threshold",
+  "detail": "Stav 'Žádná data pro graf zůstatku (empty-state balance)', fileLine:history.html:252-254, dokumentuje coveredBy: scenarioEmptyFarm. Ve skutečnosti empty-farm scénář pouze zajistí, že WS payload nemá balance, ale DB (JSONL) může stále obsahovat historická data z předchozích testů. Podmínka rows.length === 0 závisí na stavu DB, nikoli na WS scénáři."
+ },
+ {
+  "type": "missing-assert",
+  "detail": "Test st-history-balance-no-dots-boundary-ok (31 řádků, pointRadius=0) proběhne jen jako kontrola canvas.toBeVisible() — neověřuje skutečnou hodnotu pointRadius v Chart.js datasetu. Zdokumentovaný stav 'Více než 30 datových bodů — žádné tečky' (history.html:278) není fakticky ověřen."
+ },
+ {
+  "type": "missing-assert",
+  "detail": "Test st-history-forecast-no-payload neověřuje zdokumentovaný stav — místo toho ověřuje, že canvas NENÍ skrytý (pozitivní případ s harvest-ready scénářem). Skutečný stav 'Forecast: žádný WS payload nebo žádná komodita' (canvas hidden, empty-forecast visible) není testován. Scénář prices-forecast-empty existuje v mock-scenarios.js, ale spec ho nepoužívá."
+ },
+ {
+  "type": "missing-assert",
+  "detail": "Test st-history-forecast-unknown-filltype ověřuje jen canvas.not.toHaveCSS('display','none') — přesný opak zdokumentovaného stavu (empty-forecast s textem 'Mód pro tuto komoditu neposílá sezónní křivku.'). Žádný test neprovede setScenario + výběr komodity mimo forecast.fillTypes."
+ },
+ {
+  "type": "missing-assert",
+  "detail": "Test st-history-forecast-watch-active ověřuje jen canvas.toBeVisible(). Zdokumentované chování — borderColor '#fde047', plná opacita backgroundColor, 🔔 overlay nad sloupcem — není aserčně ověřeno žádným testem."
+ },
+ {
+  "type": "missing-assert",
+  "detail": "Test st-history-forecast-memo-hit ověřuje jen canvas.toBeVisible(). Zdokumentovaný stav 'memo shoda — graf se nepřekresluje' (history.html:519-524, _forecastMemo === memoKey → early return) není fakticky ověřen — chybí page.evaluate() spy na forecastChart.update nebo počítání zničení grafu."
+ },
+ {
+  "type": "missing-assert",
+  "detail": "Stav 'Forecast: hlídaný + aktuální měsíc — zlatý border přebije amber' (history.html:560-562) nemá žádný test v spec. Logika watchedSet.has(i) && i === curPeriod0 → watchBorder není nikde aserčně pokryta."
+ },
+ {
+  "type": "missing-assert",
+  "detail": "Test st-history-ws-disconnected je prázdný (žádné assertions, jen komentář). Zdokumentovaný stav 'WS odpojeno' — dot.error třída, label 'Odpojeno – reconnect za 5s…' — není testován."
+ },
+ {
+  "type": "missing-assert",
+  "detail": "Test st-history-replay-banner-visible je prázdný (žádné assertions). Zdokumentovaný stav 'Replay banner viditelný' (app.js:803-820) není testován."
+ },
+ {
+  "type": "missing-assert",
+  "detail": "Test st-history-sellpoint-filtered ověřuje jen innerHTML.length > 0 — neověřuje, že filtrování dle latestPrices skutečně funguje (tj. že sell-pointy bez dané komodity jsou odstraněny). Zdokumentovaný stav 'Dropdown sell-pointů — filtrováno' (history.html:439-445) není fakticky ověřen."
+ },
+ {
+  "type": "missing-assert",
+  "detail": "Stav 'Aktivní tlačítko period selectoru (days-btn.active)' (history.html:239) nemá žádný test v history.spec.js. Kliknutí na 30d/90d btn a ověření třídy active + reload grafů není pokryto."
+ },
+ {
+  "type": "missing-doc",
+  "detail": "Funkce rebuildFillTypeDropdown (history.html:366-428) obsahuje větev: když ftSel.value !== beforeValue po auto-defaultu, zavolá se rebuildSellPointDropdown() + loadPriceChart() + renderForecastChart() (řádky 423-427). Tato cross-efektová kaskáda (auto-default změní výběr komodity → automaticky přenačte sell-point dropdown i oba grafy) není zdokumentována v žádném ze stavů dropdown komodit jako crossEffect."
+ },
+ {
+  "type": "missing-doc",
+  "detail": "Funkce renderForecastChart (history.html:580-691) resetuje memo a staví forecastChart znovu i při _forecastMemo === null způsobeném kliknutím na bar (řádek 642: _forecastMemo = null; renderForecastChart()). Tento re-render path (onClick bust) chybí v popisu stavu 'Forecast: hlídaný měsíc (forecastWatch aktivní)' jako crossEffect."
+ }
+]

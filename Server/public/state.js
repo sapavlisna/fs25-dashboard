@@ -82,6 +82,7 @@
             animalsShowMilk:          'animalsShowMilk',           // bool, default true
             animalsShowManure:        'animalsShowManure',         // bool, default true
             animalsShowSlurry:        'animalsShowSlurry',         // bool, default true
+            animalsShowWool:          'animalsShowWool',           // bool, default true
             animalsAlarmInput:        'animalsAlarmInput',         // number %, default 25 — low-input alarm threshold
             animalsAlarmOutput:       'animalsAlarmOutput',        // number %, default 90 — full-output alarm threshold
 
@@ -97,6 +98,7 @@
             productionsExpanded:         'productionsExpanded',        // bool, default false
             productionsActiveOnly:        'productionsActiveOnly',      // bool, default false
             productionsDefaultCollapsed:  'productionsDefaultCollapsed',// bool, default true
+            productionsShowRecipes:       'productionsShowRecipes',     // bool, default true
             productionsShowInputs:        'productionsShowInputs',      // bool, default true
             productionShowCycles:         'productionShowCycles',       // bool, default true
 

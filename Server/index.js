@@ -353,6 +353,88 @@ if (process.env.DASHBOARD_MOCK === '1') {
         res.json({ scenario: current, available: listScenarios() });
     });
 
+    // ─── Seed history (balance + price JSONL) ─────────────────────────────────
+    //
+    //   POST /mock/seed-history   { balance?: [...], prices?: [...] }
+    //   POST /mock/balance-rows   { rows: [...] }   (alias → balance)
+    //   POST /mock/price-rows     { rows: [...] }   (alias → prices)
+    //
+    // Rewrites the sandbox JSONL history so /api/history/balance and
+    // /api/history/prices return known rows (≥2) without a running game.
+    // Balance rows: { game_day, balance }. Price rows: { game_day?, sell_point,
+    // fill_type, price_ton|price_per_ton }. game_day on price rows is optional
+    // (auto-sequenced per point/fill when omitted).
+    // Read the live payload's current gameDay so seedHistory can freeze the
+    // watcher off that day (else the live tick re-appends a balance row for the
+    // current day and clobbers a seeded row for the same day).
+    const liveGameDay = () => {
+        try { return JSON.parse(fs.readFileSync(DATA_FILE, 'utf8')).gameDay ?? null; }
+        catch (_) { return null; }
+    };
+
+    app.post('/mock/seed-history', (req, res) => {
+        const body = req.body || {};
+        try {
+            const r = db.seedHistory({
+                balance: body.balance, prices: body.prices,
+                freezeDay: body.freezeDay != null ? body.freezeDay : liveGameDay(),
+            });
+            log.info('mock', `seed-history → ${r.balance} balance · ${r.prices} price rows`);
+            res.json({ ok: true, ...r });
+        } catch (e) {
+            log.error('mock', `seed-history: ${e.stack || e.message}`);
+            res.status(500).json({ error: e.message });
+        }
+    });
+
+    app.post('/mock/balance-rows', (req, res) => {
+        const rows = (req.body && req.body.rows) || [];
+        try {
+            const r = db.seedHistory({ balance: rows, freezeDay: liveGameDay() });
+            res.json({ ok: true, ...r });
+        } catch (e) {
+            log.error('mock', `balance-rows: ${e.stack || e.message}`);
+            res.status(500).json({ error: e.message });
+        }
+    });
+
+    app.post('/mock/price-rows', (req, res) => {
+        const rows = (req.body && req.body.rows) || [];
+        try {
+            const r = db.seedHistory({ prices: rows });
+            res.json({ ok: true, ...r });
+        } catch (e) {
+            log.error('mock', `price-rows: ${e.stack || e.message}`);
+            res.status(500).json({ error: e.message });
+        }
+    });
+
+    // ─── Emit a synthetic replay-status envelope ──────────────────────────────
+    //
+    //   POST /mock/replay-status   { active?, name?, total?, idx?, paused?, loop? }
+    //
+    // Broadcasts { __replayStatus: {...} } over the WS so the frontend's mockup
+    // replay banner (app.js updateReplayBanner) shows/hides without an actual
+    // recording replay. Lets smoke tests assert the banner + body.replaying state.
+    app.post('/mock/replay-status', (req, res) => {
+        const b = req.body || {};
+        const status = b.active === false
+            ? { active: false }
+            : {
+                active: true,
+                name:   b.name  != null ? String(b.name)  : 'smoke-test.jsonl',
+                total:  b.total != null ? b.total : 10,
+                idx:    b.idx   != null ? b.idx   : 0,
+                paused: !!b.paused,
+                loop:   !!b.loop,
+                done:   false,
+                markers: [],
+            };
+        const msg = JSON.stringify({ __replayStatus: status });
+        wss.clients.forEach(c => { if (c.readyState === 1) c.send(msg); });
+        res.json({ ok: true, status });
+    });
+
     log.info('mock', `POST /mock/scenario habilitován (scenario file: ${SCENARIO_FILE})`);
 } else {
     // Stub — return 404 so Playwright knows the server isn't in mock mode.
@@ -619,9 +701,20 @@ server.listen(PORT, HOST, () => {
         ? '~' + DATA_FILE.slice(home.length).replace(/\\/g, '/')
         : DATA_FILE.replace(/\\/g, '/');
 
+    // Collect all non-loopback IPv4 addresses so LAN clients know where to connect.
+    const os = require('os');
+    const lanIPs = Object.values(os.networkInterfaces())
+        .flat()
+        .filter(iface => iface.family === 'IPv4' && !iface.internal)
+        .map(iface => iface.address);
+    const urlLines = [
+        `▸ http://localhost:${PORT}`,
+        ...lanIPs.map(ip => `▸ http://${ip}:${PORT}`),
+    ];
+
     log.banner([
         `FS25 Dashboard Server v${SERVER_VERSION}`,
-        `▸ http://localhost:${PORT}`,
+        ...urlLines,
         `▸ Schema:    ${MIN_MOD_SCHEMA}..${MAX_MOD_SCHEMA}`,
         `▸ Data file: ${dataDisplay}`,
         `▸ History:   ${DATA_DIR.replace(/\\/g, '/')}`,

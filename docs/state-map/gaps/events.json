@@ -1,0 +1,22 @@
+[
+ {
+  "type": "missing-doc",
+  "detail": "Žádná sekce events feed NEEXISTUJE v index.html. Server ukládá eventy (sowing/harvest/spray) do JSONL přes db.saveEvents() a vystavuje GET /api/events, ale žádná frontend stránka tento endpoint nevolá a žádný DOM element events feed nekreslí. Všechny dokumentované stavy se ve skutečnosti týkají flash indikátorů jiných sekcí (balance, fields, vehicles...), nikoli samotného events feedu popsaného v záhlaví povrchu."
+ },
+ {
+  "type": "wrong-threshold",
+  "detail": "Dokumentovaný domSelector pro storage item flash říká tr[data-tt-key='{storageName}::{itemName}'] — tento atribut v kódu neexistuje. Skutečný kód (index.html:1737) generuje <tr class=\"group-item...\" data-group=\"{key}\"> kde key = TableTools dnd klíč, nikoli data-tt-key. Navíc flash key pro storage je silo:{storageName}#{sortedItemsSig} (storageFlashKey, line 744–748), nikoli prostý storageName. Documented selector v obou stavech (item + header) nesedí na žádný DOM element."
+ },
+ {
+  "type": "missing-assert",
+  "detail": "events.spec.js test st-events-flash-subchannel-storage-header-off (line 944) ověřuje item flash přes tr[data-tt-key=\"item::Hlavní silo::Pšenice\"] — tento selektor nikdy nenajde žádný element (storage rows mají data-group, ne data-tt-key). Pozitivní aserce toHaveClass(/flash-up/) na prázdném locatoru způsobí timeout/fail, nikoli skutečné ověření. Test nespolehlivě 'ověřuje' stav, který fakticky netestuje."
+ },
+ {
+  "type": "missing-assert",
+  "detail": "Dokumentované stavy 'Production header total flash green' a 'Production header total flash red' nemají v events.spec.js žádnou asser ci ověřující flash na header řádku výrobny. Testy st-events-production-item-flash-up/down (lines 745–805) ověřují pouze .ps-stock-row.flash-up/down pro item — header řádek (tr.st-row.collapsible s hdrFlashCls, index.html:1839) není nikde asertován."
+ },
+ {
+  "type": "missing-scenario",
+  "detail": "Mock-scenarios.js neobsahuje žádný scénář pro events feed povrch samotný (sowing/harvest/spray události s dedup klíčem). Všechny events.* scénáře testují flash chování jiných sekcí. Pro skutečný events feed (typy sowing/harvest/spray, timestamp, fieldId) neexistuje ani scénář, ani spec aserce — protože frontend pro tento povrch vůbec neexistuje."
+ }
+]

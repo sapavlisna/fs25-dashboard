@@ -1,0 +1,42 @@
+[
+ {
+  "type": "wrong-threshold",
+  "detail": "scenarioProductionsFlash (mock-scenarios.js:1772-1775): oba payloady používají klíč 'recipes' místo 'productions' a 'factoryName' místo 'name'. Renderer čte p.name a p.productions (index.html:1824), takže výrobna nemá žádné recepty → items.amount se nikdy nemění → flash se nikdy neaktivuje. Spec test (productions.spec.js:277-291) kvůli tomu vůbec netestuje flash — jen ověří, že řádek je viditelný (toBeVisible), bez aserce na třídu flash-up/flash-down."
+ },
+ {
+  "type": "wrong-threshold",
+  "detail": "scenarioProductionsMultiFactory (mock-scenarios.js:1790-1793): stejný bug jako u flash — používá 'factoryName'+'recipes' místo 'name'+'productions'. Výsledek: p.name = undefined → key = 'prod:undefined', p.productions = undefined → (p.productions || []).some(...) = false → oba závody jsou při activeOnly=true skryté. Spec test 'active factory is still visible when activeOnly=true' (productions.spec.js:415-420) selže v reálu — Pekárna se nezobrazí, protože nemá žádné aktivní recepty v správném klíči."
+ },
+ {
+  "type": "missing-assert",
+  "detail": "Flash header výrobny (stav: 'flash header výrobny', fileLine:index.html:804): spec test v productions.spec.js:277-291 ověřuje pouze toBeVisible() na factoryRow — nikdy neassertuje, že tr.st-row získá třídu flash-up nebo flash-down. Faktický flash efekt na hlavičce výrobny není pokryt žádnou assertions."
+ },
+ {
+  "type": "missing-assert",
+  "detail": "Flash položky výrobny — expanded ps-stock-row (stav: 'expanded: flash ps-stock-row', fileLine:index.html:1850): v productions.spec.js neexistuje žádný test, který by ověřoval přítomnost třídy flash-up nebo flash-down na .ps-stock-row. Stav je v coveredBy prázdný a spec to potvrzuje."
+ },
+ {
+  "type": "missing-assert",
+  "detail": "Cykly visible — špatný DashState klíč v asercích (stav: 'cyclesPerHour zobrazeno', fileLine:index.html:1897): spec (productions.spec.js:298-299) nastavuje localStorage klíč 'fs25.dash.v1.showCycles', ale renderer čte DashState.get('productionShowCycles', ...) (index.html:1818). Klíče se neshodují → localStorage.setItem nemá efekt → test neřídí toggle a ověřuje jen defaultní chování (showCycles=true je default, takže test průběžně 'projde', ale nechrání případ showCycles=false)."
+ },
+ {
+  "type": "missing-scenario",
+  "detail": "Stav 'výrobna skryta drag-and-drop' (fileLine:index.html:1934, coveredBy:''): v mock-scenarios.js neexistuje žádný scénář, který by nastavoval DashState hidden:productions a ověřoval přesun výrobny do #productions-hidden-body. V productions.spec.js taktéž chybí jakýkoli test pro tento stav."
+ },
+ {
+  "type": "missing-scenario",
+  "detail": "Stav 'skupina sbalena (collapsed)' (fileLine:index.html:1821, coveredBy:''): v productions.spec.js neexistuje žádný test ověřující, že tr.group-item dostane třídu hidden-row při sbalení skupiny (collapsedGroups.has('prod:'+p.name) = true). Ani v mock-scenarios.js není scénář, který by přednastavil DashState productionsDefaultCollapsed nebo simuloval klik na skupinu."
+ },
+ {
+  "type": "missing-assert",
+  "detail": "Stav 'výrobna status: inactive (compact)' (coveredBy:''): dokument explicitně uvádí prázdné coveredBy, spec (productions.spec.js:91-104) má pouze jeden test 'compact tag gets tag-empty class' — ale chybí test pro expanded variantu. Expanded recipeRow() pro status 'inactive' vrací statusCls='' (index.html:1861-1863: větve jsou jen active/noInput/outputFull), takže .ps-recipe-row nemá žádnou extra třídu. Tento edge case (inactive expanded = žádná třída) není assertován."
+ },
+ {
+  "type": "missing-assert",
+  "detail": "Stav 'vstupy+výstupy v compact receptu' — skrytý případ: spec (productions.spec.js:424-442) testuje pouze productionsShowInputs=true. Chybí test ověřující, že při productionsShowInputs=false řádek span.c-muted NENÍ viditelný — ochrana před regresí ve větvi index.html:1894 (ioStr podmíněný showInputsOutputs)."
+ },
+ {
+  "type": "missing-assert",
+  "detail": "Stav 'expanded: Σ €/h v hlavičce výrobny' (fileLine:index.html:1834, coveredBy:''): spec nemá test, který by při productionsExpanded=true ověřoval, že .group-meta obsahuje text '· Σ N €/h'. Scénář 'productions-cost-badge' testuje cost badge v receptu (expanded), ale neassertuje header cost sum."
+ }
+]

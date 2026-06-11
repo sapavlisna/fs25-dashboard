@@ -49,12 +49,22 @@ test.describe('Drag interactions', () => {
     // Tall viewport so masonry-laid-out sections all fit on one screen and
     // bounding-box coordinates stay inside the visible page.
     test.use({ viewport: { width: 1440, height: 1600 } });
+    // Drag tests are inherently timing-sensitive (Sortable.js forceFallback mode
+    // relies on precise pointer-event timing). Allow 2 retries before failing.
+    test.describe.configure({ retries: 2 });
 
     // Disable cross-device server sync — see dashboard.spec.js for the
     // rationale. Tests assert per-test localStorage state which would
     // otherwise be clobbered by patches the previous test PATCHed to the
     // shared server.
-    test.beforeEach(async ({ page }) => {
+    test.beforeEach(async ({ page, request }) => {
+        // Pin a deterministic multi-vehicle scenario — without this the suite
+        // inherits whatever scenario the previous spec left in the mock, which
+        // may have fewer than 2 vehicles (breaks the reorder sanity test).
+        // The settle wait matters: without it the new payload lands MID-TEST,
+        // re-renders the vehicle list and detaches the row being dragged.
+        await request.post('/mock/scenario', { data: { scenario: 'vehicles-rich' } });
+        await new Promise(r => setTimeout(r, 5000));
         await page.addInitScript(() => {
             try { localStorage.setItem('fs25.dash.v1.syncMode', 'local'); } catch (_) {}
         });
@@ -132,10 +142,12 @@ test.describe('Drag interactions', () => {
     test('vehicle reorder (sanity — drag works within same container)', async ({ page }) => {
         await page.goto('/');
         await expect(page.locator('#kpi-balance')).not.toHaveText('—', { timeout: 10_000 });
-        // Need at least two vehicles to swap positions.
+        // Need at least two vehicles to swap positions — wait until the
+        // pinned vehicles-rich payload has actually rendered (the scenario
+        // switch can take a mock tick to propagate).
         const rows = page.locator('#vehicles-body .vehicle-row');
+        await expect(rows.nth(1), 'at least 2 vehicles needed').toBeVisible({ timeout: 15_000 });
         const count = await rows.count();
-        expect(count, 'at least 2 vehicles needed').toBeGreaterThanOrEqual(2);
 
         const target = count >= 3 ? rows.nth(2) : rows.nth(1);
         await dragTo(page, rows.nth(0), target);

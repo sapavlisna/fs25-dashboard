@@ -1,0 +1,62 @@
+[
+ {
+  "type": "missing-doc",
+  "detail": "Coverage doc is STALE across nearly the whole surface. A dedicated st-fields-* scenario suite exists (mock-scenarios.js scenarioFieldsTagPriority ...1398-1492, registered as 'st-fields-tag-priority' ...'st-fields-empty-state' at lines 2231-2241) with full assertions in test/smoke/state/fields.spec.js, but every documented state's coveredBy still points only at the old generic scenarios (harvest-ready, multi-fruit-types, ...) and never mentions the st-fields-* suite. Doc must be re-derived from the actual suite."
+ },
+ {
+  "type": "missing-doc",
+  "detail": "State 'Stav: saveGroundType vyhrává' marked coveredBy:'' (nothing). FALSE: scenarioFieldsTagPriority field id=1 sets saveGroundType:'SOWN' (mock-scenarios.js:1400) and fields.spec.js:90-95 asserts tag has class tag-growing and text 'Zaseto'. State IS covered."
+ },
+ {
+  "type": "missing-doc",
+  "detail": "State 'Stav: Zvadlé' (isWithered) marked coveredBy:''. FALSE: scenarioFieldsTagPriority id=3 isWithered:true (1402), fields.spec.js:104-109 asserts tag-empty + 'Zvadlé'. Covered."
+ },
+ {
+  "type": "missing-doc",
+  "detail": "State 'Stav: Strniště (isCut)' marked coveredBy:''. FALSE: scenarioFieldsTagPriority id=4 isCut:true (1403), fields.spec.js:111-116 asserts tag-sow + 'Strniště'. Covered."
+ },
+ {
+  "type": "missing-doc",
+  "detail": "State 'Stav: Prázdné (fallback)' marked coveredBy:''. FALSE: scenarioFieldsTagPriority id=7 (empty, needsSowing:false, line 1406), fields.spec.js:132-137 asserts tag-empty + 'Prázdné'. Covered."
+ },
+ {
+  "type": "missing-doc",
+  "detail": "State 'bar() práh: full (růst ≥95%)' marked coveredBy:'' with note 'full se projeví jen u rostoucího pole s pct 95-99'. FALSE: scenarioFieldsGrowthBarThresholds id=6 growthPercent:95 (1417, WHEAT not ready so bar renders), fields.spec.js:182-186 asserts bar-fill has class /full/. Covered. (Also the doc's claim that full only shows at 95-99 is itself a non-issue; 95 exactly is tested.)"
+ },
+ {
+  "type": "missing-doc",
+  "detail": "Condition badge weedState states (≥5 c-red, 3..<5 c-yellow, <3 none) all marked coveredBy with note 'žádný mock scénář nenastavuje weedState → nikdy netriggerne v testech'. FALSE: scenarioFieldsConditionBadgeWeedstate sets weedState 2/3/4/5 (mock-scenarios.js:1433-1436), fields.spec.js:247-273 asserts badge absent at 2, c-yellow 🌿3/🌿4, c-red 🌿5. All three covered."
+ },
+ {
+  "type": "missing-doc",
+  "detail": "State 'ZP buňka: známý farmland' marked coveredBy:'' with note 'žádné mock scénáře nezadávají farmlandId'. FALSE: baseField default sets farmlandId:id (1369) and scenarioFieldsFarmlandCell id=1 farmlandId:12 (1476); fields.spec.js:497-510 asserts cell text '12' and title 'Zemědělská půda 12'. Covered."
+ },
+ {
+  "type": "missing-doc",
+  "detail": "State 'Rozloha: title s rozdílem' marked coveredBy:'' with note 'žádný mock nedodává farmlandAreaHa → title se nikdy nevytvoří'. FALSE: scenarioFieldsFarmlandCell id=1 farmlandAreaHa:4.0 vs area:3.2 (1476); fields.spec.js:512-518 asserts area cell title contains 'Pole: 3.2 ha' + 'Parcela: 4.0 ha'; line 520-525 asserts no title when equal (id=2). Both branches covered."
+ },
+ {
+  "type": "missing-doc",
+  "detail": "State 'Sloupec Hnoj (spray) volitelný' note says EDGE c-yellow/c-green NEpokryto vizuálně. FALSE: scenarioFieldsSprayColumn sets sprayLevel 0/1/2 (1453-1455) with fieldsColSpray enabled in test; fields.spec.js:351-373 asserts c-red '0/2', c-yellow '1/2', c-green '2/2'. All three spray classes covered functionally."
+ },
+ {
+  "type": "missing-doc",
+  "detail": "State 'Sloupec Orat/Vápno volitelný (✓/—)' and 'Sloupce Plevel/Kameny volitelné' both marked coveredBy:''. FALSE: scenarioFieldsExtraColumnsToggle (1459-1463) + fields.spec.js:398-442 enable colPlow/Lime/Weed/Stone and assert ✓ vs — for plow/lime and number vs — for weed/stone on F1/F2. Covered."
+ },
+ {
+  "type": "missing-doc",
+  "detail": "Chip 'Plevel' note says 'EDGE bad(≥2) NEpokryto' and chip 'Kameny' note says 'EDGE bad(≥2) NEpokryto'. FALSE: scenarioFieldsActionChips id=5 weedLevel:2+stoneLevel:1 and id=6 stoneLevel:2 (1446-1447); fields.spec.js:317-331 asserts 'Plevel 2' has class /bad/ and 'Kameny 2' has class /bad/. bad(≥2) edge IS covered for both."
+ },
+ {
+  "type": "missing-doc",
+  "detail": "Flash state 'Flash: růst změněn (up/down)' marked coveredBy:'flash-test-plan.md (popsáno, ne automatizovaný assert)'. FALSE: there IS an automated assert — test/smoke/state/flash.spec.js:391-403 ('field growthState changes on owned field → flash') asserts fields-body tr id=1 gets flash-up|flash-down, and :405-411 asserts unowned id=2 does NOT flash. Both the gate (owned-only) and the flash are automated."
+ },
+ {
+  "type": "missing-scenario",
+  "detail": "Chip 'Válet' (index.html:1487-1488, condition f.fruitTypeId && f.rollerLevel===0 && fruitMeta[id].needsRolling) has NO triggering scenario. Confirmed: 'needsRolling' appears nowhere in mock-scenarios.js (the AVAIL_FRUITS catalog never sets needsRolling, and no field scenario sets rollerLevel). The chip can never light up in tests. This is a genuine real gap (doc's coveredBy:'' is correct here)."
+ },
+ {
+  "type": "missing-assert",
+  "detail": "Empty-state sub-branch 'Všechna pole jsou skrytá' (index.html:1630, when visible.length===0 but hidden fields exist) has no scenario+assert. scenarioFieldsEmptyState returns fields:[] (mock-scenarios.js:1490-1492) which only exercises the 'Žádná vlastněná pole' branch (fields.spec.js:602-607). The doc itself describes Variant B (1 empty field + fieldsHideEmpty=true → 'Všechna pole jsou skrytá') in the test comment (fields.spec.js:592-593) but no such test exists. Hidden-but-all-filtered branch is unasserted."
+ }
+]

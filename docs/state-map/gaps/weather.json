@@ -1,0 +1,22 @@
+[
+ {
+  "type": "missing-doc",
+  "detail": "WEATHER_CS labels for typeId 6 ('Bouřka'), 7 ('Kroupy'), 8 ('Mlha') jsou v kódu definovány (index.html:378) a renderovány přes #kpi-weather-sub, ale dokumentované stavy neobsahují 'Weather label rendered (Bouřka/Kroupy/Mlha)' — chybí tři záznamy v seznamu dokumentovaných stavů."
+ },
+ {
+  "type": "wrong-threshold",
+  "detail": "weather.spec.js:122 obsahuje komentář '// Label not defined in WEATHER_CS[6]' — to je nepravda; index.html:378 definuje WEATHER_CS[6] = 'Bouřka'. Komentář je chybný a zavádí budoucí čtenáře."
+ },
+ {
+  "type": "missing-assert",
+  "detail": "Test 'typeId 6 (Bouřka)' (weather.spec.js:113-124): aserce na #kpi-weather-sub je 'await expect(sub).toBeTruthy()' — locator je vždy truthy, label 'Bouřka' se fakticky NEOVĚŘUJE. Chybí 'await expect(sub).toContainText(\"Bouřka\")'."
+ },
+ {
+  "type": "missing-assert",
+  "detail": "Test 'typeId 7 (Kroupy)' (weather.spec.js:126-133): ověřuje pouze ikonu 🌨, ale vůbec neověřuje label 'Kroupy' v #kpi-weather-sub. Chybí aserce na label."
+ },
+ {
+  "type": "missing-assert",
+  "detail": "Test 'typeId 8 (Mlha/fog)' (weather.spec.js:135-142): ověřuje pouze ikonu 🌫, ale vůbec neověřuje label 'Mlha' v #kpi-weather-sub. Chybí aserce na label."
+ }
+]

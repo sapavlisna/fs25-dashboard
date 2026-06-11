@@ -596,6 +596,9 @@
 
         function open() {
             ws = new WebSocket(`ws://${location.host}`);
+            // Expose the live socket so the smoke suite can drive a disconnect
+            // (window.__ws.close()) — there's no server endpoint to force one.
+            window.__ws = ws;
             ws.onopen = () => {
                 dot.className = 'dot live';
                 wsLabel.textContent = 'Live';

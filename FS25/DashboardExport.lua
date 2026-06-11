@@ -1562,6 +1562,34 @@ function DashboardExport:collectAnimals()
                 end
             end
 
+            -- Wool / pallet outputs (sheep). Unlike milk, wool is NOT a husbandry
+            -- fill level — it spawns as physical pallets. spec_husbandryPallets has
+            -- no getter; we read its tables directly: fillLevels = liters across
+            -- pallets currently in the spawn trigger, pendingLiters = wool not yet
+            -- materialized into a pallet, capacities = maxNumPallets × palletCap.
+            -- activeFillTypes is only populated while animals are present (= WOOL).
+            local pSpec = placeable.spec_husbandryPallets
+            if pSpec and pSpec.activeFillTypes and #pSpec.activeFillTypes > 0 then
+                local maxLvl, maxCap, maxName, maxFt = -1, 0, "", nil
+                for _, ft in ipairs(pSpec.activeFillTypes) do
+                    local lvl = (pSpec.fillLevels and pSpec.fillLevels[ft] or 0)
+                              + (pSpec.pendingLiters and pSpec.pendingLiters[ft] or 0)
+                    if lvl > maxLvl then
+                        maxLvl = lvl
+                        maxCap = (pSpec.capacities and pSpec.capacities[ft]) or 0
+                        maxFt  = ft
+                        local ftDesc = g_fillTypeManager and g_fillTypeManager:getFillTypeByIndex(ft)
+                        maxName = (ftDesc and (ftDesc.title or ftDesc.name)) or ""
+                    end
+                end
+                if maxFt then
+                    rec.woolLiters   = math.floor(maxLvl)
+                    rec.woolCapacity = math.floor(maxCap)
+                    rec.woolPercent  = pctOf(maxLvl, maxCap)
+                    rec.woolType     = maxName
+                end
+            end
+
             table.insert(out, rec)
         end
     end

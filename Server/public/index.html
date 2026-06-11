@@ -574,7 +574,8 @@ function noteFlashRows(section, items, getKey, getValue) {
 }
 
 function getFlashCls(section, rowKey) {
-    if (!isFlashEnabled(section, _flashChannelOf(rowKey))) return '';
+    const channel = section === 'animals' ? _animalChannelOf(rowKey) : _flashChannelOf(rowKey);
+    if (!isFlashEnabled(section, channel)) return '';
     const f = flashes.get(`${section}::${rowKey}`);
     if (!f || f.expiresAt <= Date.now()) return '';
     return f.dir === 'up' ? ' flash-up' : ' flash-down';
@@ -616,9 +617,11 @@ function noteImplementFlashes(vehicles) {
         for (const impl of (v.implements || [])) {
             const units = impl.fillUnits || [];
             for (let i = 0; i < units.length; i++) {
-                if (units[i].fillType === 'AIR') continue;
+                // AIR rides its own channel ('air') so it can be toggled apart
+                // from crop/goods fill ('impl').
+                const channel = units[i].fillType === 'AIR' ? 'air' : 'impl';
                 const pct = Math.round(units[i].percent ?? 0);
-                const fuKey = `vehicles::impl::${v.name}::${impl.name}::${i}`;
+                const fuKey = `vehicles::${channel}::${v.name}::${impl.name}::${i}`;
                 const prev = flashPrev.get(fuKey);
                 if (prev != null && prev !== pct) {
                     // Only START a new flash when none is active for this unit —
@@ -640,22 +643,62 @@ function noteImplementFlashes(vehicles) {
     scheduleFlashCleanup();
 }
 
-// Aggregate any live implement-boundary flash for a given vehicle.
-// Returns ' flash-up' / ' flash-down' / '' so it composes the same way
-// as getFlashCls. Impl flash WINS over fuel flash — reaching full /
-// empty is more noteworthy than a 1 l fuel tick.
-function getImplFlashCls(vName) {
-    if (!isFlashEnabled('vehicles', 'impl')) return '';
+// Aggregate any live flash for a given vehicle into a single row tint.
+// Scans every channel (fuel · cond · speed · mh · impl · air) keyed
+// `vehicles::<channel>::<vName>[::…]` and respects each channel's toggle
+// (master + per-channel) so a disabled channel never tints the row.
+// Fill flash (impl/air) WINS over metric flashes — a trailer reaching
+// full/empty matters more than a 1 % fuel tick.
+function getVehicleFlashCls(vName) {
+    if (!isFlashEnabled('vehicles')) return '';
     const now = Date.now();
-    const prefix = `vehicles::impl::${vName}::`;
     let dir = null;
     for (const [k, f] of flashes) {
-        if (!k.startsWith(prefix)) continue;
         if (f.expiresAt <= now) continue;
-        dir = f.dir;  // last-wins is fine; we just want SOME flash class
+        if (!k.startsWith('vehicles::')) continue;
+        const rest = k.slice('vehicles::'.length);
+        const sep = rest.indexOf('::');
+        if (sep < 0) continue;
+        const channel = rest.slice(0, sep);
+        const tail = rest.slice(sep + 2);
+        // metric channels: tail === vName · fill channels: tail = '<vName>::<impl>::<i>'
+        if (tail !== vName && !tail.startsWith(vName + '::')) continue;
+        if (!isFlashEnabled('vehicles', channel)) continue;
+        if (channel === 'impl' || channel === 'air') {
+            return f.dir === 'up' ? ' flash-up' : ' flash-down';
+        }
+        dir = f.dir;
     }
     if (!dir) return '';
     return dir === 'up' ? ' flash-up' : ' flash-down';
+}
+
+// Per-vehicle metric flash tracker (fuel/cond/speed/mh). Keyed
+// `vehicles::<channel>::<name>`. `threshold` ignores sub-noise jitter
+// (e.g. speed wobble while cruising). Channel gating happens at read time
+// in getVehicleFlashCls, so prev tracking stays accurate even when off.
+function _noteVehMetric(channel, name, val, now, threshold) {
+    if (val == null) return;
+    const k = `vehicles::${channel}::${name}`;
+    const prev = flashPrev.get(k);
+    if (prev != null && Math.abs(val - prev) > (threshold || 0)) {
+        const existing = flashes.get(k);
+        if (!existing || existing.expiresAt <= now) {
+            flashes.set(k, { dir: val > prev ? 'up' : 'down', expiresAt: now + 10000 });
+        }
+    }
+    flashPrev.set(k, val);
+}
+function noteVehicleFlashes(vehicles) {
+    const now = Date.now();
+    for (const v of (vehicles || [])) {
+        _noteVehMetric('fuel',  v.name, v.fuelPercent,      now, 0);
+        _noteVehMetric('cond',  v.name, v.conditionPercent, now, 0);
+        _noteVehMetric('speed', v.name, v.speedKmh,         now, 3);    // ignore <3 km/h cruise wobble
+        _noteVehMetric('mh',    v.name, v.motorHours,       now, 0.1);
+    }
+    for (const [k, f] of flashes) if (f.expiresAt < now) flashes.delete(k);
+    scheduleFlashCleanup();
 }
 
 // Stable snapshot of every still-live flash for a given section. Used as
@@ -673,7 +716,16 @@ function flashSnapshot(section) {
         // Respect sub-channel toggles so disabling a channel busts the memo
         // and the section re-renders without the now-suppressed flash.
         const rest = k.slice(section.length + 2);
-        const channel = _flashChannelOf(rest) || (k.includes('::impl::') ? 'impl' : null);
+        let channel = _flashChannelOf(rest);
+        // Vehicles: channel is the first segment (impl/air/fuel/cond/speed/mh).
+        if (!channel && section === 'vehicles') {
+            const sep = rest.indexOf('::');
+            if (sep > 0) channel = rest.slice(0, sep);
+        }
+        // Animals: channel is the last segment (food/water/straw/…) or 'count'.
+        if (!channel && section === 'animals') {
+            channel = _animalChannelOf(rest);
+        }
         if (channel && !isFlashEnabled(section, channel)) continue;
         out.push(k + ':' + f.dir);
     }
@@ -699,15 +751,24 @@ function scheduleFlashCleanup() {
     }, Math.max(50, next - Date.now() + 50));
 }
 
-// Per-section flash toggle — read from DashState.flashEnabled, default true.
-// `channel` (optional) is a sub-channel within a section (e.g. 'header' /
-// 'item' for storage & productions, 'impl' for vehicles). A section is
-// flashing for a channel only when BOTH the master section toggle and the
-// (optional) channel toggle are on. Channels default to on.
+// Channels that default to OFF (must be explicitly enabled). Speed and motor
+// hours change almost every tick on a moving vehicle, so flashing them by
+// default would be noise — opt-in only.
+const FLASH_CHANNEL_DEFAULT_OFF = new Set(['vehicles::speed', 'vehicles::mh']);
+
+// Per-section flash toggle — read from DashState.flashEnabled, default true
+// (except FLASH_CHANNEL_DEFAULT_OFF channels). `channel` (optional) is a
+// sub-channel within a section (e.g. 'header' / 'item' for storage &
+// productions, 'impl'/'fuel'/'cond'/… for vehicles). A section flashes for a
+// channel only when BOTH the master section toggle and the channel toggle are on.
 function isFlashEnabled(section, channel) {
     const map = DashState.get(DashState.KEYS.flashEnabled, {}) || {};
     if (map[section] === false) return false;
-    if (channel && map[`${section}::${channel}`] === false) return false;
+    if (channel) {
+        const ck = `${section}::${channel}`;
+        if (FLASH_CHANNEL_DEFAULT_OFF.has(ck)) return map[ck] === true;
+        if (map[ck] === false) return false;
+    }
     return true;
 }
 function setFlashEnabled(section, on) {
@@ -723,7 +784,9 @@ function setFlashChannel(section, channel, on) {
 }
 function isFlashChannelEnabled(section, channel) {
     const map = DashState.get(DashState.KEYS.flashEnabled, {}) || {};
-    return map[`${section}::${channel}`] !== false;
+    const ck = `${section}::${channel}`;
+    if (FLASH_CHANNEL_DEFAULT_OFF.has(ck)) return map[ck] === true;
+    return map[ck] !== false;
 }
 // Extract the sub-channel from a rowKey ('header::…' / 'item::…') — only
 // these two prefixes denote real channels; anything else (sell-point names,
@@ -733,6 +796,13 @@ function _flashChannelOf(rowKey) {
     if (rowKey.startsWith('header::')) return 'header';
     if (rowKey.startsWith('item::'))   return 'item';
     return null;
+}
+// Animals keys are `${husbandryName}::${channel}` (food/water/straw/milk/manure/slurry/health/repro)
+// or bare `${husbandryName}` (whole-row count flash → channel 'count').
+function _animalChannelOf(rowKey) {
+    if (typeof rowKey !== 'string') return 'count';
+    const i = rowKey.lastIndexOf('::');
+    return i >= 0 ? rowKey.slice(i + 2) : 'count';
 }
 
 // Two physical storages can share `${type}:${storageName}` (Hof Bergmann has
@@ -758,12 +828,26 @@ function noteAllChanges(d) {
     // so the user notices "loaded trailer ready to drive" / "trailer
     // unloaded, send the tractor back". Tracked per fillUnit so multi-
     // bin implements don't smear; the per-vehicle aggregate gets read
-    // back by getImplFlashCls() below.
+    // back by getVehicleFlashCls() below.
     noteImplementFlashes(d.vehicles || []);
-    // Animals — count per husbandry
+    // Per-vehicle metric flashes (fuel / cond / speed / mh) — same row tint,
+    // gated per channel in the flash settings tab.
+    noteVehicleFlashes(d.vehicles || []);
+    // Animals — count per husbandry (whole-row flash)
     noteFlashRows('animals', d.animals || [],
         a => a.husbandryName,
         a => a.count);
+    // Animals — per-parameter flash (individual bars + sub-line values)
+    for (const [field, key] of [
+        ['foodPercent','food'], ['waterPercent','water'], ['strawPercent','straw'],
+        ['milkPercent','milk'], ['manurePercent','manure'], ['liquidManurePercent','slurry'],
+        ['woolPercent','wool'],
+        ['productivity','health'], ['reproductionPercent','repro'],
+    ]) {
+        noteFlashRows('animals', (d.animals || []).filter(a => a[field] != null),
+            a => `${a.husbandryName}::${key}`,
+            a => a[field]);
+    }
     // Storage — both per-item amounts AND per-silo aggregate total
     const storageHeaderRows = [];
     const storageItemRows = [];
@@ -889,31 +973,31 @@ function vehicleCardHTML(v, opts) {
     // truncated). Per user feedback: keep only the short name visible
     // and put the full type + motor hours + AdBlue in the tooltip.
     const rowTitle = `${v.typeName || v.name} · ${v.motorHours ?? 0} mh${adblue}`;
-    // Impl-boundary flash wins over fuel flash — a trailer reaching 100 %
-    // or 0 % is more important to surface than a 1 l fuel tick.
-    const flashCls = getImplFlashCls(v.name) || getFlashCls('vehicles', v.name);
+    // Row tint aggregates every enabled vehicle flash channel (fill wins).
+    const flashCls = getVehicleFlashCls(v.name);
     const showWorker = DashState.get('vehicleShowWorkerBadge', true) !== false;
     const ai = showWorker ? aiTaskBadge(v.aiTask) : null;
     const aiHTML = ai
         ? `<span class="vc-ai" title="${esc(ai.tooltip)}">${esc(ai.text)}</span>`
         : '';
-    const implHTML    = implementsHTML(v.implements, v.name);
-    const implSummary = implementsSummary(v.implements, v.name);
-    const implChips   = vehicleImplChips(v);
+    const showFuel = DashState.get('vehicleShowFuel', true) !== false;
+    const showFill = DashState.get('vehicleShowFill', true) !== false;
+    const implHTML    = showFill ? implementsHTML(v.implements, v.name) : '';
+    const implSummary = showFill ? implementsSummary(v.implements, v.name) : '';
     const rightHTML   = vehicleRightHTML(v);
     const fuelCls     = v.adBlueCapacity ? 'vc-fuel has-adblue' : 'vc-fuel';
     const adblueTitle = v.adBlueCapacity ? ` · AdBlue ${v.adBluePercent ?? 0} %` : '';
+    const fuelHTML = showFuel ? `<div class="${fuelCls}" title="${esc(fuelTitle + adblueTitle)}">
+            ${bar(fp)}
+            <span class="vc-fuel-num">${fmt(v.fuelLiters)}/${fmt(v.fuelCapacity)} l</span>
+        </div>` : '';
     return `<div class="vehicle-row ${v.isInUse ? 'in-use' : ''}${flashCls}" ${TableTools.dndAttrs('vehicles', v.name)} title="${esc(rowTitle)}">
         <span class="${dotCls}"></span>
         <span class="vc-name">${esc(v.name)}</span>
-        <div class="${fuelCls}" title="${esc(fuelTitle + adblueTitle)}">
-            ${bar(fp)}
-            <span class="vc-fuel-num">${fmt(v.fuelLiters)}/${fmt(v.fuelCapacity)} l</span>
-        </div>
+        ${fuelHTML}
         ${aiHTML}
         ${rightHTML}
         ${implSummary}
-        ${implChips}
         ${implHTML}
     </div>`;
 }
@@ -930,7 +1014,8 @@ function vehicleRightHTML(v) {
         const cls = c >= 80 ? 'c-green' : (c >= 50 ? 'c-yellow' : 'c-red');
         parts.push(`<span class="vc-cond ${cls}" title="Kondice vozidla (servis při nízké)">🔧 ${c} %</span>`);
     }
-    if (v.speedKmh != null && v.speedKmh > 0) {
+    const showSpeed = DashState.get('vehicleShowSpeed', true) !== false;
+    if (showSpeed && v.speedKmh != null && v.speedKmh > 0) {
         parts.push(`<span class="vc-speed" title="Aktuální rychlost">${v.speedKmh} km/h</span>`);
     }
     const showMH = DashState.get('vehicleShowEngineHours', true) !== false;
@@ -1043,10 +1128,12 @@ function implementsHTML(implements, vehicleName) {
         const showImplName = impl.name && impl.name !== '' && impl.name !== vehicleName;
         for (const u of displayFillUnits(impl, showEmpty, hideAir)) {
             // "EMPTY" comes from the Lua side when a trailer has no current
-            // and no historical fillType — show it as a soft em-dash so the
-            // row reads "Pickup wagon — 0 / 50 t" rather than "EMPTY 0 / 50 t".
+            // and no historical fillType. When the unit is empty the crop
+            // label is blank — only the implement name + empty bar remain.
+            // A non-empty unit shows the crop name right before the bar
+            // (mirrors the old top-right chip).
             const isEmpty = !u.fillType || u.fillType === 'EMPTY';
-            const fillLabel = isEmpty ? '—' : (u.typeTitle || u.fillType);
+            const fillLabel = isEmpty ? '' : (u.typeTitle || u.fillType);
             // Liters → tonnes if > 1000 for readability
             const lv  = u.levelL    || 0;
             const cap = u.capacityL || 0;
@@ -1055,11 +1142,12 @@ function implementsHTML(implements, vehicleName) {
                 : `${fmt(lv)} / ${fmt(cap)} l`;
             const pct = u.percent ?? 0;
             const cls = pct >= 90 ? 'c-green' : (pct >= 50 ? '' : 'c-muted');
-            const implPrefix = showImplName
-                ? `<span class="vi-impl">${esc(impl.name)}</span><span class="vi-sep"> · </span>`
+            const implName = showImplName
+                ? `<span class="vi-impl">${esc(impl.name)}</span>`
                 : '';
             rows.push(`<div class="vi-row" title="${esc(impl.name)}">
-                <span class="vi-label">${implPrefix}${esc(fillLabel)}</span>
+                <span class="vi-label">${implName}</span>
+                <span class="vi-fill ${cls}">${esc(fillLabel)}</span>
                 <span class="vi-bar">${bar(pct)}</span>
                 <span class="vi-num ${cls}">${esc(fmtUnit)}</span>
             </div>`);
@@ -1069,48 +1157,22 @@ function implementsHTML(implements, vehicleName) {
     return `<div class="v-implements">${rows.join('')}</div>`;
 }
 
-// Compact implement chips for the EXPANDED vehicle row — uses the freed
-// horizontal width to show 1-2 implements inline (label · mini-bar · value),
-// with a "+N" pill for the rest. An actively working vehicle shows real
-// tonnage instead of % so the player can tell "is the trailer full enough
-// to drive out". CSS shows these only under .expanded-vehicles.
-function vehicleImplChips(v) {
-    const showEmpty = DashState.get('vehicleShowEmptyImplements', true) !== false;
-    const hideAir   = !!DashState.get('vehicleHideAir', false);
-    const active    = !!(v.isInUse || v.aiTask);
-    const units = [];
-    for (const impl of (v.implements || [])) {
-        const implName = impl.name && impl.name !== v.name ? impl.name : '';
-        for (const u of displayFillUnits(impl, showEmpty, hideAir)) units.push({ u, implName });
-    }
-    if (!units.length) return '';
-    const LIMIT = 2;
-    const shown = units.slice(0, LIMIT);
-    const extra = units.length - shown.length;
-    const chip = ({ u, implName }) => {
-        const pct    = u.percent ?? 0;
-        const noFill = !u.fillType || u.fillType === 'EMPTY';
-        const label  = noFill ? '—' : (u.typeTitle || u.fillType);
-        const cap    = u.capacityL || 0;
-        const lv     = u.levelL || 0;
-        const valTxt = (active && !noFill && cap > 0) ? fmtLT(lv, cap) : `${pct}%`;
-        return `<span class="vc-chip" title="${esc(implName || label)}"><span class="vc-chip-lbl">${esc(label)}</span>${bar(pct)}<span class="vc-chip-val">${valTxt}</span></span>`;
-    };
-    let html = shown.map(chip).join('');
-    if (extra > 0) html += `<span class="vc-chip vc-chip-more" title="Další nářadí: ${extra}">+${extra}</span>`;
-    return `<span class="vc-impl-chips">${html}</span>`;
-}
-
 let _vehiclesMemo = null;
 function renderVehicles(vehicles) {
-    const vCfgKeys = ['vehiclesExpanded','vehicleShowCondition','vehicleShowEmptyImplements',
+    const vCfgKeys = ['vehiclesExpanded','vehicleShowCondition','vehicleShowSpeed',
+        'vehicleShowFuel','vehicleShowFill','vehicleShowEmptyImplements',
         'vehicleHideAir','vehicleShowEngineHours','vehicleShowWorkerBadge','vehicleShowWorkerETA',
         'vehicleImplHideCrops','vehicleImplHideLiquids','vehicleImplHideSolids','vehicleImplHideBiomasa',
         'vehiclesActiveOnly'];
+    const _femap = DashState.get(DashState.KEYS.flashEnabled, {}) || {};
+    const _fechannels = Object.entries(_femap)
+        .filter(([k]) => k === 'vehicles' || k.startsWith('vehicles::'))
+        .map(([k, v]) => k + '=' + v).sort().join(';');
     const memoKey = JSON.stringify(vehicles)
         + '|' + [...TableTools.getHidden('vehicles')].sort().join(',')
         + '|' + (TableTools.getOrder('vehicles') || []).join(',')
         + '|' + flashSnapshot('vehicles')
+        + '|fc:' + _fechannels
         + '|' + vCfgKeys.map(k => DashState.get(k, '')).join(',');
     if (memoKey === _vehiclesMemo) return;
     _vehiclesMemo = memoKey;
@@ -1148,6 +1210,7 @@ function animalCardHTML(a, opts) {
     const mp = a.milkPercent;
     const mn = a.manurePercent;
     const lm = a.liquidManurePercent;
+    const wl = a.woolPercent;         // nil for non-wool animals (cows, pigs, ...)
 
     const showAlarm   = DashState.get('animalsShowAlarm',        true) !== false;
     const showRepro   = DashState.get('animalsShowReproduction', true) !== false;
@@ -1157,6 +1220,7 @@ function animalCardHTML(a, opts) {
     const showMilk    = DashState.get('animalsShowMilk',         true) !== false;
     const showManure  = DashState.get('animalsShowManure',       true) !== false;
     const showSlurry  = DashState.get('animalsShowSlurry',       true) !== false;
+    const showWool    = DashState.get('animalsShowWool',         true) !== false;
     const loThr = Number(DashState.get('animalsAlarmInput',  25)) || 25;  // low-input alarm %
     const hiThr = Number(DashState.get('animalsAlarmOutput', 90)) || 90;  // full-output alarm %
 
@@ -1167,7 +1231,8 @@ function animalCardHTML(a, opts) {
         (sp != null && sp < loThr) ||
         (mp != null && mp >= hiThr) ||
         (mn != null && mn >= hiThr) ||
-        (lm != null && lm >= hiThr)
+        (lm != null && lm >= hiThr) ||
+        (wl != null && wl >= hiThr)
     );
     const alertMsg = isAlert
         ? (fp < loThr || (wp != null && wp < loThr) || (sp != null && sp < loThr) ? 'Doplnit!' : 'Odvézt!')
@@ -1179,15 +1244,17 @@ function animalCardHTML(a, opts) {
     // left; outputs (produced by animals, high % = bad → needs collecting)
     // on the right. Each husbandry shows only the bars it actually exposes.
     const expanded = !!(opts && opts.expanded);
+    const n = a.husbandryName;
     const inputs = [
-        ...(showFood                        ? [{ lbl: 'K',  pct: fp, title: 'Krmivo',     lvl: a.foodLiters,  cap: a.foodCapacity }]  : []),
-        ...(showWater   && wp != null       ? [{ lbl: 'V',  pct: wp, title: 'Voda',       lvl: a.waterLiters, cap: a.waterCapacity }] : []),
-        ...(showBedding && sp != null       ? [{ lbl: 'P',  pct: sp, title: 'Podestýlka', lvl: a.strawLiters, cap: a.strawCapacity }] : []),
+        ...(showFood                        ? [{ lbl: 'K',  pct: fp, title: 'Krmivo',     lvl: a.foodLiters,  cap: a.foodCapacity,        fk: `${n}::food`   }] : []),
+        ...(showWater   && wp != null       ? [{ lbl: 'V',  pct: wp, title: 'Voda',       lvl: a.waterLiters, cap: a.waterCapacity,       fk: `${n}::water`  }] : []),
+        ...(showBedding && sp != null       ? [{ lbl: 'P',  pct: sp, title: 'Podestýlka', lvl: a.strawLiters, cap: a.strawCapacity,       fk: `${n}::straw`  }] : []),
     ];
     const outputs = [
-        ...(showMilk   && mp != null        ? [{ lbl: 'M',  pct: mp, title: 'Mléko', lvl: a.milkLiters,         cap: a.milkCapacity }]         : []),
-        ...(showManure && mn != null        ? [{ lbl: 'H',  pct: mn, title: 'Hnůj',  lvl: a.manureLiters,       cap: a.manureCapacity }]       : []),
-        ...(showSlurry && lm != null        ? [{ lbl: 'Kj', pct: lm, title: 'Kejda', lvl: a.liquidManureLiters, cap: a.liquidManureCapacity }] : []),
+        ...(showMilk   && mp != null        ? [{ lbl: 'M',  pct: mp, title: 'Mléko', lvl: a.milkLiters,         cap: a.milkCapacity,         fk: `${n}::milk`   }] : []),
+        ...(showManure && mn != null        ? [{ lbl: 'H',  pct: mn, title: 'Hnůj',  lvl: a.manureLiters,       cap: a.manureCapacity,       fk: `${n}::manure` }] : []),
+        ...(showSlurry && lm != null        ? [{ lbl: 'Kj', pct: lm, title: 'Kejda', lvl: a.liquidManureLiters, cap: a.liquidManureCapacity, fk: `${n}::slurry` }] : []),
+        ...(showWool   && wl != null        ? [{ lbl: 'Vl', pct: wl, title: a.woolType || 'Vlna', lvl: a.woolLiters, cap: a.woolCapacity, fk: `${n}::wool` }] : []),
     ];
     // In expanded mode each bar gets an inline litres/tonnes cell (empty span
     // when capacity is unknown — keeps the grid column aligned across rows).
@@ -1195,7 +1262,8 @@ function animalCardHTML(a, opts) {
         const liters = expanded
             ? `<span class="ac-bar-liters">${fmtLT(p.lvl, p.cap)}</span>`
             : '';
-        return `<span class="ac-barpair"><span class="ac-bar-lbl" title="${p.title}">${p.lbl}</span>${bar(p.pct)}${liters}</span>`;
+        const lblCls = p.fk ? getFlashCls('animals', p.fk) : '';
+        return `<span class="ac-barpair"><span class="ac-bar-lbl${lblCls}" title="${p.title}">${p.lbl}</span>${bar(p.pct)}${liters}</span>`;
     };
     const inputsHTML  = inputs.map(barPair).join('');
     const outputsHTML = outputs.map(barPair).join('');
@@ -1220,11 +1288,15 @@ function animalCardHTML(a, opts) {
         unsupported: { icon: '⚪', cls: 'c-muted',  hint: 'Druh nepodporuje reprodukci' },
     };
     const rd = reproStatus ? REPRO_DISPLAY[reproStatus] : null;
+    const reproFlash = getFlashCls('animals', `${n}::repro`);
     const reproBadge = (showRepro && a.count > 0 && reproPct != null)
         ? (rd
-            ? ` · <span class="${rd.cls}" title="${rd.hint}. Nejvyšší cluster: ${reproPct} %.">${rd.icon} ${reproPct} %</span>`
-            : ` · <span class="${reproPct >= 90 ? 'c-green' : ''}" title="Reprodukce — nejvyšší % napříč plemeny (100 % = nové mládě)">🐣 ${reproPct} %</span>`)
+            ? ` · <span class="ac-repro-badge ${rd.cls}${reproFlash}" title="${rd.hint}. Nejvyšší cluster: ${reproPct} %.">${rd.icon} ${reproPct} %</span>`
+            : ` · <span class="ac-repro-badge ${reproPct >= 90 ? 'c-green' : ''}${reproFlash}" title="Reprodukce — nejvyšší % napříč plemeny (100 % = nové mládě)">🐣 ${reproPct} %</span>`)
         : '';
+
+    const healthFlash = getFlashCls('animals', `${n}::health`);
+    const healthTxt = `<span class="ac-sub-val${healthFlash}" title="Zdraví / produktivita">zdr. ${a.productivity ?? 0} %</span>`;
 
     // Expanded sub-line carries more of the freed width: N/max ks (orange at
     // capacity), breed count, and the total herd value (count × sellPrice).
@@ -1236,9 +1308,9 @@ function animalCardHTML(a, opts) {
         const countTxt  = `<span class="${atCap ? 'c-orange' : ''}" title="${atCap ? 'Plná kapacita — nelze množit/nakupovat' : ''}">${a.count}/${a.maxCount ?? '—'} ks</span>`;
         const breedTxt  = breeds ? ` · ${breeds} plem` : '';
         const valueTxt  = herdValue > 0 ? ` · <span class="ac-herd-value" title="Hodnota stáda (počet × prodejní cena)">💰 ${fmtMoney(herdValue)}</span>` : '';
-        subHTML = `${countTxt}${breedTxt} · zdr. ${a.productivity ?? 0} %${reproBadge}${valueTxt}`;
+        subHTML = `${countTxt}${breedTxt} · ${healthTxt}${reproBadge}${valueTxt}`;
     } else {
-        subHTML = `${a.count} ks · zdr. ${a.productivity ?? 0} %${reproBadge}`;
+        subHTML = `${a.count} ks · ${healthTxt}${reproBadge}`;
     }
 
     const flashCls = getFlashCls('animals', a.husbandryName);
@@ -1303,6 +1375,7 @@ function openAnimalModal(name) {
                 ${data.milkPercent != null  ? fillRow('🥛 ' + (data.milkType || 'Mléko'), data.milkLiters, data.milkCapacity, data.milkPercent) : ''}
                 ${data.manurePercent != null ? fillRow('💩 Hnůj',     data.manureLiters,       data.manureCapacity,       data.manurePercent) : ''}
                 ${data.liquidManurePercent != null ? fillRow('🪣 Kejda', data.liquidManureLiters, data.liquidManureCapacity, data.liquidManurePercent) : ''}
+                ${data.woolPercent != null ? fillRow('🧶 ' + (data.woolType || 'Vlna'), data.woolLiters, data.woolCapacity, data.woolPercent) : ''}
             </tbody>
         </table>`;
 
@@ -1368,12 +1441,17 @@ let _animalsMemo = null;
 function renderAnimals(animals) {
     const aCfgKeys = ['animalsExpanded','animalsShowAlarm','animalsShowReproduction',
         'animalsShowFood','animalsShowWater','animalsShowBedding',
-        'animalsShowMilk','animalsShowManure','animalsShowSlurry',
+        'animalsShowMilk','animalsShowManure','animalsShowSlurry','animalsShowWool',
         'animalsAlarmInput','animalsAlarmOutput'];
+    const _aemap = DashState.get(DashState.KEYS.flashEnabled, {}) || {};
+    const _aechannels = Object.entries(_aemap)
+        .filter(([k]) => k === 'animals' || k.startsWith('animals::'))
+        .map(([k, v]) => k + '=' + v).sort().join(';');
     const memoKey = JSON.stringify(animals)
         + '|' + [...TableTools.getHidden('animals')].sort().join(',')
         + '|' + (TableTools.getOrder('animals') || []).join(',')
         + '|' + flashSnapshot('animals')
+        + '|fc:' + _aechannels
         + '|' + aCfgKeys.map(k => DashState.get(k, '')).join(',');
     if (memoKey === _animalsMemo) return;
     _animalsMemo = memoKey;
@@ -1475,13 +1553,21 @@ function fieldNeedsChips(f) {
 }
 
 function fieldStateTag(f) {
-    const gt = f.saveGroundType && GROUND_TYPE_LABELS[f.saveGroundType];
-    if (gt) return `<span class="tag ${gt.cls}" title="groundType: ${esc(f.saveGroundType)}">${gt.label}</span>`;
+    // Live Lua states take priority — more current than save XML (XML lags up to 30 s).
     if (f.isReadyToHarvest) return '<span class="tag tag-ready">Připraveno</span>';
     if (f.isWithered)       return '<span class="tag tag-empty" title="Pole je zvadlé — zkultivovat a zasít">Zvadlé</span>';
     if (f.isCut)            return '<span class="tag tag-sow" title="Strniště — zkultivovat a zasít">Strniště</span>';
     if (f.fruitTypeId)      return '<span class="tag tag-growing">Roste</span>';
-    if (f.needsSowing)      return '<span class="tag tag-sow">Sít</span>';
+    if (f.needsSowing) {
+        // XML CULTIVATED is more specific than "K setí" — use it when available.
+        if (f.saveGroundType === 'CULTIVATED')
+            return '<span class="tag tag-sow" title="Pole zkultivováno, čeká na setí">Zkultivováno</span>';
+        if (f.needsPlowing) return '<span class="tag tag-sow" title="Pole čeká na zorání">K zorání</span>';
+        return '<span class="tag tag-sow" title="Pole je připraveno k setí">K setí</span>';
+    }
+    // Fall back to XML ground type for edge cases not covered by live data.
+    const gt = f.saveGroundType && GROUND_TYPE_LABELS[f.saveGroundType];
+    if (gt) return `<span class="tag ${gt.cls}" title="groundType: ${esc(f.saveGroundType)}">${gt.label}</span>`;
     return '<span class="tag tag-empty">Prázdné</span>';
 }
 
@@ -1580,8 +1666,13 @@ function renderFields(fields) {
         const days = f.daysToHarvest > 0
             ? `<span class="c-yellow">${f.daysToHarvest}</span>`
             : (f.isReadyToHarvest ? '<span class="c-green">✓</span>' : '—');
+        // After harvest (isCut/isWithered) the engine still reports the last fruit
+        // type — show it dimmed so it's clear the field is currently empty.
+        const fieldEmpty = f.isCut || f.isWithered;
         const fruitCell = f.fruitTypeId
-            ? CropIcons.iconWithName(f.fruitTypeId, esc(f.fruitName))
+            ? (fieldEmpty
+                ? `<span style="opacity:0.45" title="Naposledy: ${esc(f.fruitName)} — pole je prázdné">${CropIcons.iconWithName(f.fruitTypeId, esc(f.fruitName))}</span>`
+                : CropIcons.iconWithName(f.fruitTypeId, esc(f.fruitName)))
             : '<span class="c-muted">—</span>';
         const farmlandCell = f.farmlandId != null
             ? `<span title="Zemědělská půda ${f.farmlandId} (z map UI)">${f.farmlandId}</span>`
@@ -1798,6 +1889,7 @@ function recipeLph(r) {
 function productionRowsHTML(p, opts) {
     const expanded          = !!(opts && opts.expanded);
     const defaultCollapsed  = DashState.get('productionsDefaultCollapsed', true) !== false;
+    const showRecipes       = DashState.get('productionsShowRecipes',      true) !== false;
     const showInputsOutputs = DashState.get('productionsShowInputs',       true) !== false;
     const showCycles        = DashState.get('productionShowCycles',        true) !== false;
 
@@ -1856,9 +1948,12 @@ function productionRowsHTML(p, opts) {
         };
         const lphSum  = recipes.reduce((s, r) => s + recipeLph(r), 0);
         const sumRow  = recipes.length > 1 ? `<div class="ps-sum c-muted">Σ ${fmt(lphSum)} l/h · ${fmt(costSum)} €/h</div>` : '';
-        const recipeCol = `<div class="ps-col-recipes"><div class="ps-group-label">⚙️ Recepty</div>${recipes.map(recipeRow).join('')}${sumRow}</div>`;
+        const recipeCol = showRecipes
+            ? `<div class="ps-col-recipes"><div class="ps-group-label">⚙️ Recepty</div>${recipes.map(recipeRow).join('')}${sumRow}</div>`
+            : '';
+        const gridStyle = showRecipes ? '' : ' style="grid-template-columns:1fr"';
 
-        const body = `<tr class="group-item prod-split${hiddenCls}" data-group="${esc(key)}"><td colspan="4"><div class="ps-grid">${stockCol}${recipeCol}</div></td></tr>`;
+        const body = `<tr class="group-item prod-split${hiddenCls}" data-group="${esc(key)}"><td colspan="4"><div class="ps-grid"${gridStyle}>${stockCol}${recipeCol}</div></td></tr>`;
         return header + body;
     }
 
@@ -1873,7 +1968,7 @@ function productionRowsHTML(p, opts) {
             <td><div class="bar-wrap"><div class="bar-bg"><div class="bar-fill ${cls}" style="width:${ipct}%"></div></div><span class="bar-pct">${item.capacity > 0 ? ipct + '%' : ''}</span></div></td>
         </tr>`;
     }).join('');
-    const recipeRows = recipes.map(r => {
+    const recipeRows = !showRecipes ? '' : recipes.map(r => {
         const tag = PRODUCTION_STATUS_LABEL[r.status] || `<span class="tag">${esc(r.status || '?')}</span>`;
         const ins  = showInputsOutputs ? ((r.inputs  || []).map(i => `${esc(i.name)} ${fmt(i.amount)}l`).join(' + ') || '—') : '';
         const outs = showInputsOutputs ? ((r.outputs || []).map(o => `${esc(o.name)} ${fmt(o.amount)}l`).join(' + ') || '—') : '';
@@ -1893,7 +1988,7 @@ function productionRowsHTML(p, opts) {
 let _productionsMemo = null;
 function renderProductions(productions) {
     const pCfgKeys = ['productionsExpanded','productionsActiveOnly','productionsDefaultCollapsed',
-        'productionsShowInputs','productionShowCycles'];
+        'productionsShowRecipes','productionsShowInputs','productionShowCycles'];
     const memoKey = JSON.stringify(productions)
         + '|' + [...TableTools.getHidden('productions')].sort().join(',')
         + '|' + (TableTools.getOrder('productions') || []).join(',')
@@ -2227,12 +2322,27 @@ window.addEventListener('DOMContentLoaded', () => {
 
         // Flash sub-channel item — lives in the flashEnabled map (not a plain
         // DashState key), so it carries its own get/set + rerender onchange.
-        const _flashItem = (section, channel, label) => ({
+        // `def` is the default state (true=on); speed/mh pass false.
+        const _flashItem = (section, channel, label, def = true) => ({
             key: `flash:${section}:${channel}`,
             label,
-            default: true,
+            default: def,
             get: () => isFlashChannelEnabled(section, channel),
             set: v => setFlashChannel(section, channel, v),
+            onchange: () => { if (window.FS25App && window.FS25App.rerender) window.FS25App.rerender(); },
+        });
+        // Master flash item — shares state with the section-header flash toggle
+        // (both read/write flashEnabled[section]); keep that checkbox in sync.
+        const _flashMaster = (section, label) => ({
+            key: `flash:${section}:master`,
+            label,
+            default: true,
+            get: () => isFlashEnabled(section),
+            set: v => {
+                setFlashEnabled(section, v);
+                const hdr = document.querySelector(`input[data-flash-toggle="${section}"]`);
+                if (hdr) hdr.checked = !!v;
+            },
             onchange: () => { if (window.FS25App && window.FS25App.rerender) window.FS25App.rerender(); },
         });
 
@@ -2268,16 +2378,24 @@ window.addEventListener('DOMContentLoaded', () => {
             title: '🚜 Vozidla',
             basic: [
                 { key: 'vehiclesExpanded',            label: 'Rozšířené zobrazení (2 sloupce)', default: false, expanded: true },
-                { key: 'vehicleShowCondition',         label: 'Kondice + rychlost',              default: true  },
                 { key: 'vehicleShowEmptyImplements',   label: 'Prázdné nářadí v základním pohledu', default: true },
-                { key: 'vehicleHideAir',               label: 'Skrýt vzduch (AIR)',              default: false },
                 { key: 'vehiclesActiveOnly',           label: 'Jen pracující vozidla',           default: false },
             ],
             advanced: [
                 {
-                    group: 'Vozidlo',
+                    group: 'Zobrazit položky',
                     items: [
-                        { key: 'vehicleShowEngineHours', label: 'Motorové hodiny',    default: true  },
+                        { key: 'vehicleShowFuel',        label: 'Palivo',             default: true  },
+                        { key: 'vehicleShowCondition',   label: 'Kondice',            default: true  },
+                        { key: 'vehicleShowSpeed',       label: 'Rychlost',           default: true  },
+                        { key: 'vehicleShowEngineHours', label: 'Motohodiny',         default: true  },
+                        { key: 'vehicleShowFill',        label: 'Naplnění (plodina/zboží)', default: true },
+                        { key: 'vehicleHideAir',         label: 'Skrýt vzduch (AIR)', default: false },
+                    ],
+                },
+                {
+                    group: 'Pracovník',
+                    items: [
                         { key: 'vehicleShowWorkerBadge', label: 'AI/CP/AD worker badge', default: true },
                         { key: 'vehicleShowWorkerETA',   label: 'ETA u workera',      default: true  },
                     ],
@@ -2290,6 +2408,21 @@ window.addEventListener('DOMContentLoaded', () => {
                         { key: 'vehicleImplHideLiquids', label: 'Kapaliny (hnojivo, herbicid)',    default: false },
                         { key: 'vehicleImplHideSolids',  label: 'Pevné vstupy (semena, vápno)',    default: false },
                         { key: 'vehicleImplHideBiomasa', label: 'Biomasa (tráva, siláž, sláma)',   default: false },
+                    ],
+                },
+            ],
+            flash: [
+                {
+                    group: 'Zvýraznění změn (flash)',
+                    note: 'Hlavní vypínač je i v hlavičce sekce. Rychlost a motohodiny jsou kvůli šumu výchozí vypnuté.',
+                    items: [
+                        _flashMaster('vehicles', 'Všechna vozidla (hlavní vypínač)'),
+                        _flashItem('vehicles', 'fuel',  'Palivo'),
+                        _flashItem('vehicles', 'cond',  'Kondice'),
+                        _flashItem('vehicles', 'impl',  'Naplnění (plodina/zboží)'),
+                        _flashItem('vehicles', 'air',   'Vzduch (AIR)'),
+                        _flashItem('vehicles', 'speed', 'Rychlost', false),
+                        _flashItem('vehicles', 'mh',    'Motohodiny', false),
                     ],
                 },
             ],
@@ -2317,6 +2450,7 @@ window.addEventListener('DOMContentLoaded', () => {
                         { key: 'animalsShowMilk',   label: 'Mléko (M)',  default: true },
                         { key: 'animalsShowManure', label: 'Hnůj (H)',   default: true },
                         { key: 'animalsShowSlurry', label: 'Kejda (Kj)', default: true },
+                        { key: 'animalsShowWool',   label: 'Vlna (Vl)',  default: true },
                     ],
                 },
                 {
@@ -2329,6 +2463,24 @@ window.addEventListener('DOMContentLoaded', () => {
                         { key: 'animalsAlarmOutput', label: 'Výstupy nad', type: 'select', default: 90, options: [
                             { value: 75, label: '75 %' }, { value: 85, label: '85 %' },
                             { value: 90, label: '90 %' }, { value: 95, label: '95 %' } ] },
+                    ],
+                },
+            ],
+            flash: [
+                {
+                    group: 'Zvýraznění změn (flash)',
+                    note: 'Hlavní vypínač je i v hlavičce sekce. Vstupy blikají při poklesu, výstupy při nárůstu.',
+                    items: [
+                        _flashMaster('animals', 'Všechna zvířata (hlavní vypínač)'),
+                        _flashItem('animals', 'count',  'Stav stáda (počet kusů)'),
+                        _flashItem('animals', 'food',   'Krmivo (K)'),
+                        _flashItem('animals', 'water',  'Voda (V)'),
+                        _flashItem('animals', 'straw',  'Podestýlka (P)'),
+                        _flashItem('animals', 'milk',   'Mléko (M)'),
+                        _flashItem('animals', 'manure', 'Hnůj (H)'),
+                        _flashItem('animals', 'slurry', 'Kejda (Kj)'),
+                        _flashItem('animals', 'health', 'Zdraví / produktivita'),
+                        _flashItem('animals', 'repro',  'Reprodukce'),
                     ],
                 },
             ],
@@ -2366,6 +2518,7 @@ window.addEventListener('DOMContentLoaded', () => {
             basic: [
                 { key: 'productionsExpanded',         label: 'Rozšířené zobrazení (2 sloupce)', default: false, expanded: true },
                 { key: 'productionsActiveOnly',        label: 'Zobrazit jen aktivní výrobny',    default: false },
+                { key: 'productionsShowRecipes',       label: 'Zobrazit recepty (⚙)',            default: true  },
                 { key: 'productionsDefaultCollapsed',  label: 'Nové skupiny sbalit',             default: true  },
             ],
             advanced: [
@@ -2490,9 +2643,9 @@ window.addEventListener('DOMContentLoaded', () => {
                 'vehicleShowEngineHours','vehicleShowWorkerBadge','vehicleShowWorkerETA',
                 'vehicleImplHideCrops','vehicleImplHideLiquids','vehicleImplHideSolids','vehicleImplHideBiomasa',
                 'animalsShowAlarm','animalsShowReproduction','animalsShowFood','animalsShowWater',
-                'animalsShowBedding','animalsShowMilk','animalsShowManure','animalsShowSlurry',
+                'animalsShowBedding','animalsShowMilk','animalsShowManure','animalsShowSlurry','animalsShowWool',
                 'storageDefaultCollapsed','storageHideEmpty','storageShowCapacity','storageShowPercent','storageShowBar',
-                'productionsActiveOnly','productionsDefaultCollapsed','productionsShowInputs','productionShowCycles',
+                'productionsActiveOnly','productionsShowRecipes','productionsDefaultCollapsed','productionsShowInputs','productionShowCycles',
                 'pricesOwnedOnly','pricesShowStock',
             ];
             if (RERENDER_KEYS.some(k => touched.has(k))) {

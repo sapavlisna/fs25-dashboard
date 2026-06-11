@@ -306,7 +306,7 @@ function generateData() {
         animals: [
             { husbandryName: 'Kravín',  type: 'COW',     count: animalCounts.cow,     foodPercent: Math.round(animalFood.cow * 100),     waterPercent: ri(40, 100), productivity: ri(70, 100) },
             { husbandryName: 'Vepřín',  type: 'PIG',     count: animalCounts.pig,     foodPercent: Math.round(animalFood.pig * 100),     waterPercent: ri(50, 100), productivity: ri(60, 100) },
-            { husbandryName: 'Ovčín',   type: 'SHEEP',   count: animalCounts.sheep,   foodPercent: Math.round(animalFood.sheep * 100),   waterPercent: ri(30, 100), productivity: ri(75, 100) },
+            { husbandryName: 'Ovčín',   type: 'SHEEP',   count: animalCounts.sheep,   foodPercent: Math.round(animalFood.sheep * 100),   waterPercent: ri(30, 100), productivity: ri(75, 100), woolType: 'Vlna', woolLiters: ri(20, 1500), woolCapacity: 2000, woolPercent: ri(1, 95) },
             { husbandryName: 'Kurník',  type: 'CHICKEN', count: animalCounts.chicken, foodPercent: Math.round(animalFood.chicken * 100), waterPercent: ri(60, 100), productivity: ri(65, 100) },
         ],
         productions: productionState.map(p => ({

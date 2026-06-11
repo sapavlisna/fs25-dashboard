@@ -291,6 +291,8 @@ async function loadBalanceChart() {
             },
         },
     });
+    // Expose for the smoke suite (pointRadius / dataset inspection).
+    window.balanceChart = balanceChart;
 
     // KPI hero row
     document.getElementById('kpi-records').textContent = rows.length;
@@ -671,6 +673,11 @@ function renderForecastChart() {
         },
         plugins: [valueLabels],
     });
+    // Expose the live Chart.js instance + a build counter for the smoke suite
+    // (window.forecastChart.data.datasets[].borderColor inspection; the counter
+    // lets a test confirm the memo guard skipped a destroy+recreate).
+    window.forecastChart = forecastChart;
+    window.__forecastRenderCount = (window.__forecastRenderCount || 0) + 1;
 
     // Headline summary above the chart
     const cur     = prices[curPeriod0];
@@ -769,6 +776,8 @@ async function loadPriceChart() {
             },
         },
     });
+    // Expose for the smoke suite (legend.display / datasets inspection).
+    window.priceChart = priceChart;
 }
 
 async function loadAll() {

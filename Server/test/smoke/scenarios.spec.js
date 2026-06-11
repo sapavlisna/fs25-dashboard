@@ -35,6 +35,29 @@ async function setMockScenario(request, name) {
     await new Promise(r => setTimeout(r, 3000));
 }
 
+// ─── Helper: deterministic history seed ──────────────────────────────────────
+// The history page renders from the JSONL DB, which accumulates rows DURING a
+// suite run (since the data-dir fix) — so its content depends on what ran
+// before. Seed fixed rows (the endpoint REWRITES the JSONL) right before the
+// history screenshots so they are deterministic regardless of run order.
+
+async function seedHistoryFixed(request) {
+    const resp = await request.post('/mock/seed-history', { data: {
+        balance: [
+            { game_day: 40, balance: 230000 },
+            { game_day: 41, balance: 245000 },
+            { game_day: 42, balance: 250000 },
+        ],
+        prices: [
+            { game_day: 41, sell_point: 'Getreidelager Bergmann', fill_type: 'Pšenice', price_ton: 240 },
+            { game_day: 42, sell_point: 'Getreidelager Bergmann', fill_type: 'Pšenice', price_ton: 245 },
+        ],
+    } });
+    if (!resp.ok()) {
+        throw new Error(`POST /mock/seed-history failed: ${resp.status()} ${await resp.text()}`);
+    }
+}
+
 // ─── Helper: common mask selectors ───────────────────────────────────────────
 // These elements change every render (clock, live-status dot) and must be
 // masked out before screenshot comparison to avoid spurious diffs.
@@ -118,6 +141,10 @@ test.describe('Scenario screenshots', () => {
                     page.on('pageerror', err => consoleErrors.push(err.message));
 
                     await setMockScenario(request, scenario);
+                    // Seed AFTER the scenario settles — the watcher may append a
+                    // balance row on the scenario's gameDay change, which would
+                    // land on top of (and de-determinize) an earlier seed.
+                    if (pg.name === 'history') await seedHistoryFixed(request);
                     await page.goto(pg.url);
                     await waitForPayload(page, pg.url);
 

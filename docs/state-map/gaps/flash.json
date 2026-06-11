@@ -1,0 +1,26 @@
+[
+ {
+  "type": "missing-assert",
+  "detail": "Stav 'HRANICE: Math.round u impl percent spolkne sub-1% změnu' (index.html:620-623) NENÍ věrně otestován. Scénář scenarioFlashImplBoundaryLow (mock-scenarios.js:1519-1525) vrací KONSTANTNÍ pct=50 na všech ticích ('const pct = 50; // always same rounded value'). Test st-flash-impl-boundary-low (flash.spec.js:150-157) tvrdí v komentáři, že 'percent oscillates 50.2 ↔ 50.5 but Math.round = 50', ale data se vůbec nemění → aserce 'no flash' projde triviálně (žádná změna hodnoty), čímž jen duplikuje noflash-static a NEexercizuje rounding cestu (např. 50.2→50.7 se stejným Math.round). Aby stav skutečně rozsvítil/nerozsvítil dle zaokrouhlení, scénář musí měnit syrové percent v rámci stejného celého čísla."
+ },
+ {
+  "type": "missing-assert",
+  "detail": "Stav 'HRANICE: anti-pin (flash se NEpřepne při kontinuální změně)' (index.html:565-568) má slabou aserci. Test st-flash-antipin-continuous (flash.spec.js:422-453) končí na expect(hasFlashAt8s || hasFlashAfter).toBe(true) — to je splněno už prvním flash-up na ř.438 (~5s, expirace 10s → v 8s flash stále svítí), takže aserce projde i kdyby anti-pin NEFUNGOVAL. Test nikdy neověří, že řádek mezi flashemi PŘESTANE být tintovaný (de-pin) ani že nový flash vznikne až po expiraci. Negativní část kontraktu (žádný nový flash dokud existing.expiresAt > now) zůstává neotestovaná."
+ },
+ {
+  "type": "missing-scenario",
+  "detail": "Stav 'OK mezistav — flash vypršel (expiresAt <= now)' (index.html:579) nemá dedikovaný scénář ani aserci, která by ověřila, že po ~10s flash třída ZMIZÍ (scheduleFlashCleanup re-render na expiry+50ms, ř.689). Žádný st-flash-* test nepočká na expiraci a neasertuje not.toHaveClass(/flash-/) po uplynutí 10s na elementu, který předtím flashoval. Expirace je jen implicitně dotčena vadným anti-pin testem (viz výše)."
+ },
+ {
+  "type": "missing-doc",
+  "detail": "coveredBy v dokumentaci je zastaralé/zavádějící proti realitě repo. (a) U impl flash-up stav uvádí coveredBy 'wagon-filling (mock-scenarios.js:412)' s poznámkou, že nefunguje (impl.fillPercent vs kód čte fillUnits[].percent) — to je pravda pro wagon-filling, ALE skutečné funkční pokrytí existuje v st-flash-impl-boundary-ok (mock-scenarios.js:1527, používá fillUnits[].percent správně) + events.spec.js:288 (impl flash-down). (b) Balance up/down, storage header/item, productions header/item, prices, fields grow/harvest mají v dokumentaci coveredBy PRÁZDNÉ, ač jsou plně pokryté ve flash.spec.js a events.spec.js (custom-events-*-flash-down: balance ř.117, field-harvest ř.212, storage ř.604, production ř.803, price ř.874). Dokumentace tedy podhodnocuje pokrytí — coveredBy pole neodpovídá testovacím souborům flash.spec.js / events.spec.js / animals-flash.spec.js."
+ },
+ {
+  "type": "missing-assert",
+  "detail": "Mrtvé placeholder testy v animals.spec.js:484-535 ('animals surface — flash animations': st-animals-flash-count/barlabel/health/repro) nastaví scénář a lokalizují element, ale NEvolají žádné expect() na flash třídu (jen komentáře 'best-effort'/'Flash may have cleared'). Tyto čtyři testy nic neasertují (vždy projdou). Reálné pokrytí animal flashe je jinde (flash.spec.js + animals-flash.spec.js), takže to nejsou chybějící stavy, ale jde o falešně-zelené testy, které předstírají pokrytí flash stavů zvířat."
+ },
+ {
+  "type": "missing-doc",
+  "detail": "Dva soubory nesoucí klíčové flash pokrytí jsou UNTRACKED v gitu (viz git status '??'): test/smoke/playwright.flash.config.js a test/smoke/flash-global-setup.js. Bez nich animals-flash.spec.js (isolace 8 parametrů vč. slurry/Kejda — jediné izolované pokrytí stavů 'animal output bar' a 'health/repro') nelze spustit (config definuje port 3098, global-setup exposuje __FLASH_MOCK_FILE a buildKravin s liquidManurePercent). Dokumentace stav slurry/Kejda označuje za 'coveredBy animals-flash.spec.js PARAM slurry' — pokrytí reálně závisí na necommitnutém harnessu."
+ }
+]

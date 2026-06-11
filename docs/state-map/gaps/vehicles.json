@@ -1,0 +1,66 @@
+[
+ {
+  "type": "missing-assert",
+  "detail": "st-vehicles-fuel-bar-boundary-danger-warn (danger↔warn hranice, pct=20 danger / pct=21 warn). vehicles.spec.js:157 je test.fixme (SKIP) s neaktuálním komentářem 'BUG(VEHICLES-CUSTOM-PAYLOAD): relies on inline payload ignored by server'. Přitom dedikovaný scénář scenarioVehiclesFuelBarBoundaryDangerWarn JIŽ EXISTUJE (mock-scenarios.js:2031, registrován pod 'st-vehicles-fuel-bar-boundary-danger-warn' line 2399, Fendt 20% / Fendt 21%). Test ale stále POSTuje scenario:'custom' s inline payloadem, který server ignoruje (index.js:332 čte jen req.body.scenario), a je fixme → tato hranice NENÍ fakticky ověřena. Stav dokumentován, scénář existuje, ale aserce je mrtvá."
+ },
+ {
+  "type": "missing-assert",
+  "detail": "st-vehicles-fuel-bar-boundary-warn-ok (warn↔OK, pct=50 warn / pct=51 bez třídy). vehicles.spec.js:213 test.fixme. Scénář scenarioVehiclesFuelBarBoundaryWarnOk existuje (mock-scenarios.js:2037, 'st-vehicles-fuel-bar-boundary-warn-ok' line 2400) ale test ho nepoužívá (POST 'custom') a je skipnutý. Dokumentovaný stav 'Hranice warn↔OK na liště' (coveredBy prázdné) tedy NENÍ pokryt žádnou živou asercí."
+ },
+ {
+  "type": "missing-assert",
+  "detail": "st-vehicles-fuel-bar-full-boundary (full při pct>=95, none při 94). vehicles.spec.js:266 test.fixme. Scénář scenarioVehiclesFuelBarFullBoundary existuje (mock-scenarios.js:2043, line 2401) ale nevyužit + skip. Dokumentovaný stav 'Palivová lišta — plná (full)' má coveredBy=\"\" — tj. JEDINÝ live ověřitelný full stav (bar() větev pct>=95 → 'full', style.css:623 var(--teal)) nemá žádnou aserci nikde (ani low-fuel.spec.js, vehicles-extra.spec.js full netestují)."
+ },
+ {
+  "type": "missing-assert",
+  "detail": "st-vehicles-bell-lowfuel-boundary (přesná hranice bell <15: 14% v alertu, 15% NE). vehicles.spec.js:319 test.fixme. Scénář scenarioVehiclesBellLowfuelBoundary existuje (mock-scenarios.js:2049, line 2402, Fendt 14% / Fendt 15%) ale test je skip + POSTuje 'custom'. low-fuel.spec.js ověřuje 8/6% v alertu vs 35/62% mimo, ale PŘESNOU hranici 14 vs 15 (FUEL_LOW exkluzivní '<15') NEověřuje žádný živý test."
+ },
+ {
+  "type": "missing-assert",
+  "detail": "st-vehicles-bell-fuelcap-zero-trap (fuelCapacity=0 → lišta danger, ale bell vyloučen, bell.js:116). vehicles.spec.js:381 test.fixme. Scénář scenarioVehiclesBellFuelCapZeroTrap existuje (mock-scenarios.js:2055, line 2403, 'Fendt 0%' fuelCapacity:0). Test skip + 'custom'. Dokumentovaný cross-effect 'fuelPercent<=20 i s fuelCapacity=0 → pinned 0%, bell tuto past obchází' tedy NENÍ ověřen — past zůstává netestovaná."
+ },
+ {
+  "type": "missing-assert",
+  "detail": "st-vehicles-condition-green-vs-yellow-boundary (c=80 green / c=79 yellow). vehicles.spec.js:438 test.fixme. Scénář scenarioVehiclesConditionGreenVsYellow existuje (mock-scenarios.js:2061, line 2404) ale test skip + POSTuje 'custom'. Dokumentovaný stav 'Hranice kondice green↔yellow' (coveredBy=\"\") nemá živou aserci. vehicles-extra.spec.js ověřuje jen c-green(92)/c-red(45), žádnou hranici a žádný c-yellow s tvrzením."
+ },
+ {
+  "type": "missing-assert",
+  "detail": "st-vehicles-condition-yellow-vs-red-boundary (c=50 yellow / c=49 red). vehicles.spec.js:494 test.fixme. Scénář scenarioVehiclesConditionYellowVsRed existuje (mock-scenarios.js:2067, line 2405) ale skip + 'custom'. Dokumentovaný stav 'Kondice — žlutá' (coveredBy: 'vehicles-rich CLAAS 67 → c-yellow, ale spec to explicitně netvrdí') je tím potvrzen jako NEpokrytý: c-yellow nemá nikde aserci."
+ },
+ {
+  "type": "missing-assert",
+  "detail": "st-vehicles-speed-shown-vs-hidden (speedKmh>0 → .vc-speed, jinak skryto). vehicles.spec.js:623 test.fixme. Scénář scenarioVehiclesSpeedShownVsHidden existuje (mock-scenarios.js:2073, line 2406, 'Fendt Moving' speed 12 / 'Fendt Parked' 0) ale skip + 'custom'. Speed je sice nepřímo pokryt vehicles-extra.spec.js (942 14km/h shown, 516 parked count 0) přes vehicles-rich, ale dedikovaný st-vehicles test je mrtvý."
+ },
+ {
+  "type": "missing-assert",
+  "detail": "st-vehicles-engine-hours-toggle 'shown' větev. vehicles.spec.js:637 test.fixme (jen 'hidden' varianta line 673 je živá). Scénář scenarioVehiclesEngineHoursToggle existuje (mock-scenarios.js:2079) ale 'shown' test POSTuje 'custom' (kde je Fendt 942, ne Veh-MH) a je fixme → tvrzení '345 mh zobrazeno' nikdy neproběhne. vc-mh přítomnost ověřuje jen vehicles-extra.spec.js 'right cluster order' nepřímo."
+ },
+ {
+  "type": "missing-assert",
+  "detail": "st-vehicles-dot-active-vs-idle (isInUse → dot-active + .in-use; !isInUse → dot-idle). vehicles.spec.js:752 test.fixme. Scénář scenarioVehiclesDotActiveVsIdle existuje (mock-scenarios.js:2082) ale skip + 'custom'. Dokumentované stavy 'tečka aktivní' (index.html:896,917), 'tečka idle' a 'řádek in-use' (index.html:916, coveredBy=\"\") NEMAJÍ žádnou živou aserci na .dot-active/.dot-idle/.in-use v žádném spec souboru."
+ },
+ {
+  "type": "missing-assert",
+  "detail": "st-vehicles-active-only-filter (vehiclesActiveOnly=true → !isInUse řádky pryč z DOM, ale #cnt-vehicles počítá všechny — index.html:1130 vs 1139). vehicles.spec.js:825 test.fixme. Scénář scenarioVehiclesActiveOnlyFilter existuje (mock-scenarios.js:2088, 3 vozidla) ale skip + 'custom'. Dokumentovaný cross-effect (potenciální nesoulad count vs viditelné řádky) NENÍ nikde ověřen."
+ },
+ {
+  "type": "missing-assert",
+  "detail": "st-vehicles-flash-up-down-impl. vehicles.spec.js:894 test.fixme. Scénář scenarioVehiclesFlashUpDownImpl existuje (mock-scenarios.js:2095 přes makeEventsScenario, 50%→60%) ale test je skip + používá vlastní setInterval+'custom' POST (server ignoruje). Flash JE pokryt přes vehicles-extra.spec.js 'row flashes when trailer fill % changes' (vehicles-rich), takže stav není zcela slepý, ale dedikovaná deterministická flash-up/flash-down aserce v st-vehicles je mrtvá."
+ },
+ {
+  "type": "missing-assert",
+  "detail": "st-vehicles-ai-badge-shown-vs-hidden 'shown' větev. vehicles.spec.js:910 test.fixme (jen 'hidden by toggle' 972 a 'hidden no aiTask' 1007 jsou živé — ty ale jen ověřují NEPŘÍTOMNOST .vc-ai). Dokumentovaný stav 'AI badge zobrazen (vanilla/CP/AD)' (coveredBy: 'scénář mixed-ai-tasks, ale dedikovaný assert na .vc-ai jsem nenašel') je tím potvrzen: žádný živý test netvrdí, že .vc-ai EXISTUJE."
+ },
+ {
+  "type": "missing-scenario",
+  "detail": "AI badge — pozitivní stav nemá funkční scénář. mixed-ai-tasks (mock-scenarios.js:609) používá STAROU schéma aiActive/aiSource/aiJobName, ale aiTaskBadge (index.html:856) čte v.aiTask objekt (.jobClass/.source); enrich() (index.js:378) tyto pole NEtransformuje na aiTask → mixed-ai-tasks .vc-ai vůbec NEVYRENDERUJE. A scenarioVehiclesAiBadgeShownVsHidden (mock-scenarios.js:2099) používá aiTask:{type,label} — také špatný tvar (aiTaskBadge nečte .type/.label, job spadne na '?'). Žádný scénář tedy nerozsvítí .vc-ai se správným obsahem."
+ },
+ {
+  "type": "missing-scenario",
+  "detail": "st-vehicles-impl-summary-empty-vs-filled, st-vehicles-impl-virow-basic, st-vehicles-impl-chips-expanded jsou v registru (mock-scenarios.js:2413-2415) všechny aliasované na scenarioVehiclesAdblueExpanded (line 2106) — který NEMÁ ŽÁDNÉ implements (jen CLAAS s adBlue). I kdyby se odstranilo test.fixme (vehicles.spec.js:1169/1281/1368), scénář by NIKDY nevytvořil .vc-impl-summary/.vi-row/.vc-impl-chips. Dokumentované stavy 'Implement summary barva podle naplnění', 'vi-row barva čísla', 'chip +N pilulka', 'active režim tonáž' (všechny coveredBy=\"\" nebo částečně) tedy nemají správný scénář ani aserci."
+ },
+ {
+  "type": "missing-assert",
+  "detail": "Dokumentovaný stav 'AdBlue třída + ::after proužek' (index.html:914,919, style.css:1237). vehicles.spec.js:1074 (živý) ověřuje JEN .has-adblue třídu + nepřítomnost bell. Dokumentace sama přiznává: '::after proužek ani has-adblue třída nemají assert' pro proužek — proužek (.bar-wrap::after, gate vehiclesExpanded) NENÍ nikde ověřen. has-adblue třída JE ověřena (1078), takže gap je jen pseudo-element proužek + AdBlue title text."
+ }
+]

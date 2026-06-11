@@ -1,0 +1,62 @@
+[
+ {
+  "type": "missing-doc",
+  "detail": "Stav 'Zůstatek: normální/neutrální' v dokumentaci pokrývá dva různé kódové větve: delta===0 (řádek 468, text '→ beze změny od minulého dne') A !Number.isFinite(delta) (řádky 469-471, text ''). Dokumentace je slučuje do jednoho stavu s podmínkou 'delta == 0 nebo undefined', ale vizuální výstup je odlišný — undefined dává prázdný string, ne text 'beze změny'."
+ },
+ {
+  "type": "missing-doc",
+  "detail": "WEATHER_ICON (index.html:380-383): typeId=0 i typeId=1 mapují na stejný emoji '☀️'. Dokumentovaný stav 'Počasí: aktuální ikona' uvádí '9 typů' a výčet bez poznámky o duplicitě. Chybí dokumentace: typeId=1 ('Slunečno') nedává '🌤' ale opět '☀️'."
+ },
+ {
+  "type": "missing-doc",
+  "detail": "kpi-day-sub (index.html:517): části se spojují přes ' · ' (mezera-tečka-mezera), nikoli prostou mezerou. Dokumentovaný příklad 'březen jaro 1. rok' neobsahuje oddělovač a je tak fakticky nepravdivý — skutečný výstup je 'březen · jaro · 1. rok'."
+ },
+ {
+  "type": "missing-doc",
+  "detail": "Funkce refreshBalanceHistory (index.html:406): guard '!currentDay' způsobí tiché vynechání načtení i při prvním tiku kdy gameDay chybí nebo je 0. Dokumentovaný stav 'Zůstatek: 3-denní historie' podmínku !currentDay vůbec nezmiňuje, pouze 'currentDay != balanceHistoryCache.gameDay'."
+ },
+ {
+  "type": "missing-scenario",
+  "detail": "Stav 'Zůstatek: 3-denní historie' (fileLine index.html:405-443, domSelector #kpi-balance-history): v mock-scenarios.js neexistuje žádný scénář, který by poskytl /api/history/balance data tak, aby se renderovaly prvky .history-day. Fetch jde přímo na REST endpoint a mock server jej nepopuluje žádným scénářem kpi.spec.js."
+ },
+ {
+  "type": "missing-assert",
+  "detail": "Test 'st-kpi-balance-flash-up-boundary-ok' (kpi.spec.js:163-183): používá statický scénář 'harvest-ready', který neprodukuje dvě po sobě jdoucí různé hodnoty balance. Podmínka if(subText.includes('↑')) je splněna jen náhodou. Samotná aserce 'expect(typeof hasFlash).toBe(boolean)' je vždy true — netestuje přítomnost třídy flash-up."
+ },
+ {
+  "type": "missing-assert",
+  "detail": "Test 'st-kpi-balance-flash-down-boundary-ok' (kpi.spec.js:184-195): statický scénář 'empty-farm' nikdy nevygeneruje flash-down (balance se nemění). Aserce 'expect(typeof hasFlashDown).toBe(boolean)' je vždy true — stav flash-down na #kpi-balance fakticky netestován."
+ },
+ {
+  "type": "missing-assert",
+  "detail": "Test 'st-kpi-balance-flash-high-balance-boundary-ok' (kpi.spec.js:207-216): pouze ověřuje 'balText !== —', netestuje přítomnost třídy flash-up ani to, zda byl překročen threshold 0.1%*|prevBalance|. Stav 'Zůstatek: flash změna (zelená)' pro vysoké balance není fakticky pokryt."
+ },
+ {
+  "type": "missing-assert",
+  "detail": "Test 'st-kpi-balance-delta-up-boundary-ok' (kpi.spec.js:91-108): celý blok s assertion je obalený podmínkou if(subText.includes('↑')), která se může splnit nebo nesplnit dle stavu mock serveru. Pokud podmínka není splněna, test projde bez jakékoli aserce — stav 'Zůstatek: růst' nemusí být ověřen."
+ },
+ {
+  "type": "missing-assert",
+  "detail": "Test 'st-kpi-weather-forecast-empty' (kpi.spec.js:255-263): scénář 'empty-farm' volá baseWeather() která nastavuje forecast=[{3 položky}], tedy forecast je NEPRÁZDNÝ. Test je misleadingly pojmenován 'forecast-empty' ale aserce 'typeof html === string' je vacuous a neprokáže, že fcEl.innerHTML je ''."
+ },
+ {
+  "type": "missing-assert",
+  "detail": "Test 'st-kpi-weather-forecast-present' (kpi.spec.js:265-280): aserce 'expect(count >= 0).toBeTruthy()' je vždy true (count je číslo >= 0). Neprokáže, že forecast elementy .forecast-day skutečně existují. Stav 'Počasí: předpověď — k dispozici' není fakticky ověřen."
+ },
+ {
+  "type": "missing-assert",
+  "detail": "Test 'st-kpi-weather-icon-all-types' (kpi.spec.js:228-241): testuje pouze typeId=0 (scénář empty-farm). TypeId 1-8 a fallback '·' pro záporné/neznámé typeId nejsou ověřeny. Stav 'Počasí: aktuální ikona' pro typy 1-8 nemá žádnou aserce v kpi.spec.js."
+ },
+ {
+  "type": "missing-assert",
+  "detail": "Test 'st-kpi-day-and-season' (kpi.spec.js:292-320): aserce na #kpi-day-sub je pouze 'expect(typeof subText).toBe(string)' — vždy true. Obsah (měsíc, sezóna, rok, oddělovač ' · ') není ověřen. Stav 'Den: měsíc + sezóna + rok' není fakticky pokryt."
+ },
+ {
+  "type": "missing-assert",
+  "detail": "Test 'st-kpi-currency-symbol' (kpi.spec.js:332-348): ověřuje pouze 'firstText.length > 0', nikoli konkrétní hodnotu '€'. Stav 'Měna: symbol €/Kč/...' pro ne-defaultní měny (Kč, $) nemá žádný scénář ani aserce."
+ },
+ {
+  "type": "missing-assert",
+  "detail": "Stav 'Zůstatek: 3-denní historie' (domSelector #kpi-balance-history, .history-day): v kpi.spec.js není žádný test, který by ověřoval přítomnost prvků .history-day, třídy delta-up/delta-down na nich nebo obsah .history-arrow. Stav je uveden v dokumentaci ale zcela bez aserce."
+ }
+]

@@ -1,0 +1,38 @@
+[
+ {
+  "type": "missing-assert",
+  "detail": "theme-card.active tests use a broken Playwright locator: `page.locator('.theme-card', { has: page.locator('[data-theme-id=\"dark-green\"]') })` searches for *descendants* with that attribute, but `data-theme-id` is on the `.theme-card` element itself (app.js:46). The `has` filter returns zero elements; `.first()` produces an empty locator; `toHaveClass(/active/)` never executes against a real element. Affects themes.spec.js:84-86 (dark-green) and 113-118 (dark-blue)."
+ },
+ {
+  "type": "missing-assert",
+  "detail": "No test exercises the `?theme=` query-param trigger for applying a theme. The branch `var q = (location.search.match(/[?&]theme=([\\w-]+)/) || [])[1]` (index.html:12) and the localStorage write it does (index.html:15) are completely uncovered in themes.spec.js."
+ },
+ {
+  "type": "missing-assert",
+  "detail": "st-themes-flash-row-down and st-themes-flash-row-up both assert `expect(count).toBeGreaterThanOrEqual(0)` (themes.spec.js:752-754, 772-774) — this always passes even if no flash class is present. flash-up and flash-down visual states (style.css:636-642) are effectively untested."
+ },
+ {
+  "type": "missing-assert",
+  "detail": "fs25-native cross-effect `section-header .count` gets accent2 background (style.css:552-555). The test at themes.spec.js:195-205 only asserts `toBeVisible()` on the count element; it never checks the computed background-color or color against var(--accent2). The cross-effect is not factually verified."
+ },
+ {
+  "type": "missing-assert",
+  "detail": "st-themes-balance-history-delta is marked test.fixme (themes.spec.js:264) with a comment noting `#history-table` does not exist and `.history-day` is not in history.html. Balance history-day delta-up and delta-down states (style.css:519-526) have no active assertion."
+ },
+ {
+  "type": "missing-assert",
+  "detail": "st-themes-cond-badge-all is marked test.fixme (themes.spec.js:941) because `.field-row` selector does not exist. `.cond-badge.warn`, `.cond-badge.ok`, `.cond-badge.bad` (style.css:1604-1606) have no active assertion."
+ },
+ {
+  "type": "missing-assert",
+  "detail": "st-themes-replay-banner is marked test.fixme (themes.spec.js:1081). `#replay-banner` visibility and `body.replaying` padding-top (style.css:2365-2399) have no active assertion."
+ },
+ {
+  "type": "wrong-threshold",
+  "detail": "st-themes-flash-toggle-checked sets localStorage key `fs25.dash.v1.flashEnabled` to the string `'true'` (themes.spec.js:1017), but DashState reads that key as an object map `{}` (index.html:708: `DashState.get(KEYS.flashEnabled, {})`). The string `'true'` does not satisfy `map[section] !== false`, so the toggle state is not actually driven by the test setup. The assertion passes trivially because the HTML checkbox has `checked` as a hard-coded default attribute (index.html:112, 150, 169, 188, 223, 259)."
+ },
+ {
+  "type": "missing-doc",
+  "detail": "State `Zůstatek KPI — kpi-ok (balance up)` lists `coveredBy: \"layout-stress scenario (farmBalance 512000, no delta info)\"`. layout-stress has no `farmBalanceDeltaDay` field, so `delta > 0` (index.html:466) is never true and kpi-ok is not applied. The actual test coverage for this state is `st-themes-balance-kpi-boundary-ok` using `scenarioThemesBalanceDeltaUp` (farmBalanceDeltaDay: 5000). The coveredBy field is wrong."
+ }
+]
