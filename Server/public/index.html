@@ -841,13 +841,18 @@ function noteAllChanges(d) {
     for (const [field, key] of [
         ['foodPercent','food'], ['waterPercent','water'], ['strawPercent','straw'],
         ['milkPercent','milk'], ['manurePercent','manure'], ['liquidManurePercent','slurry'],
-        ['woolPercent','wool'],
         ['productivity','health'], ['reproductionPercent','repro'],
     ]) {
         noteFlashRows('animals', (d.animals || []).filter(a => a[field] != null),
             a => `${a.husbandryName}::${key}`,
             a => a[field]);
     }
+    // Pallet outputs (wool / eggs / goat milk) — one 'wool' channel per husbandry,
+    // tracking total pallet liters (a combined sheep+goat barn has several types).
+    noteFlashRows('animals',
+        (d.animals || []).filter(a => Array.isArray(a.pallets) && a.pallets.length),
+        a => `${a.husbandryName}::wool`,
+        a => a.pallets.reduce((s, p) => s + (p.liters || 0), 0));
     // Storage — both per-item amounts AND per-silo aggregate total
     const storageHeaderRows = [];
     const storageItemRows = [];
@@ -1203,6 +1208,17 @@ function renderVehicles(vehicles) {
         : '<div class="tt-hidden-empty">Přetáhni sem vozidlo pro skrytí.</div>';
 }
 
+// Short 2-char badge for a pallet output bar, by fill-type title. A combined
+// sheep+goat barn shows both 'Vl' (vlna) and 'Km' (kozí mléko) side by side;
+// the full name lives in the bar's title tooltip and the detail modal.
+function palletBadge(type) {
+    const t = (type || '').toLowerCase();
+    if (t.includes('vln') || t.includes('wool'))             return 'Vl';
+    if (t.includes('mlék') || t.includes('mléko') || t.includes('milk')) return 'Km';
+    if (t.includes('vejc') || t.includes('vejce') || t.includes('egg'))  return 'Vj';
+    return (type || 'Vl').slice(0, 2);
+}
+
 function animalCardHTML(a, opts) {
     const fp = a.foodPercent  ?? 0;
     const wp = a.waterPercent;        // nil for animals without manual water (pigs, sheep, ...)
@@ -1210,7 +1226,10 @@ function animalCardHTML(a, opts) {
     const mp = a.milkPercent;
     const mn = a.manurePercent;
     const lm = a.liquidManurePercent;
-    const wl = a.woolPercent;         // nil for non-wool animals (cows, pigs, ...)
+    // Pallet outputs: wool (sheep), eggs (poultry), goat milk (goats). A combined
+    // sheep+goat barn exposes several at once, so this is an array of
+    // {type, liters, capacity, percent}. Empty for cows/pigs/etc.
+    const pallets = Array.isArray(a.pallets) ? a.pallets : [];
 
     const showAlarm   = DashState.get('animalsShowAlarm',        true) !== false;
     const showRepro   = DashState.get('animalsShowReproduction', true) !== false;
@@ -1232,7 +1251,7 @@ function animalCardHTML(a, opts) {
         (mp != null && mp >= hiThr) ||
         (mn != null && mn >= hiThr) ||
         (lm != null && lm >= hiThr) ||
-        (wl != null && wl >= hiThr)
+        pallets.some(p => p.percent >= hiThr)
     );
     const alertMsg = isAlert
         ? (fp < loThr || (wp != null && wp < loThr) || (sp != null && sp < loThr) ? 'Doplnit!' : 'Odvézt!')
@@ -1254,7 +1273,7 @@ function animalCardHTML(a, opts) {
         ...(showMilk   && mp != null        ? [{ lbl: 'M',  pct: mp, title: 'Mléko', lvl: a.milkLiters,         cap: a.milkCapacity,         fk: `${n}::milk`   }] : []),
         ...(showManure && mn != null        ? [{ lbl: 'H',  pct: mn, title: 'Hnůj',  lvl: a.manureLiters,       cap: a.manureCapacity,       fk: `${n}::manure` }] : []),
         ...(showSlurry && lm != null        ? [{ lbl: 'Kj', pct: lm, title: 'Kejda', lvl: a.liquidManureLiters, cap: a.liquidManureCapacity, fk: `${n}::slurry` }] : []),
-        ...(showWool   && wl != null        ? [{ lbl: 'Vl', pct: wl, title: a.woolType || 'Vlna', lvl: a.woolLiters, cap: a.woolCapacity, fk: `${n}::wool` }] : []),
+        ...(showWool ? pallets.map(p => ({ lbl: palletBadge(p.type), pct: p.percent, title: p.type || 'Vlna', lvl: p.liters, cap: p.capacity, fk: `${n}::wool` })) : []),
     ];
     // In expanded mode each bar gets an inline litres/tonnes cell (empty span
     // when capacity is unknown — keeps the grid column aligned across rows).
@@ -1375,7 +1394,7 @@ function openAnimalModal(name) {
                 ${data.milkPercent != null  ? fillRow('🥛 ' + (data.milkType || 'Mléko'), data.milkLiters, data.milkCapacity, data.milkPercent) : ''}
                 ${data.manurePercent != null ? fillRow('💩 Hnůj',     data.manureLiters,       data.manureCapacity,       data.manurePercent) : ''}
                 ${data.liquidManurePercent != null ? fillRow('🪣 Kejda', data.liquidManureLiters, data.liquidManureCapacity, data.liquidManurePercent) : ''}
-                ${data.woolPercent != null ? fillRow('🧶 ' + (data.woolType || 'Vlna'), data.woolLiters, data.woolCapacity, data.woolPercent) : ''}
+                ${(Array.isArray(data.pallets) ? data.pallets : []).map(p => fillRow('🧶 ' + (p.type || 'Vlna'), p.liters, p.capacity, p.percent)).join('')}
             </tbody>
         </table>`;
 

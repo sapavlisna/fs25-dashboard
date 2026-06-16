@@ -22,7 +22,7 @@ DashboardExport.MOD_NAME       = g_currentModName or "FS25_Dashboard"
 DashboardExport.MOD_DIR        = g_currentModDirectory or ""
 -- MOD_VERSION is kept in sync with modDesc.xml by scripts/build-mod-generic.ps1.
 -- Do not edit by hand; bump via the build script.
-DashboardExport.MOD_VERSION    = "1.2.0.0"
+DashboardExport.MOD_VERSION    = "1.2.0.2"
 -- SCHEMA_VERSION tracks the dashboard_data.json shape — bump ONLY on breaking
 -- changes (renamed/removed fields). Server has MIN/MAX bounds and warns on
 -- mismatch. See src/Dashboard/docs/COMPATIBILITY.md.
@@ -1562,31 +1562,35 @@ function DashboardExport:collectAnimals()
                 end
             end
 
-            -- Wool / pallet outputs (sheep). Unlike milk, wool is NOT a husbandry
-            -- fill level — it spawns as physical pallets. spec_husbandryPallets has
-            -- no getter; we read its tables directly: fillLevels = liters across
-            -- pallets currently in the spawn trigger, pendingLiters = wool not yet
-            -- materialized into a pallet, capacities = maxNumPallets × palletCap.
-            -- activeFillTypes is only populated while animals are present (= WOOL).
+            -- Pallet outputs (wool from sheep, eggs from poultry, goat milk from
+            -- goats). Unlike milk, these are NOT a husbandry fill level — they
+            -- spawn as physical pallets. spec_husbandryPallets has no getter; we
+            -- read its tables directly: fillLevels = liters across pallets in the
+            -- spawn trigger, pendingLiters = output not yet materialized into a
+            -- pallet, capacities = maxNumPallets × palletCap. activeFillTypes is
+            -- only populated while producing animals are present.
+            --
+            -- A combined sheep+goat barn has TWO active fill types at once (wool
+            -- AND goat milk), so we emit ALL of them as an array — the old code
+            -- kept only the highest-level one, which let goat milk (4 l) hide the
+            -- wool (0 l) entirely.
             local pSpec = placeable.spec_husbandryPallets
             if pSpec and pSpec.activeFillTypes and #pSpec.activeFillTypes > 0 then
-                local maxLvl, maxCap, maxName, maxFt = -1, 0, "", nil
+                local pallets = {}
                 for _, ft in ipairs(pSpec.activeFillTypes) do
                     local lvl = (pSpec.fillLevels and pSpec.fillLevels[ft] or 0)
                               + (pSpec.pendingLiters and pSpec.pendingLiters[ft] or 0)
-                    if lvl > maxLvl then
-                        maxLvl = lvl
-                        maxCap = (pSpec.capacities and pSpec.capacities[ft]) or 0
-                        maxFt  = ft
-                        local ftDesc = g_fillTypeManager and g_fillTypeManager:getFillTypeByIndex(ft)
-                        maxName = (ftDesc and (ftDesc.title or ftDesc.name)) or ""
-                    end
+                    local cap = (pSpec.capacities and pSpec.capacities[ft]) or 0
+                    local ftDesc = g_fillTypeManager and g_fillTypeManager:getFillTypeByIndex(ft)
+                    table.insert(pallets, {
+                        type     = (ftDesc and (ftDesc.title or ftDesc.name)) or "",
+                        liters   = math.floor(lvl),
+                        capacity = math.floor(cap),
+                        percent  = pctOf(lvl, cap),
+                    })
                 end
-                if maxFt then
-                    rec.woolLiters   = math.floor(maxLvl)
-                    rec.woolCapacity = math.floor(maxCap)
-                    rec.woolPercent  = pctOf(maxLvl, maxCap)
-                    rec.woolType     = maxName
+                if #pallets > 0 then
+                    rec.pallets = pallets
                 end
             end
 
