@@ -1,0 +1,14 @@
+[
+  {
+    "id": "alice",
+    "label": "Alice",
+    "key": "REPLACE-WITH-A-LONG-RANDOM-KEY-FOR-ALICE",
+    "enabled": true
+  },
+  {
+    "id": "bob",
+    "label": "Bob",
+    "key": "REPLACE-WITH-A-LONG-RANDOM-KEY-FOR-BOB",
+    "enabled": false
+  }
+]

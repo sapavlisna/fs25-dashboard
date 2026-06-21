@@ -57,6 +57,7 @@
                     <button type="button" data-tab="sections">📋 Sekce</button>
                     <button type="button" data-tab="theme">🎨 Vzhled</button>
                     <button type="button" data-tab="sync">☁ Sync</button>
+                    <button type="button" data-tab="relay">📡 Sdílení</button>
                     <button type="button" data-tab="diag" hidden>🐞 Diagnostika</button>
                 </nav>
 
@@ -96,12 +97,14 @@
                 </section>
 
                 <section class="settings-panel" data-panel="theme" hidden>
-                    <label style="margin-bottom:8px;display:block">Jazyk</label>
-                    <select id="lang-select" class="lang-select"></select>
-                    <p class="settings-hint" style="margin:4px 0 14px">
-                        Přepne celé rozhraní; stránka se po změně načte znovu.
-                        Synchronizuje se na ostatní zařízení.
-                    </p>
+                    <div id="lang-block">
+                        <label style="margin-bottom:8px;display:block">Jazyk</label>
+                        <select id="lang-select" class="lang-select"></select>
+                        <p class="settings-hint" style="margin:4px 0 14px">
+                            Přepne celé rozhraní; stránka se po změně načte znovu.
+                            Synchronizuje se na ostatní zařízení.
+                        </p>
+                    </div>
                     <label style="margin-bottom:8px;display:block">Téma vzhledu</label>
                     <div class="theme-grid">${themeButtons}</div>
                 </section>
@@ -127,6 +130,38 @@
                     <div class="section-reset-row">
                         <button class="secondary" id="sync-pull" type="button"
                                 title="Stáhne aktuální nastavení ze serveru a přepíše lokální">↺ Načíst ze serveru</button>
+                    </div>
+                </section>
+
+                <section class="settings-panel" data-panel="relay" hidden>
+                    <label style="margin-bottom:8px;display:block">Sdílení dashboardu (relay)</label>
+                    <p class="settings-hint">
+                        Server se připojí k relay serveru odchozím spojením a vygeneruje odkaz, který
+                        pošleš divákům — uvidí dashboard živě, jen pro čtení (žádné ovládání). Publish
+                        klíč musí být povolený v <code>publishers.json</code> na relay.
+                    </p>
+                    <label class="section-row" style="cursor:default">
+                        <span class="section-row-label">Zapnout sdílení</span>
+                        <span class="section-row-toggle">
+                            <input type="checkbox" id="relay-enabled">
+                            <span class="switch-knob"></span>
+                        </span>
+                    </label>
+                    <label>Relay URL</label>
+                    <input type="text" id="relay-url" placeholder="wss://stroj.tailnet.ts.net  ·  ws://localhost:8082">
+                    <label>Publish klíč</label>
+                    <input type="password" id="relay-key" placeholder="(beze změny)" autocomplete="new-password">
+                    <div class="section-reset-row" style="margin-top:10px;align-items:center">
+                        <button class="primary" id="relay-save" type="button">Uložit a připojit</button>
+                        <span id="relay-status" style="font-size:12px;color:var(--muted);margin-left:auto"></span>
+                    </div>
+                    <div id="relay-viewer-card" class="relay-viewer-card" hidden>
+                        <div class="relay-viewer-title">📡 Odkaz pro diváky</div>
+                        <div id="relay-viewer-row" class="section-reset-row" style="align-items:center;gap:6px" hidden>
+                            <input type="text" id="relay-viewer-url" readonly style="flex:1">
+                            <button class="secondary" id="relay-copy" type="button" title="Kopírovat odkaz">⧉</button>
+                        </div>
+                        <p id="relay-viewer-pending" class="relay-viewer-pending" hidden></p>
                     </div>
                 </section>
 
@@ -194,6 +229,19 @@
         `;
         document.body.appendChild(overlay);
 
+        // Relay viewer: the modal is theme-only (everything else hidden via CSS),
+        // so reframe the entry as a palette rather than full "settings". Keep the
+        // #settings-gear-icon span intact — later wiring attaches a listener to it.
+        if (window.readOnlyMode) {
+            btn.textContent = '🎨';
+            btn.title = 'Barevné téma';
+            const gi = overlay.querySelector('#settings-gear-icon');
+            if (gi) {
+                gi.textContent = '🎨';
+                if (gi.nextSibling && gi.nextSibling.nodeType === 3) gi.nextSibling.textContent = ' Téma';
+            }
+        }
+
         overlay.addEventListener('click', e => {
             if (e.target === overlay) closeNotifModal();
         });
@@ -224,6 +272,8 @@
                 b.hidden = (b.dataset.onlyTab !== tab));
             // Diagnostics tab: refresh status + list on enter (status also pushed via WS).
             if (tab === 'diag') diagRefresh();
+            // Relay tab: pull current relay state from the server on enter.
+            if (tab === 'relay') relayRefresh();
         });
 
         // Theme picker — clicking a card applies + persists immediately
@@ -299,6 +349,86 @@
 
         // ─── Diagnostics panel — record / list / download ─────────────────
         wireDiagPanel();
+
+        // ─── Relay sharing panel ──────────────────────────────────────────
+        wireRelayPanel();
+    }
+
+    // ─── Relay sharing (Nastavení → Sdílení) ──────────────────────────────────
+    function applyRelayState(s) {
+        if (!s) return;
+        const urlEl    = document.getElementById('relay-url');
+        const enEl     = document.getElementById('relay-enabled');
+        const keyEl    = document.getElementById('relay-key');
+        const statusEl = document.getElementById('relay-status');
+        const card     = document.getElementById('relay-viewer-card');
+        const row      = document.getElementById('relay-viewer-row');
+        const viewer   = document.getElementById('relay-viewer-url');
+        const pending  = document.getElementById('relay-viewer-pending');
+        // Don't clobber a field the user is mid-edit.
+        if (urlEl && document.activeElement !== urlEl) urlEl.value = s.url || '';
+        if (enEl) enEl.checked = !!s.enabled;
+        if (keyEl) keyEl.placeholder = s.hasKey ? '(beze změny — klíč uložen)' : 'publish klíč';
+        const labels = { disabled: 'vypnuto', connecting: 'připojuji…', connected: '✓ připojeno', error: '⚠ chyba spojení' };
+        if (statusEl) statusEl.textContent = labels[s.status] || s.status || '';
+        // Viewer-link card: show the link once the relay confirms a room; while
+        // sharing is on but not yet connected, explain WHY there's no link yet
+        // (instead of an empty/hidden area that reads as "feature missing").
+        if (viewer && s.viewerUrl) viewer.value = s.viewerUrl;
+        if (card && row && pending) {
+            if (s.viewerUrl) {
+                card.hidden = false; row.hidden = false; pending.hidden = true;
+            } else if (s.enabled) {
+                card.hidden = false; row.hidden = true; pending.hidden = false;
+                pending.textContent = s.status === 'error'
+                    ? '⚠ Spojení s relayem selhalo — zkontroluj Relay URL a publish klíč. Odkaz se objeví po připojení.'
+                    : 'Připojuji k relayi… odkaz se objeví, jakmile relay potvrdí spojení.';
+            } else {
+                card.hidden = true;
+            }
+        }
+    }
+
+    async function relayRefresh() {
+        try { applyRelayState(await fetch('/api/relay').then(r => r.json())); }
+        catch (_) { const el = document.getElementById('relay-status'); if (el) el.textContent = 'stav nedostupný'; }
+    }
+
+    function wireRelayPanel() {
+        const save = document.getElementById('relay-save');
+        const copy = document.getElementById('relay-copy');
+        if (save) save.onclick = async () => {
+            const url     = document.getElementById('relay-url').value.trim();
+            const key     = document.getElementById('relay-key').value;
+            const enabled = document.getElementById('relay-enabled').checked;
+            const statusEl = document.getElementById('relay-status');
+            save.disabled = true; const old = save.textContent; save.textContent = 'Ukládám…';
+            try {
+                const res = await fetch('/api/relay', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ url, key, enabled }),
+                });
+                const s = await res.json();
+                if (!res.ok) { if (statusEl) statusEl.textContent = '⚠ ' + (s.error || 'chyba'); }
+                else {
+                    document.getElementById('relay-key').value = '';   // never keep the secret in the field
+                    applyRelayState(s);
+                    // Poll a few times so the user sees connecting → connected + the link.
+                    let n = 0;
+                    const iv = setInterval(async () => {
+                        if (++n > 6) return clearInterval(iv);
+                        try { applyRelayState(await fetch('/api/relay').then(r => r.json())); } catch (_) {}
+                    }, 1500);
+                }
+            } catch (e) { if (statusEl) statusEl.textContent = '⚠ ' + e.message; }
+            finally { save.disabled = false; save.textContent = old; }
+        };
+        if (copy) copy.onclick = () => {
+            const v = document.getElementById('relay-viewer-url').value;
+            if (v && navigator.clipboard) navigator.clipboard.writeText(v)
+                .then(() => { copy.textContent = '✓'; setTimeout(() => { copy.textContent = '⧉'; }, 1200); });
+        };
     }
 
     function renderSectionList() {
@@ -550,6 +680,14 @@
         document.querySelectorAll('[data-theme-id]').forEach(card =>
             card.classList.toggle('active', card.dataset.themeId === curTheme));
 
+        // Relay viewer: force the theme panel active (tabs are hidden), so the
+        // modal opens straight to the colour-theme picker.
+        if (window.readOnlyMode) {
+            document.querySelectorAll('.settings-panel').forEach(p => {
+                p.hidden = (p.dataset.panel !== 'theme');
+            });
+        }
+
         document.getElementById('notif-modal-overlay').classList.add('open');
     }
     function closeNotifModal() {
@@ -583,6 +721,55 @@
         });
     }
 
+    // ─── Read-only viewer detection ───────────────────────────────────────────
+    // window.readOnlyMode is pre-set synchronously by an inline <head> script
+    // (from the room-token hash) so no module writes back before we know the mode.
+    // /api/mode is authoritative and may correct it. The class lives on <html>.
+    if (typeof window.readOnlyMode === 'undefined') window.readOnlyMode = false;
+    function applyReadOnlyClass() {
+        document.documentElement.classList.toggle('read-only', !!window.readOnlyMode);
+        if (document.body) document.body.classList.toggle('read-only', !!window.readOnlyMode);
+    }
+    applyReadOnlyClass();
+    const readOnlyReady = fetch('/api/mode')
+        .then(r => (r.ok ? r.json() : null))
+        .then(m => { if (m) window.readOnlyMode = !!m.readOnly; applyReadOnlyClass(); })
+        .catch(() => {});
+    window.__readOnlyReady = readOnlyReady;
+    document.addEventListener('DOMContentLoaded', applyReadOnlyClass);
+
+    // Build the WS URL. Over HTTPS (Tailscale Funnel is TLS-only) use wss. A room
+    // token in location.hash means we're a viewer → connect to /ws/view/<token>;
+    // otherwise connect to the root (local control server).
+    function wsUrl() {
+        const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const token = (location.hash || '').replace(/^#/, '').trim();
+        return token
+            ? `${proto}//${location.host}/ws/view/${encodeURIComponent(token)}`
+            : `${proto}//${location.host}`;
+    }
+
+    // ─── Source-offline overlay (relay viewer only) ───────────────────────────
+    // Full-page fallback so a viewer never stares at stale/blank data without
+    // explanation. No-op on the local operator dashboard (it has the ws-dot).
+    function showSourceOverlay(title, msg, opts) {
+        if (!window.readOnlyMode) return;
+        const el = document.getElementById('source-overlay');
+        if (!el) return;
+        const t  = document.getElementById('so-title');
+        const m  = document.getElementById('so-msg');
+        const ic = document.getElementById('so-icon');
+        if (t)  t.textContent  = title;
+        if (m)  m.textContent  = msg;
+        if (ic) ic.textContent = (opts && opts.terminal) ? '🔌' : '📡';
+        el.classList.toggle('terminal', !!(opts && opts.terminal));
+        el.hidden = false;
+    }
+    function hideSourceOverlay() {
+        const el = document.getElementById('source-overlay');
+        if (el) el.hidden = true;
+    }
+
     // ─── WebSocket connect (single shared logic) ──────────────────────────────
 
     let lastData = null;
@@ -591,11 +778,11 @@
     function connect(onData) {
         const dot     = document.getElementById('ws-dot');
         const wsLabel = document.getElementById('ws-label');
-        let ws, reconnectTimer;
+        let ws, reconnectTimer, backoff = 2000;
         onDataCb = onData;
 
         function open() {
-            ws = new WebSocket(`ws://${location.host}`);
+            ws = new WebSocket(wsUrl());
             // Expose the live socket so the smoke suite can drive a disconnect
             // (window.__ws.close()) — there's no server endpoint to force one.
             window.__ws = ws;
@@ -603,6 +790,7 @@
                 dot.className = 'dot live';
                 wsLabel.textContent = 'Live';
                 clearTimeout(reconnectTimer);
+                backoff = 2000;
             };
             ws.onmessage = e => {
                 try {
@@ -615,26 +803,50 @@
                     if (data.__replayStatus) { updateReplayBanner(data.__replayStatus); return; }
                     // Recording state envelope — pushed, drives the record button.
                     if (data.__recordStatus) { diagApplyRecordStatus(data.__recordStatus); return; }
+                    // Source (publisher) liveness from the relay — drives the viewer overlay.
+                    if (data.__sourceStatus) {
+                        if (data.__sourceStatus.online) hideSourceOverlay();
+                        else showSourceOverlay('Zdroj se odpojil', 'Čekám na obnovení spojení…');
+                        return;
+                    }
+                    // A real data frame means the source is live → clear any overlay.
+                    hideSourceOverlay();
                     if (window.CropIcons && Array.isArray(data.availableFruits)) {
                         window.CropIcons.setCatalog(data.availableFruits);
                     }
                     if (window.FS25Money && data.currency) FS25Money.setCurrency(data.currency);
                     if (data.saveMeta) updateSaveMeta(data.saveMeta);
-                    if (window.Notifier) window.Notifier.process(data);
-                    if (window.FS25Bell) window.FS25Bell.update(data);
+                    // Notifications + bell are local-server only — never in the relay viewer.
+                    if (!window.readOnlyMode) {
+                        if (window.Notifier) window.Notifier.process(data);
+                        if (window.FS25Bell) window.FS25Bell.update(data);
+                    }
                     lastData = data;
                     onData && onData(data);
                     if (inspectorOpen) refreshInspector();
                 } catch (_) {}
             };
-            ws.onclose = ws.onerror = () => {
+            ws.onclose = (ev) => {
                 dot.className = 'dot error';
-                wsLabel.textContent = 'Odpojeno – reconnect za 5s…';
-                reconnectTimer = setTimeout(open, 5000);
+                const code = ev && ev.code;
+                // Permanent room death → stop reconnecting, tell the viewer why.
+                if (code === 4404) { wsLabel.textContent = 'Odkaz neplatný nebo vypršel'; showSourceOverlay('Odkaz je neplatný', 'Tento sdílecí odkaz vypršel nebo neexistuje.', { terminal: true }); return; }
+                if (code === 4410) { wsLabel.textContent = 'Vysílající se odpojil';        showSourceOverlay('Stream ukončen', 'Vysílající ukončil sdílení.', { terminal: true });       return; }
+                // Transient (network/relay blip) → reconnect with backoff + jitter.
+                wsLabel.textContent = 'Odpojeno – obnovuji…';
+                showSourceOverlay('Spojení přerušeno', 'Obnovuji spojení s relayem…');
+                const jitter = Math.floor(backoff * 0.2 * Math.random());
+                clearTimeout(reconnectTimer);
+                reconnectTimer = setTimeout(open, backoff + jitter);
+                backoff = Math.min(Math.round(backoff * 1.5), 30000);
             };
+            ws.onerror = () => { try { ws.close(); } catch (_) {} };
         }
 
-        open();
+        // open() regardless of how readOnlyReady settles — the WS must always be
+        // attempted even if mode detection somehow rejects. In the relay viewer,
+        // show a "connecting to source" overlay until the first frame / status.
+        readOnlyReady.then(() => { showSourceOverlay('Připojuji se ke zdroji…', 'Načítám živá data…'); open(); }, open);
     }
 
     // Re-run the page's render callback against the last received payload —
@@ -671,6 +883,7 @@
     // tooltip showing the matching mod version once it's been seen.
 
     async function showServerVersion() {
+        if (window.readOnlyMode) return;   // relay has no /api/version; skip the call
         const brand = document.querySelector('.nav-brand');
         if (!brand) return;
         let el = document.getElementById('nav-version');
@@ -734,6 +947,7 @@
         let clicks = 0, timer = null;
         brand.style.cursor = 'default';
         brand.addEventListener('click', () => {
+            if (window.readOnlyMode) return;   // viewer mode: no mockup/diag unlock
             if (isMockup()) return;
             clicks++;
             clearTimeout(timer);

@@ -93,9 +93,39 @@ const DEFAULT_DATA_DIR = IS_PACKAGED
     : path.join(__dirname, '..', '..', '..', 'data');
 const DATA_DIR = pick('DASHBOARD_DATA_DIR', 'dataDir', DEFAULT_DATA_DIR);
 
+// ─── Relay (optional outbound sharing) ───────────────────────────────────────
+// When RELAY_URL is set, the server also publishes its frame stream to a relay
+// (see relay-client.js) so people can watch a read-only copy over the internet.
+// RELAY_PUBLISH_KEY is this publisher's personal key; it must exist (enabled) in
+// the relay's publishers.json. Leave RELAY_URL empty to keep everything local.
+const RELAY_URL         = pick('RELAY_URL', 'relayUrl', '');
+const RELAY_PUBLISH_KEY = pick('RELAY_PUBLISH_KEY', 'relayPublishKey', '');
+// Enabled by default once a URL is set; the UI toggle persists this.
+const RELAY_ENABLED     = String(pick('RELAY_ENABLED', 'relayEnabled', RELAY_URL ? 'true' : 'false')) !== 'false';
+
+if (RELAY_URL && RELAY_ENABLED && !RELAY_PUBLISH_KEY) {
+    log.warn('config', 'RELAY_URL je nastavená, ale RELAY_PUBLISH_KEY chybí — relay publisher se nepřipojí.');
+}
+
+// Merge-write a patch into config.local.json (used by the UI relay settings).
+// Only the keys passed are touched; the rest of the file is preserved.
+function saveLocal(patch) {
+    let current = {};
+    try {
+        if (fs.existsSync(LOCAL_PATH)) current = JSON.parse(fs.readFileSync(LOCAL_PATH, 'utf8'));
+    } catch (e) {
+        log.warn('config', `config.local.json nešel přečíst, přepisuji: ${e.message}`);
+    }
+    const merged = { ...current, ...patch };
+    fs.writeFileSync(LOCAL_PATH, JSON.stringify(merged, null, 2));
+    return merged;
+}
+
 module.exports = {
     PORT, HOST,
     FS25_DOCS, DATA_FILE, LOG_FILE,
     SAVEGAME_REFRESH_MS,
     PUBLIC_DIR, DATA_DIR,
+    RELAY_URL, RELAY_PUBLISH_KEY, RELAY_ENABLED,
+    LOCAL_PATH, saveLocal,
 };

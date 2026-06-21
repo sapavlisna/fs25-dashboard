@@ -193,6 +193,7 @@
     // container into one marked `data-tt-hidden` become hidden, and vice
     // versa. The hide set updates automatically — no ✕ buttons needed.
     function initSortableContainers() {
+        if (window.readOnlyMode) return;   // viewer mode: no drag/reorder
         if (typeof Sortable === 'undefined') return;
         const containers = new Map();   // container element → stateKey
         // Explicit containers (data-tt-container="scope") are always picked

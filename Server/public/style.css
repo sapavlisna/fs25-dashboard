@@ -1035,6 +1035,28 @@ tr.flash-down > td { background-color: rgba(224, 82, 82, .35)                   
     line-height: 1.4;
 }
 
+/* Relay → odkaz pro diváky: zvýrazněná karta, ať po připojení vyloženě
+   vyskočí z formuláře a uživatel ji nepřehlédne. */
+.relay-viewer-card {
+    margin-top: 14px;
+    padding: 12px;
+    border: 1px solid var(--accent);
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+.relay-viewer-title {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--accent);
+    margin-bottom: 8px;
+}
+.relay-viewer-pending {
+    font-size: 11px;
+    color: var(--muted);
+    margin: 0;
+    line-height: 1.4;
+}
+
 /* Reset row inside Settings → Sekce: one tertiary (just order) + one
    destructive (everything). */
 .section-reset-row {
@@ -1438,9 +1460,31 @@ tr.flash-down > td { background-color: rgba(224, 82, 82, .35)                   
     align-items: center; justify-content: center;
 }
 #notif-modal-overlay.open { display: flex; }
+
+/* ── Relay viewer fallback overlay — source (publisher) offline / ended ─────── */
+/* Opaque full-page cover so a viewer never sees stale/blank data unexplained. */
+#source-overlay {
+    position: fixed; inset: 0; z-index: 1500;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--bg); padding: 24px; text-align: center;
+}
+#source-overlay[hidden] { display: none; }
+#source-overlay .so-card {
+    max-width: 420px; display: flex; flex-direction: column; gap: 12px;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 32px 28px;
+}
+#source-overlay .so-icon  { font-size: 48px; line-height: 1; }
+#source-overlay .so-title { font-size: 20px; font-weight: 700; color: var(--text); }
+#source-overlay .so-msg   { font-size: 14px; color: var(--muted); }
+
+/* Relay viewer serves only index.html — hide nav/section links to pages that
+   would 404 there (Kalendář, Historie). Read-only class is on <html> pre-paint. */
+html.read-only a[href$="calendar.html"],
+html.read-only a[href$="history.html"] { display: none; }
 #notif-modal {
     background: var(--surface); border: 1px solid var(--border);
-    border-radius: var(--radius); padding: 24px; width: 380px; max-width: 92%;
+    border-radius: var(--radius); padding: 24px; width: 500px; max-width: 92%;
     position: relative;
 }
 #notif-modal h3 { margin-bottom: 12px; font-size: 16px; }
@@ -1511,7 +1555,7 @@ tr.flash-down > td { background-color: rgba(224, 82, 82, .35)                   
     background: transparent;
     border: none;
     color: var(--muted);
-    padding: 8px 12px;
+    padding: 8px 10px;
     font-size: 12px;
     font-weight: 600;
     cursor: pointer;
@@ -2447,3 +2491,30 @@ body.replaying { padding-top: 34px; }
     white-space: pre;
     font-family: ui-monospace, Consolas, "Courier New", monospace;
 }
+
+/* ─── Read-only viewer mode (relay) ──────────────────────────────────────────
+   Set on <html>/<body> when GET /api/mode reports readOnly. Hide every control
+   that would mutate state: hide/drag handles, per-section ⚙, replay controls,
+   nav links to non-served pages, all settings tabs, the notification bell. The
+   only thing a viewer can change is the colour theme. Layout (hidden items +
+   order) is mirrored from the publisher; theme/language stay the viewer's own. */
+.read-only .tt-hide,
+.read-only .drag-handle,
+.read-only .sec-cfg-btn,
+.read-only .replay-ctl,
+.read-only .nav-links,
+.read-only #bell-slot,
+.read-only [data-tab="diag"],
+.read-only [data-panel="diag"],
+.read-only [data-tab="sync"],
+.read-only [data-panel="sync"],
+.read-only [data-tab="relay"],
+.read-only [data-panel="relay"] { display: none !important; }
+
+/* Settings modal becomes theme-only: hide the tab bar, language block, and the
+   notification action/status row. The theme panel is made the active one in
+   openNotifModal() (the [hidden] mechanism handles visibility). */
+.read-only #settings-tabs,
+.read-only #lang-block,
+.read-only #notif-modal .settings-actions,
+.read-only #nt-status { display: none !important; }

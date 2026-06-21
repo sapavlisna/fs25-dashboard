@@ -1,0 +1,57 @@
+# FS25 Dashboard relay — Tailscale Funnel exposes the relay publicly without any
+# open port on the host. Two services share one network namespace:
+#   tailscale → joins the tailnet, runs Funnel (443 → 127.0.0.1:8080)
+#   relay     → the Node app, listening only on 127.0.0.1:8080 inside that netns
+#
+# Setup: copy .env.example → .env (set TS_AUTHKEY), copy publishers.example.json →
+# publishers.json (set per-publisher keys), then `docker compose up -d`.
+# See README.md.
+
+services:
+  tailscale:
+    image: tailscale/tailscale:latest
+    hostname: fs25-relay              # becomes <hostname>.<tailnet>.ts.net
+    environment:
+      - TS_AUTHKEY=${TS_AUTHKEY}      # from .env (never commit the real key)
+      - TS_USERSPACE=true            # no TUN device needed — ideal on a Raspberry Pi
+      - TS_STATE_DIR=/var/lib/tailscale
+      - TS_SERVE_CONFIG=/config/funnel.json
+      - TS_EXTRA_ARGS=--advertise-tags=tag:relay
+    volumes:
+      - tailscale-state:/var/lib/tailscale
+      - ./tailscale-funnel.json:/config/funnel.json:ro
+    cap_add:
+      - NET_ADMIN                     # tailscaled needs this even in userspace mode
+    restart: unless-stopped
+
+  relay:
+    build:
+      context: ..                     # src/Dashboard (so Server/public is in context)
+      dockerfile: Relay/Dockerfile
+    network_mode: service:tailscale   # share tailscale's netns → Funnel reaches 127.0.0.1:8080
+    depends_on:
+      - tailscale
+    environment:
+      - RELAY_PORT=8080
+      - LOG_LEVEL=info
+      # Stálá viewer URL per publisher (stejná napříč restarty). Odeber/nastav
+      # na false → relay generuje náhodný token při každém připojení (chování <1.3.0).
+      - RELAY_STABLE_ROOMS=true
+    volumes:
+      - ./publishers.json:/config/publishers.json:ro
+    read_only: true                   # rootfs read-only — relay writes nothing to disk
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:8080/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
+volumes:
+  tailscale-state:

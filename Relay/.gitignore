@@ -1,0 +1,8 @@
+# Secrets — never commit. Use publishers.example.json / .env.example as templates.
+publishers.json
+.env
+
+node_modules/
+
+# Local deploy helper — infra-specific (host/CT), not for publishing.
+deploy-relay.ps1

@@ -146,6 +146,7 @@
     }
 
     function _open(key, anchorEl) {
+        if (window.readOnlyMode) return;   // viewer mode: no settings panel
         const def = _defs[key];
         if (!def) return;
         const panel = document.getElementById('sec-cfg-panel');

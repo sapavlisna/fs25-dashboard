@@ -82,6 +82,7 @@
                     <li><a href="#perzistence">Co si pamatuje prohlížeč</a></li>
                 </ol>
             </li>
+            <li><a href="#sdileni">Sdílení přes relay</a></li>
             <li><a href="#faq">Časté otázky</a></li>
             <li><a href="#troubleshoot">Když něco nejde</a></li>
         </ol>
@@ -657,6 +658,64 @@
                 Vymazat všechno → DevTools (F12) &gt; Application &gt; Local Storage &gt;
                 smaž <code>fs25.dash.v1.*</code> klíče a refresh.
             </p>
+        </section>
+
+        <!-- ───────────────────────────────────────────────────────────── -->
+        <section id="sdileni" class="help-section">
+            <h2>📡 Sdílení přes relay</h2>
+            <p>
+                Dashboard umí posílat svůj živý obraz na <strong>relay server</strong>, takže
+                ho můžeš nasdílet komukoli přes internet — pošleš odkaz, dotyčný ho otevře
+                v prohlížeči a vidí stejná data jako ty, ale <strong>jen pro čtení</strong>
+                (žádné ovládání, nastavení ani úpravy). Tvoje domácí síť přitom nemá žádný
+                otevřený port — relay je vystavený přes Tailscale Funnel.
+            </p>
+
+            <h3>Jak to zapnout</h3>
+            <p>
+                V <strong>Nastavení ⚙ &gt; 📡 Sdílení</strong> zadáš adresu relaye
+                (<code>RELAY_URL</code>) a svůj publikační klíč (<code>RELAY_PUBLISH_KEY</code>)
+                a sdílení zapneš. Jakmile se server připojí, v banneru (a v Nastavení) se
+                objeví <strong>viewer odkaz</strong> ve tvaru
+                <code>https://&lt;relay&gt;/#&lt;token&gt;</code> — ten pošleš divákům.
+            </p>
+
+            <div class="help-callout">
+                <strong>Hodnoty se pamatují.</strong> Adresa relaye, klíč i zapnutí sdílení
+                se ukládají do <code>config.local.json</code> vedle serveru, takže po
+                restartu nemusíš nic zadávat znovu.
+            </div>
+
+            <h3>Odkaz je stálý (novinka ve verzi 1.3)</h3>
+            <p>
+                Viewer odkaz je <strong>pevný</strong> — váže se na tvůj publikační klíč,
+                takže zůstává stejný i po restartu serveru či relaye nebo po výpadku spojení.
+                <strong>Stačí ho nasdílet jednou.</strong> Když se spojení obnoví, diváci,
+                kteří mají stránku otevřenou, plynule pokračují bez otevírání nového odkazu.
+            </p>
+            <p>
+                Dřív (relay &lt; 1.3) se při každém připojení generoval nový náhodný token,
+                takže se odkaz po každém restartu měnil. Kdybys staré chování chtěl zpět,
+                nastav na relayi <code>RELAY_STABLE_ROOMS=false</code>.
+            </p>
+
+            <h3>Když zdroj není připojen</h3>
+            <p>
+                Divák nikdy nekouká na zaseklá data bez vysvětlení. Když zdroj (tvůj server)
+                není připojený, ukáže se přes celou stránku hláška o stavu:
+            </p>
+            <ul>
+                <li><strong>Korektní vypnutí serveru</strong> → divák hned uvidí „Stream ukončen".</li>
+                <li><strong>Výpadek/pád</strong> → „Zdroj se odpojil — čekám na obnovení"; pokud
+                    se server do 5 minut vrátí, sdílení plynule naskočí zpět (stejný odkaz),
+                    jinak se stream ukončí.</li>
+            </ul>
+
+            <div class="help-callout">
+                <strong>Bezpečnost:</strong> token v odkazu je neuhádnutelný a z klíče se
+                nedá zpětně odvodit. Kdo odkaz nemá, dashboard neuvidí. Diváci nemohou nic
+                měnit — relay od nich žádná data nepřijímá.
+            </div>
         </section>
 
         <!-- ───────────────────────────────────────────────────────────── -->

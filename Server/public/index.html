@@ -17,6 +17,15 @@
             document.documentElement.setAttribute('data-theme', 'dark-green');
         }
     })();
+    // Read-only viewer detection — must run before the deferred modules so they
+    // never write back to the relay. A room-token hash means this is a relay
+    // viewer; app.js confirms via /api/mode. (No hash = local control server.)
+    (function () {
+        try {
+            window.readOnlyMode = /^#[a-f0-9]{32}$/.test(location.hash || '');
+            if (window.readOnlyMode) document.documentElement.classList.add('read-only');
+        } catch (e) { window.readOnlyMode = false; }
+    })();
 </script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -56,6 +65,15 @@
         <span id="ws-label">Připojování…</span>
     </div>
 </nav>
+
+<!-- ── Source-offline overlay (relay viewer only; toggled from app.js) ─── -->
+<div id="source-overlay" hidden>
+    <div class="so-card">
+        <div class="so-icon" id="so-icon">📡</div>
+        <div class="so-title" id="so-title">Zdroj není připojen</div>
+        <div class="so-msg" id="so-msg">Čekám na data…</div>
+    </div>
+</div>
 
 <!-- ── Main ────────────────────────────────────────────────────────── -->
 <main>
@@ -403,6 +421,7 @@ function monthLabel(month) {
 const balanceHistoryCache = { gameDay: null, byDay: new Map() };
 
 async function refreshBalanceHistory(currentDay) {
+    if (window.readOnlyMode) return;   // relay has no /api/history — strip stays hidden
     if (!currentDay || balanceHistoryCache.gameDay === currentDay) return;
     try {
         // Fetch 5 days of raw rows — there may be many records per day; keep

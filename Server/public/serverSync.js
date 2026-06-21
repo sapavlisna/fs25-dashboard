@@ -71,6 +71,7 @@
 
     // ─── Write path ──────────────────────────────────────────────────────
     function syncWrite(rawKey, value) {
+        if (window.readOnlyMode) return;   // viewer mode: never write back to the relay/server
         if (!isEnabled()) return;
         const key = shortKey(rawKey);
         if (LOCAL_ONLY.has(key)) return;
@@ -100,12 +101,24 @@
         }
     }
 
+    // Relay viewers mirror the publisher's layout (hidden items + order) but keep
+    // their own presentation (theme + language).
+    const VIEWER_LOCAL_KEYS = new Set(['theme', 'lang']);
+
     function handleWsMessage(data) {
         if (!data || typeof data !== 'object') return false;
         if (!data.__dashboardStatePatch) return false;
-        if (!isEnabled()) return true;   // sync off → swallow but don't apply
+        let patch = data.__dashboardStatePatch;
+        if (window.readOnlyMode) {
+            patch = {};
+            for (const [k, v] of Object.entries(data.__dashboardStatePatch)) {
+                if (!VIEWER_LOCAL_KEYS.has(k)) patch[k] = v;
+            }
+        } else if (!isEnabled()) {
+            return true;   // sync off → swallow but don't apply
+        }
         const keys = [];
-        applyPatchToLocalStorage(data.__dashboardStatePatch, keys);
+        applyPatchToLocalStorage(patch, keys);
         if (keys.length) fireReplay(keys);
         return true;
     }
@@ -147,7 +160,9 @@
     // Pull once as soon as the page is alive. Run before DOMContentLoaded
     // listeners fire so the first render reads server state from
     // localStorage instead of a stale cache.
-    const initialPull = pullFromServer();
+    // Viewer mode: the relay has no /api/dashboard-state — skip the pull entirely
+    // (the viewer keeps its own local layout).
+    const initialPull = window.readOnlyMode ? Promise.resolve(null) : pullFromServer();
     window.__serverSyncReady = initialPull;
 
     window.ServerSync = {

@@ -16,6 +16,7 @@
     const ring = [];
 
     function post(body) {
+        if (window.readOnlyMode) return;   // relay has no /diag/* endpoints
         try {
             fetch('/diag/client-log', {
                 method:  'POST',

@@ -11,6 +11,7 @@ const pkg      = require('./package.json');
 const log      = require('./logger');
 const recorder = require('./recorder');
 const replayer = require('./replayer');
+const relay    = require('./relay-client');
 const { DashboardState } = require('./dashboardState');
 
 const { PORT, HOST, DATA_FILE, PUBLIC_DIR, DATA_DIR } = config;
@@ -126,6 +127,35 @@ app.get('/api/version', (_req, res) => {
         schema: { min: MIN_MOD_SCHEMA, max: MAX_MOD_SCHEMA },
         mod:    { schemaVersion: seenMod.schemaVersion, modVersion: seenMod.modVersion },
     });
+});
+
+// Mode probe — the frontend fetches this on boot to decide control vs read-only.
+// The local server is always the full control surface; the relay overrides this
+// with { readOnly: true } (see Relay/index.js).
+app.get('/api/mode', (_req, res) => res.json({ readOnly: false, relay: false }));
+
+// ─── Relay sharing config (UI: Nastavení → Sdílení) ──────────────────────────
+// GET returns the current relay state (never the key itself — only hasKey).
+// POST persists url/key/enabled to config.local.json and live-reconnects.
+app.get('/api/relay', (_req, res) => res.json(relay.getState()));
+app.post('/api/relay', (req, res) => {
+    const body = req.body || {};
+    const url = typeof body.url === 'string' ? body.url.trim() : '';
+    const enabled = body.enabled !== false;
+    if (url && !/^wss?:\/\//i.test(url)) {
+        return res.status(400).json({ error: 'URL musí začínat ws:// nebo wss://' });
+    }
+    const patch = { relayUrl: url, relayEnabled: enabled };
+    if (typeof body.key === 'string' && body.key.length) patch.relayPublishKey = body.key;
+    try {
+        config.saveLocal(patch);
+    } catch (e) {
+        log.error('relay', `nelze uložit config.local.json: ${e.message}`);
+        return res.status(500).json({ error: 'nelze uložit nastavení: ' + e.message });
+    }
+    relay.reconfigure({ url, key: body.key, enabled });
+    log.info('relay', `nastavení změněno z UI — ${enabled ? url || '(prázdná URL)' : 'vypnuto'}`);
+    res.json(relay.getState());
 });
 
 app.get('/api/savegame', (_req, res) => {
@@ -508,6 +538,7 @@ function broadcast(rawString) {
     wss.clients.forEach(client => {
         if (client.readyState === 1 /* OPEN */) client.send(msg);
     });
+    relay.send(msg);
 }
 
 // Send a dashboard-state diff (or full replace) to every connected client.
@@ -521,6 +552,7 @@ function broadcastStatePatch(patch, opts = {}) {
     wss.clients.forEach(client => {
         if (client.readyState === 1 /* OPEN */) client.send(msg);
     });
+    relay.send(msg);
 }
 
 // Broadcast a payload object verbatim (no enrich, no recording) — used by the
@@ -530,6 +562,7 @@ function broadcastRaw(payloadObj) {
     wss.clients.forEach(client => {
         if (client.readyState === 1 /* OPEN */) client.send(msg);
     });
+    relay.send(msg);
 }
 
 // Tell every client about replay (mockup) state so the banner can show/hide.
@@ -538,6 +571,7 @@ function broadcastReplayStatus() {
     wss.clients.forEach(client => {
         if (client.readyState === 1 /* OPEN */) client.send(msg);
     });
+    relay.send(msg);
 }
 
 // Push recording state to clients (pushed, not polled — a polled GET could be
@@ -547,6 +581,7 @@ function broadcastRecordStatus() {
     wss.clients.forEach(client => {
         if (client.readyState === 1 /* OPEN */) client.send(msg);
     });
+    relay.send(msg);
 }
 
 wss.on('connection', (ws, req) => {
@@ -712,21 +747,38 @@ server.listen(PORT, HOST, () => {
         ...lanIPs.map(ip => `▸ http://${ip}:${PORT}`),
     ];
 
+    const relayLine = config.RELAY_URL
+        ? [`▸ Relay:     ${config.RELAY_URL} (sdílení zapnuto)`]
+        : [];
     log.banner([
         `FS25 Dashboard Server v${SERVER_VERSION}`,
         ...urlLines,
+        ...relayLine,
         `▸ Schema:    ${MIN_MOD_SCHEMA}..${MAX_MOD_SCHEMA}`,
         `▸ Data file: ${dataDisplay}`,
         `▸ History:   ${DATA_DIR.replace(/\\/g, '/')}`,
     ]);
     log.info('boot', 'čekám až FS25 začne psát data…');
+
+    // When a relay room is (re)created, push the current dashboard layout to the
+    // relay ONLY (not local clients) so viewers mirror hidden items + order from
+    // the first frame. Ongoing changes flow via broadcastStatePatch → relay.send.
+    relay.setRoomReadyHook(() => {
+        try { relay.send(JSON.stringify({ __dashboardStatePatch: dashState.getAll(), fullReplace: true })); }
+        catch (_) {}
+    });
+
+    // Start the outbound relay publisher (no-op unless RELAY_URL is set). The
+    // shareable viewer URL is logged as its own banner once the room is ready.
+    relay.init();
 });
 
 // Flush an in-progress diagnostic recording before exiting so the last frames
 // (the interesting ones, near the bug) aren't lost on Ctrl+C / kill.
-function shutdown() {
+async function shutdown() {
     if (recorder.isActive()) { try { recorder.stop(); } catch (_) {} }
     if (replayer.isActive()) { try { replayer.stop(); } catch (_) {} }
+    try { await relay.shutdown(); } catch (_) {}   // pošle {__bye} relayi, ať viewer hned ví, že je konec
     process.exit(0);
 }
 process.on('SIGINT',  shutdown);
