@@ -13,6 +13,17 @@ All notable changes to this project will be documented here.
 
 Mod and server share **one release version**. Each release ships both ZIPs even when only one component functionally changed — the release notes call out which one is the meaningful update so users can selectively download. `schemaVersion` in the JSON payload is independent and only bumps on incompatible payload shape changes.
 
+## [1.4.3.0] — 2026-06-21
+
+### Fixed
+- **Relay dropped the publisher with close 1009 (message too big).** A large
+  farm's enriched frame is ~130 KB and spikes upward during heavy play, but the
+  relay's per-frame limit was 256 KB — too tight, so the publisher got kicked and
+  the share link flapped. Raised `MAX_FRAME_BYTES` 256 KB → 1 MB (and the
+  backpressure threshold 1 MB → 4 MB), in both the relay default and
+  `docker-compose.yml`. Relay-only change — redeploy the relay container to apply
+  (mod + server binaries are unchanged this release).
+
 ## [1.4.2.0] — 2026-06-21
 
 ### Changed

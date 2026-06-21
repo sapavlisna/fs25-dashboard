@@ -49,9 +49,12 @@ const CFG = {
     // offline" overlay) and let a crashed/restarted publisher reclaim the same
     // stable-token room. 5 min by default; a graceful {__bye} ends it immediately.
     GRACE_SEC:             num('GRACE_SEC', 300),
-    // Limits
-    MAX_FRAME_BYTES:       num('MAX_FRAME_BYTES', 262144),     // 256 KB
-    MAX_BUFFER_BYTES:      num('MAX_BUFFER_BYTES', 1048576),   // 1 MB backpressure drop threshold
+    // Limits. A big farm's enriched frame is ~130 KB and varies upward during
+    // heavy play (harvest, many active vehicles) — 256 KB was too tight and
+    // dropped the publisher with 1009. 1 MB gives comfortable headroom while
+    // still bounding a runaway/abusive publisher.
+    MAX_FRAME_BYTES:       num('MAX_FRAME_BYTES', 1048576),    // 1 MB
+    MAX_BUFFER_BYTES:      num('MAX_BUFFER_BYTES', 4194304),   // 4 MB backpressure drop threshold
     // Viewer enumeration throttle
     MAX_VIEW_FAILS:        num('MAX_VIEW_FAILS', 5),
     VIEW_FAIL_WINDOW_MS:   num('VIEW_FAIL_WINDOW_MS', 60000),
