@@ -58,7 +58,7 @@ const app    = express();
 const server = http.createServer(app);
 
 app.use(express.static(PUBLIC_DIR));
-app.use(express.json({ limit: '256kb' }));   // state blobs are tiny
+app.use(express.json({ limit: '1mb' }));   // state blobs are small; 1mb headroom for the diag snapshot
 
 // ─── Dashboard preferences sync ──────────────────────────────────────────────
 //
@@ -781,6 +781,24 @@ setInterval(() => {
     stats.errors     = 0;
     stats.sinceLast  = Date.now();
 }, 60_000).unref();
+
+// ─── Error handler ─────────────────────────────────────────────────────────
+// Body-parser failures (oversized / malformed JSON) otherwise dump a full
+// stack trace to the log on every bad request. Turn them into one clean line
+// with the right status. Registered last so it catches errors from all routes.
+app.use((err, req, res, _next) => {
+    if (res.headersSent) return res.end();
+    if (err && err.type === 'entity.too.large') {
+        log.warn('http', `${req.method} ${req.path}: tělo přes limit (${err.limit} B) → 413`);
+        return res.status(413).json({ error: 'payload too large' });
+    }
+    if (err && err.type === 'entity.parse.failed') {
+        log.warn('http', `${req.method} ${req.path}: neplatný JSON → 400`);
+        return res.status(400).json({ error: 'invalid json' });
+    }
+    log.error('http', `${req.method} ${req.path}: ${(err && err.message) || err}`);
+    res.status(500).json({ error: 'internal error' });
+});
 
 // ─── Start ───────────────────────────────────────────────────────────────────
 

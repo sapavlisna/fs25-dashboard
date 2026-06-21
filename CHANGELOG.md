@@ -13,6 +13,16 @@ All notable changes to this project will be documented here.
 
 Mod and server share **one release version**. Each release ships both ZIPs even when only one component functionally changed — the release notes call out which one is the meaningful update so users can selectively download. `schemaVersion` in the JSON payload is independent and only bumps on incompatible payload shape changes.
 
+## [1.4.1.0] — 2026-06-21
+
+### Fixed
+- **`PayloadTooLargeError` spam in the server log.** The always-on diagnostic
+  snapshot dumped the *entire* `fs25.dash.*` localStorage in one POST; a large
+  key pushed it past the JSON body limit and logged a full stack trace on every
+  page load. The snapshot is now bounded (oversized values skipped with a size
+  marker), the body limit raised 256kb → 1mb, and body-parser errors now log a
+  single clean line instead of a stack dump.
+
 ## [1.4.0.0] — 2026-06-21
 
 ### Added

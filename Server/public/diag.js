@@ -72,12 +72,23 @@
     };
 
     // One-time settings + environment snapshot (after other scripts initialised).
+    // Bounded: a single oversized localStorage blob (or many large keys) must not
+    // bloat the POST past the server's JSON limit — diagnostics are metadata, not
+    // a data dump. Oversized values are replaced with a size marker that itself
+    // points at the offending key.
+    const SNAP_VALUE_MAX = 20000;    // per-key cap (chars)
+    const SNAP_TOTAL_MAX = 100000;   // whole-snapshot cap (chars), well under server limit
     function snapshot() {
         const values = {};
+        let total = 0;
         try {
             for (let i = 0; i < localStorage.length; i++) {
                 const k = localStorage.key(i);
-                if (k && k.indexOf('fs25.dash.') === 0) values[k] = localStorage.getItem(k);
+                if (!k || k.indexOf('fs25.dash.') !== 0) continue;
+                const v = localStorage.getItem(k) || '';
+                if (v.length > SNAP_VALUE_MAX) { values[k] = '[skipped: ' + v.length + ' B]'; continue; }
+                if (total + v.length > SNAP_TOTAL_MAX) { values[k] = '[skipped: snapshot size cap]'; continue; }
+                values[k] = v; total += v.length;
             }
         } catch (_) {}
         post({
