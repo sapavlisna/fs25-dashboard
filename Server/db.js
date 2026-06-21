@@ -29,14 +29,29 @@ function readJsonl(filePath) {
     return out;
 }
 
+// In-memory cache of each JSONL file, keyed by path. The history files (esp.
+// prices.jsonl) grow to 100k+ rows; re-reading + reparsing the whole file from
+// disk on every /api/history/* request is the real cost. Read once, then serve
+// queries from RAM and keep the cache in step on every append/rewrite.
+// (Future step: split per save_id into separate files for bounded size +
+// per-save deletion — see CHANGELOG/db notes.)
+const cache = Object.create(null);
+function getRows(filePath) {
+    let rows = cache[filePath];
+    if (!rows) { rows = readJsonl(filePath); cache[filePath] = rows; }
+    return rows;
+}
+
 function appendJsonl(filePath, obj) {
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
     fs.appendFileSync(filePath, JSON.stringify(obj) + '\n');
+    getRows(filePath).push(obj);   // keep cache in step
 }
 
 function writeJsonl(filePath, rows) {
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
     fs.writeFileSync(filePath, rows.map(r => JSON.stringify(r)).join('\n') + (rows.length ? '\n' : ''));
+    cache[filePath] = rows.slice();   // replace cache with the rewritten set
 }
 
 // ─── State ────────────────────────────────────────────────────────────────────
@@ -44,7 +59,7 @@ function writeJsonl(filePath, rows) {
 // Track last saved game_day to avoid duplicate rows. Initialise from disk so
 // a server restart on the same game-day doesn't append duplicates.
 let lastSavedDay = (() => {
-    const rows = readJsonl(FILES.balance);
+    const rows = getRows(FILES.balance);
     return rows.length ? rows[rows.length - 1].game_day : -1;
 })();
 
@@ -52,7 +67,7 @@ let lastSavedDay = (() => {
 // when the mod re-includes the same recent event in subsequent ticks.
 const seenEventKeys = new Set();
 (function loadSeenEvents() {
-    for (const e of readJsonl(FILES.events)) {
+    for (const e of getRows(FILES.events)) {
         seenEventKeys.add(`${e.timestamp}|${e.field_id}|${e.type}`);
     }
 })();
@@ -191,7 +206,7 @@ function saveEvents(events, snapshot) {
 // ─── Profit aggregation ───────────────────────────────────────────────────────
 
 function getFieldProfit(fieldIds) {
-    const events = filterCurrentSave(readJsonl(FILES.events));
+    const events = filterCurrentSave(getRows(FILES.events));
     const byField = {};
 
     for (const e of events) {
@@ -231,7 +246,7 @@ function getFieldProfit(fieldIds) {
 }
 
 function getRecentEvents(limit) {
-    const events = filterCurrentSave(readJsonl(FILES.events));
+    const events = filterCurrentSave(getRows(FILES.events));
     return events.slice(-1 * (parseInt(limit) || 50)).reverse();
 }
 
@@ -266,7 +281,7 @@ function filterCurrentSave(rows) {
 }
 
 function getPriceHistory(fillType, sellPoint, days) {
-    const rows = filterCurrentSave(readJsonl(FILES.prices));
+    const rows = filterCurrentSave(getRows(FILES.prices));
     if (!rows.length) return [];
 
     const maxDay = maxGameDay(rows);
@@ -283,7 +298,7 @@ function getPriceHistory(fillType, sellPoint, days) {
 }
 
 function getBalanceHistory(days) {
-    const rows = filterCurrentSave(readJsonl(FILES.balance));
+    const rows = filterCurrentSave(getRows(FILES.balance));
     if (!rows.length) return [];
 
     const maxDay = maxGameDay(rows);
@@ -296,7 +311,7 @@ function getBalanceHistory(days) {
 // Most-recent saved balance whose game_day is strictly before `currentDay`.
 // Returns null if there isn't one yet (first session day).
 function getBalanceBefore(currentDay) {
-    const rows = filterCurrentSave(readJsonl(FILES.balance));
+    const rows = filterCurrentSave(getRows(FILES.balance));
     let best = null;
     for (const r of rows) {
         if (r.game_day < currentDay && (!best || r.game_day > best.game_day)) {
@@ -308,13 +323,13 @@ function getBalanceBefore(currentDay) {
 
 function getAvailableFillTypes() {
     const seen = new Set();
-    for (const r of filterCurrentSave(readJsonl(FILES.prices))) seen.add(r.fill_type);
+    for (const r of filterCurrentSave(getRows(FILES.prices))) seen.add(r.fill_type);
     return [...seen].sort().map(fill_type => ({ fill_type }));
 }
 
 function getAvailableSellPoints() {
     const seen = new Set();
-    for (const r of filterCurrentSave(readJsonl(FILES.prices))) seen.add(r.sell_point);
+    for (const r of filterCurrentSave(getRows(FILES.prices))) seen.add(r.sell_point);
     return [...seen].sort().map(sell_point => ({ sell_point }));
 }
 

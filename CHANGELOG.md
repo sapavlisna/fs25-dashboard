@@ -13,6 +13,17 @@ All notable changes to this project will be documented here.
 
 Mod and server share **one release version**. Each release ships both ZIPs even when only one component functionally changed — the release notes call out which one is the meaningful update so users can selectively download. `schemaVersion` in the JSON payload is independent and only bumps on incompatible payload shape changes.
 
+## [1.4.2.0] — 2026-06-21
+
+### Changed
+- **History reads served from an in-memory cache.** `db.js` re-read and
+  re-parsed the entire JSONL file (prices grows to 100k+ rows) from disk on
+  every `/api/history/*` request, then discarded all but the current save's
+  rows. Now each file is read once and served from RAM; appends and rewrites
+  keep the cache in step. Behaviour, data format and per-save filtering are
+  unchanged — only the I/O pattern. (Per-save file splitting for bounded size
+  + per-save deletion is a deferred follow-up.)
+
 ## [1.4.1.0] — 2026-06-21
 
 ### Fixed
