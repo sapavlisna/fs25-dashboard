@@ -13,6 +13,20 @@ All notable changes to this project will be documented here.
 
 Mod and server share **one release version**. Each release ships both ZIPs even when only one component functionally changed — the release notes call out which one is the meaningful update so users can selectively download. `schemaVersion` in the JSON payload is independent and only bumps on incompatible payload shape changes.
 
+## [1.4.4.0] — 2026-06-21
+
+### Fixed
+- **Theme key bloat / relay 1009 disconnect loop (the real root cause).** The
+  `theme` localStorage key was written raw by `theme.js`/pre-paint but mirrored
+  JSON-encoded by `serverSync`; every server↔browser round-trip added a quote
+  layer, so `fs25.dash.v1.theme` grew exponentially (12 B → 512 KB in ~30 min
+  under the relay reconnect churn). The bloated value rode along in the room-ready
+  state patch and blew past the relay's frame limit → endless 1009 reconnects.
+  Unified the theme on JSON encoding everywhere (4 pre-paint snippets, `theme.js`,
+  `app.js`) with a **self-healing, validating read**: any unknown / over-encoded
+  value normalises back to a valid theme id (legacy-raw values are preserved), so
+  existing corruption heals on the next page load and the round-trip is idempotent.
+
 ## [1.4.3.0] — 2026-06-21
 
 ### Fixed

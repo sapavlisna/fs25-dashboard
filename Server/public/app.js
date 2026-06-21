@@ -729,8 +729,11 @@
     }
 
     function applyTheme(id) {
+        // Normalise to a known theme id (see theme.js) — store JSON so it round-
+        // trips idempotently through serverSync instead of growing a quote layer.
+        if (!THEMES.some(t => t.id === id)) id = 'dark-green';
         document.documentElement.setAttribute('data-theme', id);
-        try { localStorage.setItem(THEME_KEY, id); } catch (_) {}
+        try { localStorage.setItem(THEME_KEY, JSON.stringify(id)); } catch (_) {}
         if (window.ServerSync) window.ServerSync.syncWrite('theme', id);
         // Keep the standalone theme-picker (cycle button) icon + tooltip in sync
         const picker = document.getElementById('theme-picker');

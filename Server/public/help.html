@@ -7,10 +7,14 @@
 <script>
     (function () {
         try {
+            var KNOWN = { 'dark-green':1, 'dark-blue':1, 'light':1, 'high-contrast':1, 'fs25-native':1 };
             var q = (location.search.match(/[?&]theme=([\w-]+)/) || [])[1];
-            var t = q || localStorage.getItem('fs25.dash.v1.theme') || 'dark-green';
+            var stored = null, raw = localStorage.getItem('fs25.dash.v1.theme');
+            if (raw != null) { try { stored = JSON.parse(raw); } catch (_) { stored = raw; } }   // tolerate legacy-raw
+            if (typeof stored !== 'string' || !KNOWN[stored]) stored = null;   // drop corrupt / over-encoded
+            var t = (q && KNOWN[q]) ? q : (stored || 'dark-green');
             document.documentElement.setAttribute('data-theme', t);
-            if (q) { try { localStorage.setItem('fs25.dash.v1.theme', t); } catch (_) {} }
+            try { localStorage.setItem('fs25.dash.v1.theme', JSON.stringify(t)); } catch (_) {}   // normalise to JSON (self-heal)
         } catch (e) {
             document.documentElement.setAttribute('data-theme', 'dark-green');
         }

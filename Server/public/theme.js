@@ -18,8 +18,13 @@
     }
 
     function applyTheme(id) {
+        // Normalise: only ever store/sync a known theme id. This collapses a
+        // legacy-raw or JSON-over-encoded value back to a clean id, killing the
+        // re-stringification loop that bloated the 'theme' key (raw write here vs
+        // JSON write in serverSync added a quote layer every round-trip).
+        if (!THEMES.some(t => t.id === id)) id = 'dark-green';
         document.documentElement.setAttribute('data-theme', id);
-        try { localStorage.setItem(STORAGE_KEY, id); } catch (_) {}
+        try { localStorage.setItem(STORAGE_KEY, JSON.stringify(id)); } catch (_) {}
         // Mirror theme choice to the server so other devices follow.
         if (window.ServerSync) window.ServerSync.syncWrite('theme', id);
         const btn = document.getElementById('theme-picker');
