@@ -58,6 +58,7 @@
                     <button type="button" data-tab="theme">🎨 Vzhled</button>
                     <button type="button" data-tab="sync">☁ Sync</button>
                     <button type="button" data-tab="relay">📡 Sdílení</button>
+                    <button type="button" data-tab="setup">📁 Připojení</button>
                     <button type="button" data-tab="diag" hidden>🐞 Diagnostika</button>
                 </nav>
 
@@ -163,6 +164,36 @@
                         </div>
                         <p id="relay-viewer-pending" class="relay-viewer-pending" hidden></p>
                     </div>
+                </section>
+
+                <section class="settings-panel" data-panel="setup" hidden>
+                    <label style="margin-bottom:8px;display:block">Připojení k FS25</label>
+                    <p class="settings-hint">
+                        Server čte data ze složky <code>Documents/My Games/FarmingSimulator2025</code>.
+                        Standardní cestu detekuje sám — měň ji jen když máš hru jinde (jiný disk, OneDrive).
+                        Změna se projeví po restartu serveru.
+                    </p>
+                    <label>Složka FS25 (Documents)</label>
+                    <div class="setup-dir-row">
+                        <input type="text" id="setup-dir" class="setup-dir-input" placeholder="C:\Users\…\Documents\My Games\FarmingSimulator2025" autocomplete="off">
+                        <button class="secondary" id="setup-browse" type="button">Procházet…</button>
+                    </div>
+                    <div id="setup-candidates" class="setup-chips"></div>
+                    <label>Port serveru</label>
+                    <input type="number" id="setup-port" min="1" max="65535" step="1">
+                    <label class="section-row" style="cursor:default;margin-top:10px">
+                        <span class="section-row-label">Po spuštění otevřít dashboard v prohlížeči</span>
+                        <span class="section-row-toggle">
+                            <input type="checkbox" id="setup-open-browser">
+                            <span class="switch-knob"></span>
+                        </span>
+                    </label>
+                    <div class="setup-actions">
+                        <button class="secondary" id="setup-check" type="button">Zkontrolovat</button>
+                        <button class="primary" id="setup-save" type="button">Uložit</button>
+                        <span id="setup-status" style="font-size:12px;color:var(--muted);margin-left:auto"></span>
+                    </div>
+                    <div id="setup-probe" class="setup-probe" hidden></div>
                 </section>
 
                 <section class="settings-panel" data-panel="diag" hidden>
@@ -274,6 +305,8 @@
             if (tab === 'diag') diagRefresh();
             // Relay tab: pull current relay state from the server on enter.
             if (tab === 'relay') relayRefresh();
+            // Setup tab: pull current paths + probe state on enter.
+            if (tab === 'setup') setupRefresh();
         });
 
         // Theme picker — clicking a card applies + persists immediately
@@ -352,6 +385,232 @@
 
         // ─── Relay sharing panel ──────────────────────────────────────────
         wireRelayPanel();
+
+        // ─── First-run setup panel + overlay ──────────────────────────────
+        wireSetupPanel();
+    }
+
+    // ─── First-run setup wizard (Nastavení → Připojení + boot overlay) ─────────
+    // Shared fetch + render helpers so the modal tab and the first-run overlay
+    // drive the same /api/setup endpoint without duplicating logic.
+
+    function shortenPath(p) {
+        if (!p) return '';
+        // Collapse a leading ...\Users\<name> to ~ for a shorter chip label.
+        return p.replace(/^[A-Za-z]:[\\/]Users[\\/][^\\/]+/i, '~').replace(/\\/g, '/');
+    }
+
+    async function setupProbe(dir) {
+        try {
+            const u = dir ? `/api/setup?dir=${encodeURIComponent(dir)}` : '/api/setup';
+            const r = await fetch(u);
+            return r.ok ? r.json() : null;
+        } catch (_) { return null; }
+    }
+    async function setupSave(fs25DocsDir, port, openBrowser) {
+        try {
+            const body = { fs25DocsDir, port };
+            if (typeof openBrowser === 'boolean') body.openBrowser = openBrowser;
+            const r = await fetch('/api/setup', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body),
+            });
+            const j = await r.json().catch(() => ({}));
+            return { ok: r.ok, ...j };
+        } catch (e) { return { ok: false, error: e.message }; }
+    }
+    // Ask the server to open a native folder dialog; returns { path, status } or null.
+    async function setupBrowse(initialDir) {
+        try {
+            const u = initialDir ? `/api/setup/browse?dir=${encodeURIComponent(initialDir)}` : '/api/setup/browse';
+            const r = await fetch(u);
+            return r.ok ? r.json() : null;
+        } catch (_) { return null; }
+    }
+
+    // Render the ✓/✗ file-presence rows for a probed folder.
+    function renderSetupStatus(el, status) {
+        if (!el) return;
+        if (!status) { el.hidden = true; el.innerHTML = ''; return; }
+        const mark = ok => ok ? '<span class="ok">✓</span>' : '<span class="bad">✗</span>';
+        let rows;
+        if (!status.exists) {
+            rows = [`${mark(false)} Složka neexistuje nebo není dostupná`];
+        } else {
+            rows = [
+                `${mark(status.logFileExists)} log.txt ${status.logFileExists ? 'nalezen' : 'chybí'}`,
+                `${mark(status.savegamesFound > 0)} savegamy: ${status.savegamesFound}`,
+                `${mark(status.dataFileExists)} dashboard_data.json ${status.dataFileExists ? 'nalezen' : 'chybí — objeví se, až spustíš hru se zapnutým módem'}`,
+            ];
+        }
+        el.innerHTML = rows.map(r => `<div class="setup-probe-row">${r}</div>`).join('');
+        el.hidden = false;
+    }
+
+    // Render auto-detected folders as one-click chips that fill `input`.
+    // Only folders that actually exist are offered — no point suggesting a path
+    // that isn't there.
+    function renderSetupCandidates(wrap, candidates, input) {
+        if (!wrap) return;
+        const found = (Array.isArray(candidates) ? candidates : []).filter(c => c && c.exists);
+        if (!found.length) { wrap.innerHTML = ''; return; }
+        wrap.innerHTML = found.map((c, i) => {
+            const good = c.logFileExists || c.savegamesFound > 0;
+            return `<button type="button" class="setup-chip${good ? ' good' : ''}" data-dir-idx="${i}" title="${c.dir}">${good ? '✓ ' : ''}${shortenPath(c.dir)}</button>`;
+        }).join('');
+        wrap.querySelectorAll('[data-dir-idx]').forEach(btn => {
+            btn.onclick = () => { if (input) input.value = found[+btn.dataset.dirIdx].dir; };
+        });
+    }
+
+    function setupRefresh() {
+        setupProbe().then(s => {
+            if (!s) return;
+            const dirEl  = document.getElementById('setup-dir');
+            const portEl = document.getElementById('setup-port');
+            const obEl   = document.getElementById('setup-open-browser');
+            if (dirEl  && document.activeElement !== dirEl)  dirEl.value  = s.fs25DocsDir || '';
+            if (portEl && document.activeElement !== portEl) portEl.value = s.port || '';
+            if (obEl) obEl.checked = s.openBrowser !== false;
+            renderSetupCandidates(document.getElementById('setup-candidates'), s.candidates, dirEl);
+            renderSetupStatus(document.getElementById('setup-probe'), s.status);
+        });
+    }
+
+    function wireSetupPanel() {
+        const check  = document.getElementById('setup-check');
+        const save   = document.getElementById('setup-save');
+        const browse = document.getElementById('setup-browse');
+        if (browse) browse.onclick = async () => {
+            const dirEl = document.getElementById('setup-dir');
+            browse.disabled = true; const old = browse.textContent; browse.textContent = 'Otevírám…';
+            const res = await setupBrowse(dirEl.value.trim());
+            if (res && res.path) {
+                dirEl.value = res.path;
+                renderSetupStatus(document.getElementById('setup-probe'), res.status);
+            }
+            browse.disabled = false; browse.textContent = old;
+        };
+        if (check) check.onclick = async () => {
+            const dir = document.getElementById('setup-dir').value.trim();
+            check.disabled = true;
+            const s = await setupProbe(dir);
+            renderSetupStatus(document.getElementById('setup-probe'), s && s.status);
+            check.disabled = false;
+        };
+        if (save) save.onclick = async () => {
+            const dir  = document.getElementById('setup-dir').value.trim();
+            const port = document.getElementById('setup-port').value;
+            const openBrowser = document.getElementById('setup-open-browser').checked;
+            const statusEl = document.getElementById('setup-status');
+            save.disabled = true; const old = save.textContent; save.textContent = 'Ukládám…';
+            const res = await setupSave(dir, port, openBrowser);
+            if (!res.ok) { if (statusEl) statusEl.textContent = '⚠ ' + (res.error || 'chyba'); }
+            else {
+                renderSetupStatus(document.getElementById('setup-probe'), res.status);
+                if (statusEl) statusEl.textContent = '✓ Uloženo — restartuj server (.exe), aby se změna projevila.';
+            }
+            save.disabled = false; save.textContent = old;
+        };
+    }
+
+    // ── First-run overlay ──────────────────────────────────────────────────
+    function injectSetupOverlay() {
+        if (window.readOnlyMode) return;            // viewers never see it
+        if (document.getElementById('setup-overlay')) return;
+        const el = document.createElement('div');
+        el.id = 'setup-overlay';
+        el.hidden = true;
+        el.innerHTML = `
+            <div class="setup-card">
+                <div class="setup-card-icon">🚜</div>
+                <h2>Vítej ve FS25 Dashboard</h2>
+                <p class="setup-card-lead">
+                    Zatím nepřišla žádná data z FS25. Zkontroluj, že server míří na správnou složku hry —
+                    obvykle ji najde sám, jinak ji vyber níže.
+                </p>
+                <label>Složka FS25 (Documents)</label>
+                <div class="setup-dir-row">
+                    <input type="text" id="su-dir" class="setup-dir-input" autocomplete="off"
+                           placeholder="C:\\Users\\…\\Documents\\My Games\\FarmingSimulator2025">
+                    <button class="secondary" id="su-browse" type="button">Procházet…</button>
+                </div>
+                <div id="su-candidates" class="setup-chips"></div>
+                <div id="su-probe" class="setup-probe" hidden></div>
+                <div class="setup-card-actions">
+                    <button class="secondary" id="su-check" type="button">Zkontrolovat</button>
+                    <button class="primary" id="su-save" type="button">Uložit</button>
+                </div>
+                <span id="su-status" class="setup-card-msg"></span>
+                <div class="setup-card-foot">
+                    <button class="linklike" id="su-close" type="button">Zavřít</button>
+                    <button class="linklike" id="su-advanced" type="button">Pokročilé nastavení →</button>
+                </div>
+            </div>`;
+        document.body.appendChild(el);
+    }
+    function hideSetupOverlay() {
+        const el = document.getElementById('setup-overlay');
+        if (el) el.hidden = true;
+    }
+    function maybeShowSetupOverlay() {
+        if (window.readOnlyMode) return;
+        setupProbe().then(s => {
+            if (!s || !s.status) return;
+            // Already getting frames? source is fine — never nag.
+            if (window.FS25App && window.FS25App.getData && window.FS25App.getData()) return;
+            if (s.status.dataFileExists) return;
+            const dirEl = document.getElementById('su-dir');
+            if (dirEl) dirEl.value = s.fs25DocsDir || '';
+            renderSetupCandidates(document.getElementById('su-candidates'), s.candidates, dirEl);
+            renderSetupStatus(document.getElementById('su-probe'), s.status);
+            const el = document.getElementById('setup-overlay');
+            if (el) el.hidden = false;
+        });
+    }
+    function wireSetupOverlay() {
+        const check  = document.getElementById('su-check');
+        const save   = document.getElementById('su-save');
+        const close  = document.getElementById('su-close');
+        const adv    = document.getElementById('su-advanced');
+        const browse = document.getElementById('su-browse');
+        if (browse) browse.onclick = async () => {
+            const dirEl = document.getElementById('su-dir');
+            browse.disabled = true; const old = browse.textContent; browse.textContent = 'Otevírám…';
+            const res = await setupBrowse(dirEl.value.trim());
+            if (res && res.path) {
+                dirEl.value = res.path;
+                renderSetupStatus(document.getElementById('su-probe'), res.status);
+            }
+            browse.disabled = false; browse.textContent = old;
+        };
+        if (check) check.onclick = async () => {
+            const dir = document.getElementById('su-dir').value.trim();
+            check.disabled = true;
+            const s = await setupProbe(dir);
+            renderSetupStatus(document.getElementById('su-probe'), s && s.status);
+            check.disabled = false;
+        };
+        if (save) save.onclick = async () => {
+            const dir = document.getElementById('su-dir').value.trim();
+            const statusEl = document.getElementById('su-status');
+            save.disabled = true; const old = save.textContent; save.textContent = 'Ukládám…';
+            const res = await setupSave(dir, '');
+            if (!res.ok) { if (statusEl) statusEl.textContent = '⚠ ' + (res.error || 'chyba'); }
+            else {
+                renderSetupStatus(document.getElementById('su-probe'), res.status);
+                if (statusEl) statusEl.textContent = '✓ Uloženo. Restartuj server (.exe) a načti stránku znovu.';
+            }
+            save.disabled = false; save.textContent = old;
+        };
+        if (close) close.onclick = hideSetupOverlay;
+        if (adv) adv.onclick = () => {
+            hideSetupOverlay();
+            openNotifModal();
+            const tab = document.querySelector('[data-tab="setup"]');
+            if (tab) tab.click();
+        };
     }
 
     // ─── Relay sharing (Nastavení → Sdílení) ──────────────────────────────────
@@ -811,6 +1070,7 @@
                     }
                     // A real data frame means the source is live → clear any overlay.
                     hideSourceOverlay();
+                    hideSetupOverlay();   // game data flowing → first-run helper no longer needed
                     if (window.CropIcons && Array.isArray(data.availableFruits)) {
                         window.CropIcons.setCatalog(data.availableFruits);
                     }
@@ -1116,6 +1376,11 @@
         injectReplayBanner();
         wireMockupGesture();
         applyMockupMode();
+        // First-run helper: inject + wire the overlay, then show it once we know
+        // the mode (viewers are skipped) if no game data is arriving yet.
+        injectSetupOverlay();
+        wireSetupOverlay();
+        readOnlyReady.then(maybeShowSetupOverlay, maybeShowSetupOverlay);
     });
 
     window.FS25App = { connect, rerender, getData: () => lastData };

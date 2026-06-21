@@ -4,7 +4,8 @@ name: Release
 #   1. The FS25 Lua mod ZIP            (drop into FS25 mods folder)
 #   2. The Node.js server as a single  Windows .exe via pkg, bundled with a
 #      tiny end-user readme + config.example.json in a ZIP.
-# Both ZIPs are attached to a GitHub Release automatically.
+#   3. The relay server source ZIP     (optional self-host for read-only sharing).
+# All three ZIPs are attached to a GitHub Release automatically.
 
 on:
   push:
@@ -90,6 +91,17 @@ jobs:
           EOF
           cd dist-server && zip -r "../FS25_Dashboard_Server.zip" .
 
+      # ─── Relay source ZIP ────────────────────────────────────────────────
+      # Source bundle for whoever self-hosts the relay (Docker / Tailscale).
+      # Secrets (publishers.json, .env) are gitignored so they aren't in the
+      # checkout; the -x guards belt-and-suspenders. node_modules is rebuilt by
+      # the Docker image, so it's excluded too.
+      - name: Package relay bundle
+        run: |
+          cd Relay
+          zip -r "../FS25_Dashboard_Relay.zip" . \
+            -x "node_modules/*" "publishers.json" ".env" "deploy-relay.ps1"
+
       # ─── Release ─────────────────────────────────────────────────────────
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -112,8 +124,14 @@ jobs:
 
             No Node.js installation required — the server is a single bundled
             Windows executable (~50 MB).
+
+            **3. (Optional) The relay server**
+            Only needed if you want to share your dashboard read-only over the
+            internet. Download `FS25_Dashboard_Relay.zip` and deploy it on a
+            Docker host — see `Relay/README.md` inside the archive.
           files: |
             FS25_Dashboard.zip
             FS25_Dashboard_Server.zip
+            FS25_Dashboard_Relay.zip
           draft: false
           prerelease: false

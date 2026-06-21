@@ -158,6 +158,61 @@ app.post('/api/relay', (req, res) => {
     res.json(relay.getState());
 });
 
+// ─── First-run setup wizard (UI: Nastavení → Připojení) ──────────────────────
+// GET reports the resolved FS25 docs path + port and probes whether the files we
+// read actually live there, plus auto-detected candidate folders.
+// POST persists fs25DocsDir/port to config.local.json. Both the bound port and
+// the file watcher are fixed at boot, so changes need a server restart.
+app.get('/api/setup', (req, res) => {
+    // ?dir=<path> probes an arbitrary candidate (the "Zkontrolovat" button on a
+    // hand-typed path) without persisting anything.
+    const probeArg = typeof req.query.dir === 'string' ? req.query.dir.trim() : '';
+    if (probeArg) return res.json({ status: config.probeDir(probeArg) });
+    res.json({
+        fs25DocsDir: config.FS25_DOCS,
+        port:        PORT,
+        openBrowser: config.OPEN_BROWSER,
+        packaged:    config.IS_PACKAGED,
+        configPath:  config.LOCAL_PATH,
+        status:      config.probeDir(config.FS25_DOCS),
+        candidates:  config.candidateDirs().map(dir => config.probeDir(dir)),
+    });
+});
+app.post('/api/setup', (req, res) => {
+    const body = req.body || {};
+    const dir = typeof body.fs25DocsDir === 'string' ? body.fs25DocsDir.trim() : '';
+    if (!dir) return res.status(400).json({ error: 'Cesta k FS25 Documents je prázdná.' });
+
+    const patch = { fs25DocsDir: dir };
+    if (body.port != null && body.port !== '') {
+        const port = Number(body.port);
+        if (!Number.isInteger(port) || port < 1 || port > 65535) {
+            return res.status(400).json({ error: 'Port musí být celé číslo 1–65535.' });
+        }
+        patch.port = port;
+    }
+    if (typeof body.openBrowser === 'boolean') patch.openBrowser = body.openBrowser;
+    try {
+        config.saveLocal(patch);
+    } catch (e) {
+        log.error('setup', `nelze uložit config.local.json: ${e.message}`);
+        return res.status(500).json({ error: 'nelze uložit nastavení: ' + e.message });
+    }
+    log.info('setup', `připojení změněno z UI — fs25DocsDir=${dir}${patch.port ? ` port=${patch.port}` : ''} (restart nutný)`);
+    res.json({ ok: true, restartRequired: true, status: config.probeDir(dir) });
+});
+// Opens a native folder picker on the server machine (local app) and returns the
+// chosen path. ?dir= seeds the dialog's starting folder.
+app.get('/api/setup/browse', async (req, res) => {
+    const initial = typeof req.query.dir === 'string' ? req.query.dir.trim() : '';
+    try {
+        const picked = await config.browseForFolder(initial);
+        res.json({ path: picked, status: picked ? config.probeDir(picked) : null });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
 app.get('/api/savegame', (_req, res) => {
     const fieldsMap = savegame.getFields();
     const fields = fieldsMap ? Array.from(fieldsMap.values()) : [];
@@ -771,7 +826,32 @@ server.listen(PORT, HOST, () => {
     // Start the outbound relay publisher (no-op unless RELAY_URL is set). The
     // shareable viewer URL is logged as its own banner once the room is ready.
     relay.init();
+
+    // Auto-open the dashboard in the default browser. Skipped under the mock/test
+    // harness (DASHBOARD_MOCK) so test runs don't spawn browser windows.
+    if (config.OPEN_BROWSER && !process.env.DASHBOARD_MOCK) {
+        openInBrowser(`http://localhost:${PORT}`);
+    }
 });
+
+// Best-effort: open a URL in the OS default browser. Detached + unref'd so it
+// never keeps the server process alive or blocks on the child.
+function openInBrowser(url) {
+    try {
+        const { spawn } = require('child_process');
+        const opts = { detached: true, stdio: 'ignore' };
+        let child;
+        if (process.platform === 'win32') {
+            child = spawn('cmd', ['/c', 'start', '', url], opts);
+        } else if (process.platform === 'darwin') {
+            child = spawn('open', [url], opts);
+        } else {
+            child = spawn('xdg-open', [url], opts);
+        }
+        child.on('error', () => {});   // browser missing → ignore
+        child.unref();
+    } catch (_) { /* never fatal */ }
+}
 
 // Flush an in-progress diagnostic recording before exiting so the last frames
 // (the interesting ones, near the bug) aren't lost on Ctrl+C / kill.

@@ -38,6 +38,7 @@ module.exports = defineConfig({
             DASHBOARD_PORT:      String(PORT),
             DASHBOARD_DATA_FILE: MOCK_FILE,
             DASHBOARD_DATA_DIR:  DATA_DIR,
+            DASHBOARD_OPEN_BROWSER: 'false',
         },
     },
 

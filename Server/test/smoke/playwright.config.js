@@ -72,6 +72,7 @@ module.exports = defineConfig({
                 DASHBOARD_DATA_FILE: MOCK_FILE,
                 DASHBOARD_DATA_DIR:  DATA_DIR,
                 DASHBOARD_MOCK:      '1',
+                DASHBOARD_OPEN_BROWSER: 'false',
                 FS25_DOCS_DIR:       SANDBOX,
             },
         },

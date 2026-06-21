@@ -1,6 +1,6 @@
 {
   "name": "fs25-dashboard",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "description": "FS25 Dashboard – real-time web dashboard for Farming Simulator 25",
   "main": "index.js",
   "bin": "index.js",

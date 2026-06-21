@@ -1478,13 +1478,80 @@ tr.flash-down > td { background-color: rgba(224, 82, 82, .35)                   
 #source-overlay .so-title { font-size: 20px; font-weight: 700; color: var(--text); }
 #source-overlay .so-msg   { font-size: 14px; color: var(--muted); }
 
+/* ── First-run setup: auto-detected folder chips ───────────────────────────── */
+.setup-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 4px; }
+.setup-chip {
+    font-size: 11px; padding: 4px 9px; border-radius: 12px;
+    border: 1px solid var(--border); background: var(--surface2);
+    color: var(--muted); cursor: pointer; max-width: 100%;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    transition: border-color .12s, color .12s;
+}
+.setup-chip:hover { border-color: var(--accent); color: var(--accent); }
+.setup-chip.good  { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
+
+/* ── First-run setup: folder input row + actions (tab + overlay) ────────────── */
+/* Long path input + "Procházet…" button on one row; the input flexes to fill. */
+.setup-dir-row { display: flex; gap: 8px; align-items: stretch; margin: 4px 0; }
+.setup-dir-input { flex: 1; min-width: 0; }
+#notif-modal .setup-dir-input {
+    background: var(--surface2); border: 1px solid var(--border);
+    color: var(--text); padding: 6px 8px; border-radius: 4px; font-size: 13px;
+}
+.setup-dir-row button { white-space: nowrap; flex: 0 0 auto; }
+/* Action row — deliberately NO top border (it's not a reset/divider section). */
+.setup-actions { display: flex; gap: 8px; align-items: center; margin-top: 12px; }
+
+/* ── First-run setup: ✓/✗ file-presence readout ────────────────────────────── */
+.setup-probe { margin-top: 10px; display: flex; flex-direction: column; gap: 4px; }
+.setup-probe[hidden] { display: none; }
+.setup-probe-row { font-size: 12px; color: var(--muted); line-height: 1.4; }
+.setup-probe-row .ok  { color: var(--accent); font-weight: 700; }
+.setup-probe-row .bad { color: var(--red); font-weight: 700; }
+
+/* ── First-run overlay — full-page welcome shown when no game data arrives ──── */
+#setup-overlay {
+    position: fixed; inset: 0; z-index: 1400;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--bg); padding: 24px; overflow-y: auto;
+}
+#setup-overlay[hidden] { display: none; }
+#setup-overlay .setup-card {
+    width: 100%; max-width: 460px;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 28px 26px;
+    display: flex; flex-direction: column; gap: 6px;
+}
+#setup-overlay .setup-card-icon { font-size: 40px; line-height: 1; text-align: center; }
+#setup-overlay h2 { font-size: 20px; font-weight: 700; color: var(--text); margin: 4px 0 2px; text-align: center; }
+#setup-overlay .setup-card-lead { font-size: 13px; color: var(--muted); line-height: 1.5; margin: 0 0 8px; text-align: center; }
+#setup-overlay label { font-size: 12px; color: var(--text); margin-top: 6px; }
+#setup-overlay input[type=text] {
+    width: 100%; padding: 8px 10px; border-radius: 6px;
+    border: 1px solid var(--border); background: var(--surface2); color: var(--text);
+    font-size: 13px;
+}
+#setup-overlay .setup-card-actions { display: flex; gap: 8px; margin-top: 12px; }
+#setup-overlay .setup-card-actions button { flex: 1; padding: 9px 12px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+#setup-overlay button.primary { background: var(--accent); color: var(--bg); border: none; font-weight: 700; }
+#setup-overlay button.primary:hover { filter: brightness(1.1); }
+#setup-overlay button.secondary { background: var(--surface2); border: 1px solid var(--border); color: var(--text); }
+#setup-overlay button.secondary:hover { border-color: var(--accent); color: var(--accent); }
+#setup-overlay .setup-card-msg { font-size: 12px; color: var(--muted); min-height: 16px; margin-top: 6px; }
+#setup-overlay .setup-card-foot { display: flex; justify-content: space-between; margin-top: 10px; }
+#setup-overlay .linklike {
+    background: none; border: 0; padding: 0; cursor: pointer;
+    font-size: 12px; color: var(--muted); text-decoration: underline;
+}
+#setup-overlay .linklike:hover { color: var(--accent); }
+
 /* Relay viewer serves only index.html — hide nav/section links to pages that
    would 404 there (Kalendář, Historie). Read-only class is on <html> pre-paint. */
 html.read-only a[href$="calendar.html"],
 html.read-only a[href$="history.html"] { display: none; }
 #notif-modal {
     background: var(--surface); border: 1px solid var(--border);
-    border-radius: var(--radius); padding: 24px; width: 500px; max-width: 92%;
+    border-radius: var(--radius); padding: 24px; width: 560px; max-width: 92%;
     position: relative;
 }
 #notif-modal h3 { margin-bottom: 12px; font-size: 16px; }
@@ -1542,23 +1609,28 @@ html.read-only a[href$="history.html"] { display: none; }
     padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 12px;
 }
 
-/* Settings tabs — sit at the top of the modal, switch panels below. */
+/* Settings tabs — sit at the top of the modal, switch panels below. Kept on a
+   single row (no wrap); if they ever exceed the modal width they scroll
+   horizontally rather than wrapping to a second line. */
 .settings-tabs {
     display: flex;
-    flex-wrap: wrap;
-    gap: 4px;
+    flex-wrap: nowrap;
+    gap: 2px;
     border-bottom: 1px solid var(--border);
     margin: 0 -24px 14px;
     padding: 0 24px;
+    overflow-x: auto;
+    scrollbar-width: thin;
 }
 .settings-tabs button {
     background: transparent;
     border: none;
     color: var(--muted);
-    padding: 8px 10px;
+    padding: 8px 7px;
     font-size: 12px;
     font-weight: 600;
     cursor: pointer;
+    white-space: nowrap;
     border-bottom: 2px solid transparent;
     margin-bottom: -1px;
     transition: color .12s, border-color .12s;

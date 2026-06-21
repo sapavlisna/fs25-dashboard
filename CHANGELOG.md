@@ -13,6 +13,25 @@ All notable changes to this project will be documented here.
 
 Mod and server share **one release version**. Each release ships both ZIPs even when only one component functionally changed — the release notes call out which one is the meaningful update so users can selectively download. `schemaVersion` in the JSON payload is independent and only bumps on incompatible payload shape changes.
 
+## [1.4.0.0] — 2026-06-21
+
+### Added
+- **First-run setup wizard.** When the server can't find FS25 data, a welcome
+  overlay appears in the browser; it auto-detects the standard FS25 folder,
+  verifies it (log.txt / savegames / dashboard_data.json) and writes
+  `config.local.json` — no hand-editing JSON. Reachable anytime via
+  Nastavení → 📁 Připojení.
+- **Native folder picker** ("Procházet…") — the server opens a real Windows
+  folder dialog (`/api/setup/browse`) and fills the path back in.
+- **Auto-open dashboard in browser on startup**, toggleable in
+  Nastavení → Připojení (`DASHBOARD_OPEN_BROWSER` / `openBrowser`, default on).
+
+### Changed
+- Settings tabs stay on one row (no wrap); modal widened to 560px.
+- FS25 folder auto-detection no longer suggests the OneDrive path; only
+  existing folders are offered as chips.
+- `start.bat` no longer opens the browser (the server does it now).
+
 ## [1.1.2.0] — 2026-05-22
 
 ### Added
