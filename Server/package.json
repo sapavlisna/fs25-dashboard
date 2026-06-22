@@ -1,6 +1,6 @@
 {
   "name": "fs25-dashboard",
-  "version": "1.4.4",
+  "version": "1.4.5",
   "description": "FS25 Dashboard – real-time web dashboard for Farming Simulator 25",
   "main": "index.js",
   "bin": "index.js",
@@ -23,6 +23,7 @@
     "mock": "node scripts/mock-data.js",
     "mock:scenario": "node scripts/set-scenario.js",
     "replay": "node scripts/replay.js",
+    "test:unit": "node --test test/unit/config.test.js test/unit/dashboardState.test.js test/unit/db.test.js test/unit/relay-client.test.js test/unit/savegame.test.js test/unit/validate-json.test.js",
     "test:diag": "node test/diag.test.js",
     "smoke": "playwright test --config=test/smoke/playwright.config.js --reporter=list",
     "test:all": "playwright test --config=test/smoke/playwright.config.js --reporter=list",

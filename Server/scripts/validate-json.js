@@ -29,6 +29,9 @@ const inRange = (v, lo, hi, name) => {
     if (v == null)       err(`${name} is null/missing`);
     else if (v < lo || v > hi) err(`${name} = ${v} is outside [${lo}, ${hi}]`);
 };
+// Like inRange but tolerates an absent value — for fields the mod legitimately
+// omits (e.g. waterPercent on auto-water husbandry such as pigs/chickens).
+const inRangeOpt = (v, lo, hi, name) => { if (v != null) inRange(v, lo, hi, name); };
 
 // Top-level
 if (d.schemaVersion == null)             warn('schemaVersion missing – mod predates 1.1.0.0');
@@ -60,7 +63,8 @@ for (const [i, f] of (d.fields || []).entries()) {
 // Vehicles
 for (const [i, v] of (d.vehicles || []).entries()) {
     need(v.name && v.name.length > 0,     `vehicles[${i}].name must not be empty`);
-    need(v.fuelCapacity > 0,              `vehicles[${i}].fuelCapacity must be > 0`);
+    need(typeof v.fuelCapacity === 'number' && v.fuelCapacity >= 0,
+         `vehicles[${i}].fuelCapacity must be a number >= 0 (0 = no fuel tank, e.g. trailer/cart)`);
     inRange(v.fuelPercent, 0, 100,        `vehicles[${i}].fuelPercent`);
     if (v.adBlueCapacity != null) {
         inRange(v.adBluePercent, 0, 100,  `vehicles[${i}].adBluePercent`);
@@ -70,7 +74,7 @@ for (const [i, v] of (d.vehicles || []).entries()) {
 // Animals
 for (const [i, a] of (d.animals || []).entries()) {
     inRange(a.foodPercent,  0, 100,       `animals[${i}].foodPercent`);
-    inRange(a.waterPercent, 0, 100,       `animals[${i}].waterPercent`);
+    inRangeOpt(a.waterPercent, 0, 100,    `animals[${i}].waterPercent`);
     inRange(a.productivity, 0, 100,       `animals[${i}].productivity`);
     need(a.count >= 0,                    `animals[${i}].count must be >= 0`);
 }

@@ -13,6 +13,28 @@ All notable changes to this project will be documented here.
 
 Mod and server share **one release version**. Each release ships both ZIPs even when only one component functionally changed — the release notes call out which one is the meaningful update so users can selectively download. `schemaVersion` in the JSON payload is independent and only bumps on incompatible payload shape changes.
 
+## [1.4.5.0] — 2026-06-21
+
+_Výstup ekosystémového auditu. Vydáno jako 1.4.5.0 (bump modDesc.xml + package.json)._
+
+### Added
+- Nápověda: nové sekce **Jazyk** (CZ/EN přepínač), **Diagnostika a přehrávání** (record/replay/mockup),
+  **První spuštění** (setup wizard) a popis omezení relay diváka (co nevidí, relay 404).
+- **Unit testová vrstva** (`test/unit/`, 42 testů: validate-json, db, savegame, config, relay-client,
+  dashboardState) + skript `npm run test:unit` — dosud chyběla pravá unit vrstva mimo Playwright.
+
+### Changed
+- Nápověda: oprava zastaralých údajů — příklad verze v navbaru a počet záložek Nastavení
+  (4 → 6, doplněno Sdílení + Připojení).
+
+### Fixed
+- **Bezpečnost:** `npm audit fix` — zranitelnost `ws` (high) + `qs`/`express` (moderate); `ws` 8.20.0 → 8.21.0,
+  0 zbývajících zranitelností. Týká se zejm. veřejně exponovaného relay.
+- **Historie eventů se mísila mezi savegame sloty** — `db.js saveEvents()` nyní taguje řádky `save_id`,
+  takže `/api/events` filtruje na aktuální playthrough (jako balance/prices/fields).
+- **`validate-json.js` odmítal legitimní data z módu** — vozidla bez nádrže (`fuelCapacity: 0`, přívěsy)
+  a auto-water stáje bez `waterPercent` (prasata/slepice) teď projdou; vadné hodnoty se dál chytají.
+
 ## [1.4.4.0] — 2026-06-21
 
 ### Fixed

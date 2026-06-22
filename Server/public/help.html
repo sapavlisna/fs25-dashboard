@@ -59,6 +59,7 @@
         <h3>Obsah</h3>
         <ol>
             <li><a href="#uvod">Úvod</a></li>
+            <li><a href="#prvni-spusteni">První spuštění (nastavení)</a></li>
             <li><a href="#orientace">Orientace v navbaru</a></li>
             <li>
                 <a href="#dashboard">Hlavní dashboard</a>
@@ -82,10 +83,12 @@
                     <li><a href="#zvonecek">Zvoneček 🔔</a></li>
                     <li><a href="#flash">Flash zvýraznění</a></li>
                     <li><a href="#motivy">Motivy vzhledu</a></li>
+                    <li><a href="#jazyk">Jazyk rozhraní 🌐</a></li>
                     <li><a href="#mobilni">Mobilní zobrazení 📱</a></li>
                     <li><a href="#perzistence">Co si pamatuje prohlížeč</a></li>
                 </ol>
             </li>
+            <li><a href="#diagnostika">Diagnostika a přehrávání</a></li>
             <li><a href="#sdileni">Sdílení přes relay</a></li>
             <li><a href="#faq">Časté otázky</a></li>
             <li><a href="#troubleshoot">Když něco nejde</a></li>
@@ -126,6 +129,51 @@
         </section>
 
         <!-- ───────────────────────────────────────────────────────────── -->
+        <section id="prvni-spusteni" class="help-section">
+            <h2>📁 První spuštění — nastavení připojení k FS25</h2>
+            <p>
+                Při prvním startu serveru (nebo kdykoli server nenajde data z hry) se zobrazí
+                <strong>průvodce nastavením</strong> přes celou stránku. Jeho cílem je namířit
+                server na správnou složku FS25.
+            </p>
+
+            <h3>Automatická detekce</h3>
+            <p>
+                Server hledá složku <code>Documents\My Games\FarmingSimulator2025</code> sám.
+                Pokud ji najde, zobrazí ji jako zelený chip (✓). Kliknutím na chip vyplníš
+                pole automaticky.
+            </p>
+
+            <h3>Postup při nestandardní instalaci</h3>
+            <ol>
+                <li>Klikni <strong>Procházet…</strong> — otevře se nativní dialog pro výběr složky.</li>
+                <li>Naviguj do složky s FS25 (ta, kde jsou podsložky <code>savegame1</code>
+                    a soubor <code>log.txt</code>).</li>
+                <li>Klikni <strong>Zkontrolovat</strong> — server ověří, co v té složce našel:
+                    <ul>
+                        <li>✓ / ✗ <code>log.txt</code></li>
+                        <li>✓ / ✗ počet savegamů</li>
+                        <li>✓ / ✗ <code>dashboard_data.json</code> (tento soubor vytváří
+                            teprve Lua mód za běhu hry)</li>
+                    </ul>
+                </li>
+                <li>Klikni <strong>Uložit</strong>.</li>
+                <li><strong>Restartuj server</strong> (zavři a spusť znovu <code>start.bat</code>
+                    nebo <code>npm start</code>). Změna cesty se projeví teprve po restartu.</li>
+            </ol>
+
+            <div class="help-callout">
+                <strong>Kdy průvodce zmizí?</strong> Hned po přijetí prvního live payloadu
+                z FS25 Lua módu — dashboard sám pozná, že data proudí, a overlay schová.
+                Průvodce pak najdeš v <strong>Nastavení ⚙ → 📁 Připojení</strong>, kde je
+                navíc možnost nastavit port serveru a auto-otevření prohlížeče.
+            </div>
+            <div class="help-callout">
+                <strong>Pozn.:</strong> Průvodce se nikdy nezobrazí relay divákům.
+            </div>
+        </section>
+
+        <!-- ───────────────────────────────────────────────────────────── -->
         <section id="orientace" class="help-section">
             <h2>Orientace v navbaru</h2>
             <p>Lišta nahoře je všude stejná:</p>
@@ -137,7 +185,7 @@
                         <td>Aktuální savegame z FS25 (např. „Má uložená hra · HOF BERGMANN").
                         Server tagové každý záznam historie tímto save ID — přepneš slot,
                         grafy přepnou s tebou.</td></tr>
-                    <tr><td><strong>v1.1.2</strong></td>
+                    <tr><td><strong>v1.x.x</strong></td>
                         <td>Verze módu v běžící hře (čteno z payloadu). Server svoji verzi
                         kontroluje proti módu a varuje, když nesedí.</td></tr>
                     <tr><td>Dashboard / Kalendář polí / Historie / Nápověda</td>
@@ -157,8 +205,8 @@
                         <td>Rychlý přepínač motivu (cyklus 5 motivů).
                         <a href="#motivy">Detail</a>.</td></tr>
                     <tr><td>⚙ Nastavení</td>
-                        <td>Globální modal se 4 záložkami — Notifikace, Sekce, Vzhled,
-                        Sync. Nastavení jednotlivých sekcí (co a jak se v nich zobrazuje)
+                        <td>Globální modal se 6 záložkami — Notifikace, Sekce, Vzhled,
+                        Sync, Sdílení, Připojení (+ skrytá Diagnostika). Nastavení jednotlivých sekcí (co a jak se v nich zobrazuje)
                         je v jejich vlastním ⚙ v hlavičce sekce —
                         <a href="#sekce-cfg">Nastavení sekce</a>.
                         <a href="#nastaveni">Detail</a>.</td></tr>
@@ -480,7 +528,9 @@
 
             <h3 id="nastaveni">⚙ Nastavení (globální)</h3>
             <p>
-                Klik na ozubené kolo v navbaru otevře globální modal se 4 záložkami.
+                Klik na ozubené kolo v navbaru otevře globální modal se 6 záložkami
+                (Notifikace, Sekce, Vzhled, Sync, Sdílení, Připojení) + skrytou záložkou
+                <a href="#diagnostika">Diagnostika</a> (power feature).
                 <strong>×</strong> vpravo nahoře modal zavře, změny se ukládají průběžně.
                 Nastavení toho, co a jak se zobrazuje v jednotlivých sekcích, najdeš
                 v <a href="#sekce-cfg">⚙ přímo v hlavičce sekce</a>.
@@ -505,6 +555,12 @@
                     <tr><td>☁ <strong>Sync</strong></td>
                         <td>Synchronizace `localStorage` mezi zařízeními přes server.
                         Co skryješ / přerovnáš na PC se objeví i na tabletu a naopak.</td></tr>
+                    <tr><td>📡 <strong>Sdílení</strong></td>
+                        <td>Relay sdílení dashboardu read-only divákům přes internet —
+                        detail v <a href="#sdileni">Sdílení přes relay</a>.</td></tr>
+                    <tr><td>📁 <strong>Připojení</strong></td>
+                        <td>Cesta ke složce FS25, port serveru a auto-otevření prohlížeče —
+                        detail v <a href="#prvni-spusteni">První spuštění</a>.</td></tr>
                 </tbody>
             </table></div>
 
@@ -622,6 +678,26 @@
                 </div>
             </div>
 
+            <h3 id="jazyk">🌐 Jazyk rozhraní</h3>
+            <p>
+                Dashboard je ve výchozím stavu v <strong>češtině</strong>. Přepnout na
+                angličtinu (nebo zpět) lze v <strong>Nastavení ⚙ → 🎨 Vzhled → Jazyk</strong>.
+            </p>
+            <ul>
+                <li>Výběr se uloží do <code>localStorage</code> pod klíčem
+                    <code>fs25.dash.v1.lang</code> a synchronizuje se na ostatní
+                    zařízení přes server.</li>
+                <li>Po přepnutí se stránka automaticky <strong>načte znovu</strong> — to je
+                    nutné, aby se přeložil veškerý obsah. Není to chyba.</li>
+                <li>Přeložené jsou statické texty, popisky, nadpisy a atributy <code>title</code>.
+                    Dynamická data (názvy polí, vozidel, plodin) přichází z FS25 v originálním
+                    jazyce hry.</li>
+            </ul>
+            <div class="help-callout">
+                <strong>Tip:</strong> Jazyk se synchronizuje. Přepneš-li na PC na angličtinu,
+                tablet nebo telefon připojený ke stejnému serveru se přepne také — bez zásahu.
+            </div>
+
             <h3 id="mobilni">📱 Mobilní zobrazení</h3>
             <p>
                 Stránka funguje i v telefonu (cíl: 375 px / iPhone 12 a větší).
@@ -662,6 +738,70 @@
                 Vymazat všechno → DevTools (F12) &gt; Application &gt; Local Storage &gt;
                 smaž <code>fs25.dash.v1.*</code> klíče a refresh.
             </p>
+        </section>
+
+        <!-- ───────────────────────────────────────────────────────────── -->
+        <section id="diagnostika" class="help-section">
+            <h2>🐞 Diagnostika a přehrávání záznamu</h2>
+            <p>
+                Skrytá záložka v Nastavení pro ladění a sdílení problémů. Není potřebná pro
+                běžné používání — popis je zde pro případ, že narazíš na chybu.
+            </p>
+
+            <h3>Jak záložku odemknout</h3>
+            <p>
+                Otevři <strong>Nastavení ⚙</strong> a <strong>klikni 4× na ikonku ⚙ v nadpisu
+                modalu</strong> (ne na tlačítko v navbaru — na ⚙ uvnitř otevřeného okna).
+                Zobrazí se záložka <strong>🐞 Diagnostika</strong>. Zavřením modalu se počítadlo
+                resetuje.
+            </p>
+
+            <h3>Co záložka umí</h3>
+            <div class="help-table-wrap"><table class="help-table">
+                <thead><tr><th>Funkce</th><th>Jak použít</th></tr></thead>
+                <tbody>
+                    <tr>
+                        <td><strong>● Spustit nahrávání</strong></td>
+                        <td>Zachytí live data z FS25 do souboru. Zopakuj akci, která nefungovala,
+                            pak klikni <strong>■ Zastavit</strong>. Vznikne soubor ke stažení.</td>
+                    </tr>
+                    <tr>
+                        <td><strong>⚑ Označit</strong></td>
+                        <td>Vloží do záznamu časovou značku „tady to nastalo" —
+                            snadno ji pak najdeš při přehrávání.</td>
+                    </tr>
+                    <tr>
+                        <td><strong>💾 Uložit poslední snímky zpětně</strong></td>
+                        <td>Server průběžně drží posledních ~1000 snímků v paměti. Klikni,
+                            i když jsi nahrávání nezapnul předem — zachytí co bylo těsně před
+                            problémem.</td>
+                    </tr>
+                    <tr>
+                        <td><strong>⬇ Stáhnout</strong></td>
+                        <td>Stáhne záznam jako <code>.jsonl</code> soubor. Ten soubor pošleš
+                            autorovi — obsahuje data + JS chyby prohlížeče + tvoje nastavení.</td>
+                    </tr>
+                    <tr>
+                        <td><strong>▶ Přehrát</strong></td>
+                        <td>Server přepne na přehrávání záznamu místo live dat. V horní liště
+                            se zobrazí ovládání: ↺ restart, ◀▶ snímek zpět/vpřed, ⏸ pauza,
+                            seek slider, ⚑ skok na značku, <code>{ }</code> inspektor surových dat.</td>
+                    </tr>
+                </tbody>
+            </table></div>
+
+            <h3>Mockup režim (přehrávání cizího záznamu)</h3>
+            <p>
+                Klikni <strong>10× na logo 🌾 FS25</strong> v navbaru — aktivuje se mockup režim.
+                V záložce Diagnostika se zobrazí tlačítka pro nahrání souboru (<code>.jsonl</code>)
+                od jiného hráče. Po nahrání klikni <strong>▶</strong> — dashboard přehraje jeho
+                data jako by to byl živý stream. Mockup režim vypneš přepínačem v záložce Diagnostika.
+            </p>
+
+            <div class="help-callout">
+                <strong>Poznámka:</strong> Diagnostika není dostupná pro relay diváky.
+                Záložka se vždy zobrazuje jen na místním serveru.
+            </div>
         </section>
 
         <!-- ───────────────────────────────────────────────────────────── -->
@@ -719,6 +859,30 @@
                 <strong>Bezpečnost:</strong> token v odkazu je neuhádnutelný a z klíče se
                 nedá zpětně odvodit. Kdo odkaz nemá, dashboard neuvidí. Diváci nemohou nic
                 měnit — relay od nich žádná data nepřijímá.
+            </div>
+
+            <h3 id="sdileni-divaci">Co vidí divák (read-only viewer)</h3>
+            <p>
+                Divák otevře odkaz ve tvaru
+                <code>https://&lt;relay&gt;/#&lt;token&gt;</code> a vidí hlavní dashboard
+                živě — stejná data jako ty, ale <strong>jen pro čtení</strong>. Relay servíruje
+                výhradně stránku dashboardu:
+            </p>
+            <ul>
+                <li><strong>Dostupné:</strong> hlavní dashboard (KPI + 6 sekcí), výběr
+                    motivu (tlačítko 🎨 v navbaru).</li>
+                <li><strong>Nedostupné:</strong> Kalendář polí, Historie, Diagnostika,
+                    Nastavení (kromě motivu), zvoneček a notifikace. Přístup na
+                    <code>/calendar.html</code> nebo <code>/history.html</code> přes relay
+                    vrátí chybu 404.</li>
+                <li><strong>Synchronizace layoutu:</strong> skrytá vozidla / sklady, které
+                    sis nastavil ty, se promítnou i divákovi (relay přenáší stav layoutu).</li>
+            </ul>
+            <div class="help-callout">
+                <strong>Výpadek zdroje:</strong> Když tvůj server přestane posílat data,
+                divák uvidí přes celou stránku overlay se stavem:
+                „Zdroj se odpojil — čekám na obnovení" nebo „Stream ukončen"
+                (při záměrném vypnutí). Data se nikdy tiše nezaseknou.
             </div>
         </section>
 
@@ -803,6 +967,40 @@
                 drag-and-dropem (nebo v Nastavení &gt; Sekce), se ukládá lokálně
                 a synchronizuje na další zařízení.
             </p>
+
+            <h3>Relay viewer: stránka se nenačte nebo zobrazuje 404</h3>
+            <ol>
+                <li>Ověř, že odkazem je <code>https://&lt;relay&gt;/#&lt;token&gt;</code>
+                    (hash s tokenem je nutný — bez něj viewer WS nepřijme data).</li>
+                <li>Relay servíruje pouze hlavní dashboard (<code>index.html</code>). Odkaz
+                    na <code>/calendar.html</code> nebo <code>/history.html</code> přes relay
+                    záměrně vrátí 404.</li>
+                <li>Pokud overlay říká „Odkaz je neplatný nebo vypršel", vydavatel resetoval
+                    klíč nebo relay vypnul sdílení. Požádej o nový odkaz.</li>
+            </ol>
+
+            <h3>Relay viewer: data jsou zastaralá nebo overlay trvá déle než pár vteřin</h3>
+            <ol>
+                <li>Zkontroluj, zda vydavatelův server vůbec běží a FS25 mód je aktivní.</li>
+                <li>Výpadky spojení relay → vydavatel relay překlenuje automaticky (backoff
+                    2–30 s). Pokud overlay po minutě nezmizí, vydavatel se pravděpodobně
+                    odpojil záměrně.</li>
+                <li>Zkus zavřít a znovu otevřít odkaz — WS se znovu připojí.</li>
+            </ol>
+
+            <h3>Server běží, ale z hry nepřicházejí žádná data</h3>
+            <ol>
+                <li>Ověř, že v FS25 je v menu <strong>Módy</strong> viditelný a zapnutý mód
+                    <strong>FS25 Dashboard</strong>.</li>
+                <li>Ve hře musíš mít načtený savegame — mód zapisuje data jen za aktivní
+                    hry, ne v hlavním menu.</li>
+                <li>Otevři <code>log.txt</code> ve složce FS25 a vyhledej řetězec
+                    <code>[FS25_Dashboard]</code>. Pokud tam není, mód se nenačetl
+                    (zkus reinstalovat ZIP do <code>FS25-Mods\</code>).</li>
+                <li>Pokud log řádky existují ale <code>dashboard_data.json</code>
+                    nevznikl, zkontroluj cestu v <strong>Nastavení ⚙ → 📁 Připojení</strong>
+                    — server musí ukazovat na stejnou složku kde je <code>log.txt</code>.</li>
+            </ol>
 
             <h3>Chci úplný reset</h3>
             <ul>

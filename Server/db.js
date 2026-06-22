@@ -161,6 +161,11 @@ function estimateYield(fruitTypeId, area, growthPercent) {
 function saveEvents(events, snapshot) {
     if (!Array.isArray(events) || events.length === 0) return;
 
+    // Tag events with the current playthrough id so filterCurrentSave() can scope
+    // them like balance/prices/fields — otherwise switching savegame slots mixes
+    // events from different playthroughs into one feed.
+    const saveId = buildSaveId(snapshot);
+
     // Build current price map (sellPoint+fillType → price/t) for revenue estimate
     const priceMap = {};
     let bestPriceByFruit = {};
@@ -180,6 +185,7 @@ function saveEvents(events, snapshot) {
 
         const row = {
             timestamp:   ev.timestamp,
+            save_id:     saveId,
             game_day:    ev.gameDay,
             field_id:    ev.fieldId,
             type:        ev.type,
