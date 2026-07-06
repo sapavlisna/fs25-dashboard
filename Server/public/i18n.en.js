@@ -58,6 +58,13 @@ window.I18N_EN = {
     'Dní do sklizně': 'Days to harvest',
     'Bez plodiny': 'No crop',
 
+    // ── Fields table — Precision Farming (jeden kompaktní sloupec) ───────────
+    'Půda / PF': 'Soil / PF',
+    'Precision Farming — typ půdy; dusík a pH (aktuální→cíl) po odběru vzorku':
+        'Precision Farming — soil type; nitrogen and pH (current→target) after sampling',
+    'Precision Farming': 'Precision Farming',
+    'Sloupec Půda / PF (typ půdy + N + pH)': 'Soil / PF column (soil type + N + pH)',
+
     // ── Field state tags / need chips ────────────────────────────────────────
     'Připraveno': 'Ready',
     'Roste': 'Growing',

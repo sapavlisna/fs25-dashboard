@@ -8,10 +8,12 @@
     // ── Public API ───────────────────────────────────────────────────────────
 
     // Register a section's settings definition.
-    // def = { title, basic: [item], advanced: [{group, items:[item]}] }
+    // def = { title, basic: [item], advanced: [{group, items:[item], visible?}] }
     // item = { key, label, default, expanded?, onchange? }
     //   expanded: true  → toggling this item also applies .expanded-<sectionKey> CSS class
     //   onchange: fn(bool) → custom callback (runs instead of default rerender)
+    //   group.visible: () => bool → hide the whole group when it returns false
+    //   (e.g. a group that only makes sense with Precision Farming active)
     function define(key, def) {
         _defs[key] = def;
     }
@@ -160,8 +162,11 @@
         // Collapsible block (advanced / flash) — same markup, different label
         // + body class so each toggles independently. `cls` is the body class.
         const _collapsible = (groups, cls, label) => {
-            if (!groups || !groups.length) return '';
-            const inner = groups.map(g => {
+            // A group can opt out entirely via `visible: () => bool` (e.g. Precision
+            // Farming columns only make sense when the save has PF active).
+            const visGroups = (groups || []).filter(g => !g.visible || g.visible());
+            if (!visGroups.length) return '';
+            const inner = visGroups.map(g => {
                 const items = (g.items || []).map(_rowHTML).join('');
                 const note = g.note ? `<div class="sec-cfg-group-note">${g.note}</div>` : '';
                 return `<div class="sec-cfg-group">

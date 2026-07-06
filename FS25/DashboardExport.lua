@@ -22,7 +22,7 @@ DashboardExport.MOD_NAME       = g_currentModName or "FS25_Dashboard"
 DashboardExport.MOD_DIR        = g_currentModDirectory or ""
 -- MOD_VERSION is kept in sync with modDesc.xml by scripts/build-mod-generic.ps1.
 -- Do not edit by hand; bump via the build script.
-DashboardExport.MOD_VERSION    = "1.2.0.2"
+DashboardExport.MOD_VERSION    = "1.5.0.0"
 -- SCHEMA_VERSION tracks the dashboard_data.json shape — bump ONLY on breaking
 -- changes (renamed/removed fields). Server has MIN/MAX bounds and warns on
 -- mismatch. See src/Dashboard/docs/COMPATIBILITY.md.
@@ -44,6 +44,11 @@ DashboardExport.lastExportAt   = 0
 DashboardExport.lastDirtyAt    = 0
 DashboardExport.diagDumped     = false         -- one-shot startup probe
 DashboardExport.pendingEvents  = {}            -- queued sow/harvest events until next write
+DashboardExport.pfCache        = {}            -- farmlandId → { data, expiresAt } (Precision Farming per-field)
+DashboardExport.PF_TTL_OWNED   = 30000         -- ms — refresh PF dat vlastněných polí
+DashboardExport.PF_TTL_OTHER   = 120000        -- ms — cizí pole stačí zřídka
+DashboardExport.PF_REFRESH_PER_TICK = 3        -- max PF přepočtů za export tick
+DashboardExport.pfRefreshBudget = 0
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- JSON encoder (pure Lua, no deps)
@@ -743,6 +748,152 @@ function DashboardExport:collectFieldStatus(field)
     return out
 end
 
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Precision Farming (volitelný cross-mod read; FS25_precisionFarming 1.5)
+-- API ověřeno runtime introspekcí 2026-07-06 (DashControl pf_field) — FS22
+-- signatury platí i v FS25. Bez PF vrací vše nil a payload PF klíče nemá.
+-- Sémantika viditelnosti: density mapy N/pH jsou vždy plné, ale hra hodnoty
+-- skrývá, dokud hráč neodebere vzorek půdy (coverMap maska) — proto
+-- getTypeIndexAtWorldPos vrací 0 na nevzorkovaném poli a my zrcadlíme totéž
+-- (nitrogenActual/phActual = nil, dokud sampled == 0).
+-- ─────────────────────────────────────────────────────────────────────────────
+
+local function pfHandle()
+    if g_modIsLoaded and g_modIsLoaded["FS25_precisionFarming"]
+        and FS25_precisionFarming ~= nil then
+        return FS25_precisionFarming.g_precisionFarming
+    end
+    return nil
+end
+
+-- PF soilType.name bývá l10n klíč ("$l10n_ui_soilType…") — přelož, jinak vrať beze změny.
+local function pfText(s)
+    if type(s) == "string" and s:sub(1, 6) == "$l10n_" then
+        local ok, txt = pcall(function() return g_i18n:getText(s:sub(7)) end)
+        if ok and txt then return txt end
+    end
+    return s
+end
+
+function DashboardExport:computeFieldPF(pf, farmlandId, field, farmland)
+    local out = {}
+
+    out.sampled = safeCall(function() return pf.coverMap:getFarmlandSampleState(farmlandId) end) or 0
+
+    -- Statická skladba půdy z farmland.soilDistribution (frakce per typ, suma≈1):
+    -- dominantní typ + vážený výnosový potenciál — známé i bez vzorkování.
+    local dist = farmland and farmland.soilDistribution
+    local domIdx, domFrac, wYield = 0, 0, 0
+    if type(dist) == "table" then
+        for i, frac in pairs(dist) do
+            local idx = tonumber(i) or 0
+            if idx > 0 and type(frac) == "number" and frac > 0 then
+                local yp = safeCall(function() return pf.soilMap:getYieldPotentialBySoilTypeIndex(idx) end) or 1
+                wYield = wYield + yp * frac
+                if frac > domFrac then domFrac = frac; domIdx = idx end
+            end
+        end
+    end
+
+    -- Vzorkovací body: centroid + 4 offsety (stejný vzor jako probeFieldFruit).
+    if field and field.posX and field.posZ then
+        local r = math.min(40, math.max(8, math.sqrt((field.areaHa or 0) * 10000) / 4))
+        local pts = {
+            { field.posX,     field.posZ },
+            { field.posX + r, field.posZ },
+            { field.posX - r, field.posZ },
+            { field.posX,     field.posZ + r },
+            { field.posX,     field.posZ - r },
+        }
+        local nSum, phSum, cnt = 0, 0, 0
+        local soilCounts = {}
+        for _, p in ipairs(pts) do
+            local sIdx = safeCall(function() return pf.soilMap:getTypeIndexAtWorldPos(p[1], p[2]) end) or 0
+            if sIdx > 0 then
+                soilCounts[sIdx] = (soilCounts[sIdx] or 0) + 1
+                nSum  = nSum  + (safeCall(function() return pf.nitrogenMap:getLevelAtWorldPos(p[1], p[2]) end) or 0)
+                phSum = phSum + (safeCall(function() return pf.pHMap:getLevelAtWorldPos(p[1], p[2]) end) or 0)
+                cnt = cnt + 1
+            end
+        end
+        if cnt > 0 then
+            local bIdx, bCnt = 0, 0
+            for i, c in pairs(soilCounts) do
+                if c > bCnt then bIdx, bCnt = i, c end
+            end
+            if bIdx > 0 then domIdx = bIdx end   -- vzorkovaná realita přebíjí distribuci
+            out.nitrogenActual = round2(safeCall(function()
+                return pf.nitrogenMap:getNitrogenValueFromInternalValue(nSum / cnt) end) or 0)
+            out.phActual = round2(safeCall(function()
+                return pf.pHMap:getPhValueFromInternalValue(phSum / cnt) end) or 0)
+            -- getTargetLevelAtWorldPos vrací interní stav → převod na kg N/ha
+            local nTarget = safeCall(function()
+                local internal = pf.nitrogenMap:getTargetLevelAtWorldPos(field.posX, field.posZ)
+                return (internal and internal > 0)
+                    and pf.nitrogenMap:getNitrogenValueFromInternalValue(internal) or 0
+            end) or 0
+            if nTarget > 0 then out.nitrogenTarget = round2(nTarget) end
+        end
+    end
+
+    if domIdx > 0 then
+        local st = pf.soilMap.soilTypes and pf.soilMap.soilTypes[domIdx]
+        out.soilTypeIndex = domIdx
+        out.soilType = (st and pfText(st.name or st.title)) or tostring(domIdx)
+        -- getOptimalPHValueForSoilTypeIndex vrací interní stav → převod na pH
+        local phT = safeCall(function()
+            local internal = pf.pHMap:getOptimalPHValueForSoilTypeIndex(domIdx)
+            return (internal and internal > 0)
+                and pf.pHMap:getPhValueFromInternalValue(internal) or 0
+        end) or 0
+        if phT > 0 then out.phTarget = round2(phT) end
+    end
+    if wYield > 0 then out.yieldPotential = round2(wYield) end
+
+    return out
+end
+
+-- Per-field PF data s cache: mapové čtení je levné, ale 145 polí × 5 bodů × 3
+-- mapy každé 2 s nechceme — refresh max PF_REFRESH_PER_TICK polí za export tick.
+function DashboardExport:getFieldPF(farmlandId, field, farmland, owned)
+    local pf = pfHandle()
+    if not pf then return nil end
+    local now = (g_currentMission and g_currentMission.time) or 0
+    local cached = self.pfCache[farmlandId]
+    if cached and cached.expiresAt > now then return cached.data end
+    if (self.pfRefreshBudget or 0) <= 0 then
+        return cached and cached.data or nil
+    end
+    self.pfRefreshBudget = self.pfRefreshBudget - 1
+    local data = safeCall(function() return self:computeFieldPF(pf, farmlandId, field, farmland) end)
+    self.pfCache[farmlandId] = {
+        data = data,
+        expiresAt = now + (owned and self.PF_TTL_OWNED or self.PF_TTL_OTHER),
+    }
+    return data
+end
+
+-- Top-level katalog půdních typů pro legendu/UI (jednou za payload).
+function DashboardExport:collectPFMeta()
+    local pf = pfHandle()
+    if not pf then return { active = false } end
+    local meta = { active = true }
+    local types = {}
+    local soilTypes = pf.soilMap and pf.soilMap.soilTypes
+    if type(soilTypes) == "table" then
+        for i, st in ipairs(soilTypes) do
+            table.insert(types, {
+                index = i,
+                name = pfText(st.name or st.title or tostring(i)),
+                yieldPotential = safeCall(function()
+                    return pf.soilMap:getYieldPotentialBySoilTypeIndex(i) end) or 1,
+            })
+        end
+    end
+    if #types > 0 then meta.soilTypes = types end
+    return meta
+end
+
 function DashboardExport:buildFieldRecord(farmlandId, field, ownerFarmId, currentFarmId, farmland)
     if field == nil then return nil end
 
@@ -849,6 +1000,7 @@ function DashboardExport:buildFieldRecord(farmlandId, field, ownerFarmId, curren
         fertilizationLevel = cond.fertilizationLevel,
         weedLevel          = cond.weedLevel,
         stoneLevel         = cond.stoneLevel,
+        pf                 = self:getFieldPF(farmlandId, field, farmland, owned),
     }
 end
 
@@ -856,6 +1008,7 @@ function DashboardExport:collectFields()
     local out = {}
     if g_farmlandManager == nil or g_farmlandManager.farmlands == nil then return out end
 
+    self.pfRefreshBudget = self.PF_REFRESH_PER_TICK
     local currentFarmId = getFarmId()
     local mapping = (g_fieldManager and g_fieldManager.farmlandIdFieldMapping) or {}
     local seen = {}
@@ -903,6 +1056,7 @@ function DashboardExport:collectFields()
                     fertilizationLevel = 0,
                     weedLevel          = 0,
                     stoneLevel         = 0,
+                    pf                 = self:getFieldPF(farmland.id, nil, farmland, true),
                 })
                 seen[farmland.id] = true
             end
@@ -1983,6 +2137,7 @@ function DashboardExport:buildPayload()
         gameSettings    = self:collectGameSettings(),
         priceForecast   = self:collectPriceForecast(),
         weather         = self:collectWeather(),
+        pf              = self:collectPFMeta(),
         fields          = #fields > 0 and fields or emptyArray(),
         vehicles        = self:collectVehicles(),
         animals         = self:collectAnimals(),

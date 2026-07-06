@@ -49,6 +49,7 @@ const SCENARIO_FILE = path.join(path.dirname(OUTPUT), 'mock-scenario.txt');
 const ri = (a, b) => Math.floor(Math.random() * (b - a + 1)) + a;
 const rf = (a, b) => Math.random() * (b - a) + a;
 const pct = (n) => Math.round(n * 10) / 10;
+const pct2 = (n) => Math.round(n * 100) / 100;
 
 const FRUITS = [
     { id: 'WHEAT',      name: 'Pšenice' },
@@ -61,6 +62,26 @@ const FRUITS = [
     { id: 'POTATO',     name: 'Brambory' },
     { id: 'GRASS',      name: 'Tráva' },
 ];
+
+// ─── Precision Farming ────────────────────────────────────────────────────────
+// Fixed 4-type soil catalog (mirrors the top-level pf.soilTypes contract).
+const PF_SOIL_TYPES = [
+    { index: 0, name: 'Hlinitopísčitá', yieldPotential: 0.8  },
+    { index: 1, name: 'Písčitohlinitá', yieldPotential: 1.0  },
+    { index: 2, name: 'Hlinitá',        yieldPotential: 1.25 },
+    { index: 3, name: 'Bahnitý jíl',    yieldPotential: 0.9  },
+];
+// Rough per-crop nitrogen demand (kg/ha) — nitrogenTarget is crop-driven, not
+// tied to sampling, so it stays defined even for unsampled fields.
+const N_DEMAND = {
+    WHEAT: 140, BARLEY: 120, CANOLA: 160, MAIZE: 150, SUNFLOWER: 90,
+    SOYBEAN: 80, SUGARBEET: 140, POTATO: 130, GRASS: 100,
+};
+function computeNTarget(fruitIdx) {
+    if (fruitIdx < 0 || fruitIdx == null) return ri(80, 160);
+    const base = N_DEMAND[FRUITS[fruitIdx].id] || ri(80, 160);
+    return Math.round(base * rf(0.9, 1.1));
+}
 
 const SELL_POINTS = ['Getreidelager Bergmann', 'BGA Bergmann', 'Sägewerk', 'Mühle Bergmann'];
 
@@ -91,6 +112,17 @@ const FIELDS = Array.from({ length: 22 }, (_, i) => {
         _fertilized: ri(0, 2),
         _weed:       ri(0, 1),
         _stones:     ri(0, 1),
+        // Precision Farming — soil is a fixed field property; N target follows
+        // whatever's sown, N/pH actual readings only exist once sampled.
+        _pf: {
+            sampled:        Math.random() > 0.4 ? 1 : 0,
+            soilIdx:        ri(0, PF_SOIL_TYPES.length - 1),
+            yieldPotential: pct2(rf(0.8, 1.15)),
+            nitrogenActual: ri(20, 80),
+            nitrogenTarget: computeNTarget(hasCrop ? fruitIdx : -1),
+            phActual:       pct2(rf(5.5, 7.2)),
+            phTarget:       pct2(rf(6.3, 7.0)),
+        },
     };
 });
 
@@ -115,6 +147,20 @@ function buildFieldData(f) {
     const hStart = mgs - 1;
     const hasCrop = f.fruitIdx >= 0;
 
+    const soil = PF_SOIL_TYPES[f._pf.soilIdx];
+    const pf = {
+        sampled:        f._pf.sampled,
+        soilType:       soil.name,
+        soilTypeIndex:  soil.index,
+        yieldPotential: f._pf.yieldPotential,
+        nitrogenTarget: f._pf.nitrogenTarget,
+        phTarget:       f._pf.phTarget,
+    };
+    if (f._pf.sampled) {
+        pf.nitrogenActual = f._pf.nitrogenActual;
+        pf.phActual       = f._pf.phActual;
+    }
+
     return {
         id:               f.id,
         area:             f.area,
@@ -134,6 +180,7 @@ function buildFieldData(f) {
         fertilizationLevel: f._fertilized,
         weedLevel:          f._weed,
         stoneLevel:         f._stones,
+        pf,
     };
 }
 
@@ -203,6 +250,7 @@ function generateData() {
                 f._growthState = 0;
                 f._plowed = true;
                 f._fertilized = ri(1, 2);
+                f._pf.nitrogenTarget = computeNTarget(f.fruitIdx);
                 addEvent({
                     type: 'sowing',
                     fieldId: f.id,
@@ -260,6 +308,10 @@ function generateData() {
             ],
         },
         farmBalance: Math.max(0, balance),
+        pf: {
+            active: true,
+            soilTypes: PF_SOIL_TYPES.map(s => ({ index: s.index, name: s.name, yieldPotential: s.yieldPotential })),
+        },
         fields: FIELDS.map(buildFieldData),
         storage: [
             {

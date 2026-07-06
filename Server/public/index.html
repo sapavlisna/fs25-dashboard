@@ -144,7 +144,7 @@
                         <th class="num">Rozloha</th>
                         <th>Stav</th>
                         <th>Růst</th>
-                        <th class="num">Dní do sklizně</th>
+                        <th class="num" title="Dní do sklizně">Dní</th>
                     </tr>
                 </thead>
                 <tbody id="fields-body" data-tt-container="fields"></tbody>
@@ -1643,8 +1643,14 @@ function renderFields(fields) {
     const colLime   = !!DashState.get('fieldsColLime',  false);
     const colWeed   = !!DashState.get('fieldsColWeed',  false);
     const colStone  = !!DashState.get('fieldsColStone', false);
+    // PF columns are gated on the save actually having Precision Farming active —
+    // the checkbox can stay "on" in DashState while PF is off (or missing entirely).
+    const pfActive  = !!(window.__lastData && window.__lastData.pf && window.__lastData.pf.active);
+    // Jeden kompaktní PF sloupec (typ půdy + N/pH na druhém řádku) místo tří —
+    // tři samostatné sloupce rozšiřovaly tabulku a vynucovaly vodorovný scrollbar.
+    const colPF     = pfActive && !!DashState.get('fieldsColPF', false);
 
-    const fCfgKey = [ownedOnly, showDays, showChips, hideEmpty, hideStubble, colSpray, colPlow, colLime, colWeed, colStone].join(',');
+    const fCfgKey = [ownedOnly, showDays, showChips, hideEmpty, hideStubble, colSpray, colPlow, colLime, colWeed, colStone, pfActive, colPF].join(',');
     const memoKey = JSON.stringify(fields)
         + '|' + [...TableTools.getHidden('fields')].sort().join(',')
         + '|' + (TableTools.getOrder('fields') || []).join(',')
@@ -1663,7 +1669,7 @@ function renderFields(fields) {
     const hBody = $('fields-hidden-body');
 
     // Extra column count for colspan calculations
-    const extraCount = [colSpray, colPlow, colLime, colWeed, colStone].filter(Boolean).length;
+    const extraCount = [colSpray, colPlow, colLime, colWeed, colStone, colPF].filter(Boolean).length;
     const colTotal = 6 + (showDays ? 1 : 0) + extraCount;
 
     // Update thead dynamically to match visible columns
@@ -1675,6 +1681,7 @@ function renderFields(fields) {
             colLime  ? '<th class="num" title="Potřebuje vápno">Vápno</th>'       : '',
             colWeed  ? '<th class="num" title="Úroveň plevele (0–3)">Plevel</th>' : '',
             colStone ? '<th class="num" title="Úroveň kamenů (0–3)">Kameny</th>'  : '',
+            colPF    ? '<th title="Precision Farming — typ půdy; dusík a pH (aktuální→cíl) po odběru vzorku">Půda / PF</th>' : '',
         ].join('');
         theadRow.innerHTML =
             `<th class="num" title="Interní ID pole v mapě (NE číslo zemědělské půdy z UI)">#</th>
@@ -1683,7 +1690,7 @@ function renderFields(fields) {
              <th class="num">Rozloha</th>
              <th>Stav</th>
              <th>Růst</th>
-             ${showDays ? '<th class="num">Dní do sklizně</th>' : ''}
+             ${showDays ? '<th class="num" title="Dní do sklizně">Dní</th>' : ''}
              ${extraTh}`;
     }
 
@@ -1723,12 +1730,33 @@ function renderFields(fields) {
         // Spray (fertilising) level 0–2 — higher is better (green at 2, red at 0).
         const sprayLvl = f.sprayLevel ?? 0;
         const sprayCls = sprayLvl >= 2 ? 'c-green' : sprayLvl === 0 ? 'c-red' : 'c-yellow';
+        // Precision Farming — jedna kompaktní buňka: typ půdy (vždy, ze soilDistribution)
+        // + druhý řádek N a pH (aktuální→cíl) jen když je pole vzorkované.
+        const pf = f.pf || {};
+        let pfCell = '<span class="c-muted">—</span>';
+        if (pf.soilType) {
+            const yp = pf.yieldPotential != null ? ` ×${pf.yieldPotential}` : '';
+            let sub = '';
+            if (pf.sampled) {
+                const parts = [];
+                if (pf.nitrogenActual != null && pf.nitrogenTarget != null) {
+                    const lowN = pf.nitrogenTarget > 0 && pf.nitrogenActual / pf.nitrogenTarget < 0.75;
+                    parts.push(`<span class="${lowN ? 'c-yellow' : ''}">N ${pf.nitrogenActual}→${pf.nitrogenTarget}</span>`);
+                }
+                if (pf.phActual != null && pf.phTarget != null) {
+                    parts.push(`pH ${pf.phActual}→${pf.phTarget}`);
+                }
+                if (parts.length) sub = `<span style="display:block;font-size:0.82em;opacity:0.72">${parts.join(' · ')}</span>`;
+            }
+            pfCell = `<span title="Výnosový potenciál${yp}">${esc(pf.soilType)}</span>${sub}`;
+        }
         const extraTd = [
             colSpray ? `<td class="num"><span class="${sprayCls}">${sprayLvl}/2</span></td>` : '',
             colPlow  ? `<td class="num">${f.needsPlowing ? '✓' : '—'}</td>` : '',
             colLime  ? `<td class="num">${f.needsLime    ? '✓' : '—'}</td>` : '',
             colWeed  ? `<td class="num">${f.weedLevel  > 0 ? f.weedLevel  : '—'}</td>` : '',
             colStone ? `<td class="num">${f.stoneLevel > 0 ? f.stoneLevel : '—'}</td>` : '',
+            colPF    ? `<td>${pfCell}</td>` : '',
         ].join('');
         return `<tr class="${flashCls.trim()}" ${TableTools.dndAttrs(STATE_KEY, f.id)}>
             <td class="num">${f.id}</td>
@@ -2411,6 +2439,15 @@ window.addEventListener('DOMContentLoaded', () => {
                         { key: 'fieldsColLime',  label: 'Vápno (potřebuje vápno)',   default: false },
                         { key: 'fieldsColWeed',  label: 'Plevel (0–3)',              default: false },
                         { key: 'fieldsColStone', label: 'Kameny (0–3)',              default: false },
+                    ],
+                },
+                {
+                    group: 'Precision Farming',
+                    // Only offer PF columns when the save actually has PF active —
+                    // otherwise every field would just show "—" in these columns.
+                    visible: () => !!(window.__lastData && window.__lastData.pf && window.__lastData.pf.active),
+                    items: [
+                        { key: 'fieldsColPF', label: 'Sloupec Půda / PF (typ půdy + N + pH)', default: false },
                     ],
                 },
             ],

@@ -13,6 +13,31 @@ All notable changes to this project will be documented here.
 
 Mod and server share **one release version**. Each release ships both ZIPs even when only one component functionally changed — the release notes call out which one is the meaningful update so users can selectively download. `schemaVersion` in the JSON payload is independent and only bumps on incompatible payload shape changes.
 
+## [1.5.0.0] — 2026-07-06
+
+_Precision Farming: data z módu FS25_precisionFarming (typ půdy, výnosový potenciál, dusík, pH)
+promítnutá do dashboardu i kalendáře polí. Testováno živě na savu Kolonia (slot 10)._
+
+### Added
+- **Precision Farming v Lua exportu** (`FS25/DashboardExport.lua`) — čte `g_precisionFarming`
+  (soilMap/nitrogenMap/pHMap/coverMap). Nový payload `pf = {active, soilTypes[]}` a per pole
+  `fields[].pf = {sampled, soilType, soilTypeIndex, yieldPotential, nitrogenActual/Target, phActual/Target}`.
+  Gated na existenci PF (bez módu se klíč nepřidá), throttlováno (max 3 pole/tick, TTL 30 s vlastněná).
+  Cílové N/pH se převádějí z interního stavu na reálné jednotky (kg N/ha, pH škála).
+- **Dashboard (index.html)** — volitelný kompaktní sloupec **„Půda / PF"**: typ půdy + druhý řádek
+  `N akt→cíl · pH akt→cíl` (jen u vzorkovaných polí). Zapíná se v ⚙ sekce polí, skrytý bez PF.
+- **Kalendář polí (calendar.html)** — vždy viditelný řádek `🌱 typ půdy · N akt→cíl` v popisku pole,
+  plné hodnoty v tooltipu i detailu; jemné zebra podbarvení řádků pro odlišení.
+- Mock (`mock-data.js`) a validace (`validate-json.js`) rozšířeny o PF data.
+- **DashControl** (dev nástroj, 0.1.0.29) — nové příkazy pro autonomní přípravu herního stavu:
+  `ping`, `dump`/`probe` (runtime introspekce), `buy_farmland`/`sell_farmland`, `buy_vehicle`,
+  `attach_implement`, `set_seed`, `hire_worker` (přes `aiJobTypeManager`), `pf_sample`
+  (nasimuluje odběr vzorku půdy → odemkne N/pH), `pf_field` (diagnostika). CLI sender `send-cmd.js`
+  bez nutnosti restartu MCP session. Znalosti PF API v `knowledge/precision-farming-api.md`.
+
+### Changed
+- Sloupec „Dní do sklizně" v tabulce polí zkrácen na „Dní" (plný popis v tooltipu) — užší tabulka.
+
 ## [1.4.5.0] — 2026-06-21
 
 _Výstup ekosystémového auditu. Vydáno jako 1.4.5.0 (bump modDesc.xml + package.json)._

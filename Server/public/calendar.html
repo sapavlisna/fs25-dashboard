@@ -121,6 +121,11 @@
     background: var(--surface);
     padding: 0 12px;
 }
+/* Jemné zebra podbarvení pro odlišení řádků polí. Musí být PŘED :hover a
+   .selected (stejná specificita → rozhoduje pořadí), aby ty stále přebily. */
+.gantt-table tbody tr:nth-child(even) td {
+    background: color-mix(in srgb, var(--accent) 4%, var(--surface));
+}
 .gantt-table tbody tr:hover td {
     background: color-mix(in srgb, var(--accent) 7%, var(--surface));
 }
@@ -1130,6 +1135,22 @@ function renderGantt(allFields) {
             String(f.id) === selectedFid ? 'selected' : '',
         ].filter(Boolean).join(' ');
 
+        // Precision Farming — vždy viditelný kompaktní řádek v popisku pole
+        // (typ půdy ze soilDistribution; N/pH doplněné do tooltipu po vzorkování).
+        // Detail s badge zůstává v modalu po kliknutí na řádek.
+        let pfLine = '';
+        if (f.pf && f.pf.soilType) {
+            const yp = f.pf.yieldPotential != null ? ` ×${f.pf.yieldPotential}` : '';
+            let tip = `Půda: ${f.pf.soilType} (výnosový potenciál${yp})`;
+            let extra = '';
+            if (f.pf.sampled && f.pf.nitrogenActual != null && f.pf.nitrogenTarget != null) {
+                extra = ` · N ${f.pf.nitrogenActual}→${f.pf.nitrogenTarget}`;
+                tip += ` · N ${f.pf.nitrogenActual}→${f.pf.nitrogenTarget} kg/ha`;
+                if (f.pf.phActual != null && f.pf.phTarget != null) tip += ` · pH ${f.pf.phActual}→${f.pf.phTarget}`;
+            }
+            pfLine = `<div class="field-pf" title="${esc(tip)}" style="font-size:10px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">🌱 ${esc(f.pf.soilType)}${extra}</div>`;
+        }
+
         return `<tr class="${rowClasses}" data-field-id="${f.id}" ${TableTools.dndAttrs('fields', f.id)} onclick="selectPlanField(${f.id})">
             <td class="g-label">
                 <div class="g-label-inner">
@@ -1140,6 +1161,7 @@ function renderGantt(allFields) {
                         <div class="field-line2"${areaTitle ? ` title="${areaTitle}"` : ''}>
                             <span>${f.area} ha</span>
                         </div>
+                        ${pfLine}
                     </div>
                     ${fertInLabel}
                 </div>
@@ -1380,6 +1402,16 @@ function openModal(el) {
         const mfm = modalFruitMeta[f.fruitTypeId];
         if (f.fruitTypeId && mfm && mfm.needsRolling) {
             cb('Válet', f.rollerLevel > 0 ? 'OK' : 'POTŘEBA', f.rollerLevel > 0 ? 'ok' : 'warn');
+        }
+
+        // Precision Farming badges — soil type is known from soilDistribution even
+        // for unsampled fields; the N reading only exists once the field is sampled.
+        if (f.pf && f.pf.soilType) {
+            condBadges.push(`<div class="cond-badge" title="Výnosový potenciál${f.pf.yieldPotential != null ? ' ×' + f.pf.yieldPotential : ''}"><span>Půda</span><span class="v">${esc(f.pf.soilType)}</span></div>`);
+        }
+        if (f.pf && f.pf.sampled && f.pf.nitrogenActual != null && f.pf.nitrogenTarget != null) {
+            const nRatio = f.pf.nitrogenTarget > 0 ? f.pf.nitrogenActual / f.pf.nitrogenTarget : 1;
+            cb('N (kg/ha)', `${f.pf.nitrogenActual}→${f.pf.nitrogenTarget}`, nRatio < 0.75 ? 'warn' : 'ok');
         }
 
         const condHTML = condBadges.length

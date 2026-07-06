@@ -47,6 +47,7 @@ need(Array.isArray(d.prices),            'prices must be an array');
 need(Array.isArray(d.animals),           'animals must be an array');
 need(Array.isArray(d.vehicles),          'vehicles must be an array');
 if (d.events !== undefined) need(Array.isArray(d.events), 'events must be an array (or absent)');
+if (d.pf != null) need(typeof d.pf.active === 'boolean', 'pf.active must be boolean');
 
 if (d.vehicles && d.vehicles.length === 0) warn('vehicles array is empty – is the mod loaded in a savegame with vehicles?');
 if (d.animals  && d.animals.length  === 0) warn('animals array is empty – is the husbandrySystem accessible?');
@@ -58,6 +59,15 @@ for (const [i, f] of (d.fields || []).entries()) {
     need(typeof f.owned === 'boolean',    `fields[${i}].owned must be boolean`);
     inRange(f.growthPercent, 0, 100,      `fields[${i}].growthPercent`);
     inRange(f.growthState, 0, 20,         `fields[${i}].growthState`);
+    // Precision Farming — optional, per-field; only checked when present.
+    if (f.pf) {
+        inRangeOpt(f.pf.sampled,        0, 2,     `fields[${i}].pf.sampled`);
+        inRangeOpt(f.pf.nitrogenActual, 0, 400,   `fields[${i}].pf.nitrogenActual`);
+        inRangeOpt(f.pf.nitrogenTarget, 0, 400,   `fields[${i}].pf.nitrogenTarget`);
+        inRangeOpt(f.pf.phActual,       3, 9,     `fields[${i}].pf.phActual`);
+        inRangeOpt(f.pf.phTarget,       3, 9,     `fields[${i}].pf.phTarget`);
+        inRangeOpt(f.pf.yieldPotential, 0.4, 1.6, `fields[${i}].pf.yieldPotential`);
+    }
 }
 
 // Vehicles
