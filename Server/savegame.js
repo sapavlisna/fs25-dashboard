@@ -34,7 +34,30 @@ let state = {
 // Scan the tail of log.txt for path references like "savegame3/" — FS25 writes
 // these on every save and on density-map FTG flushes. Last hit wins.
 
+// mtime+size guard: reading/scanning the log.txt tail is only worth doing when
+// the file actually changed since the last refresh() tick. Size is folded in
+// alongside mtimeMs because filesystem mtime resolution can be coarser than
+// our refresh interval, which would otherwise mask a genuine rewrite that
+// landed in the same tick. On stat failure we fail open (skip the cache and
+// run full detection) rather than trust a guard we can no longer validate.
+let logDirCache = { statKey: null, dir: null };
+
+function statKey(filePath) {
+    const st = fs.statSync(filePath);
+    return `${st.mtimeMs}|${st.size}`;
+}
+
 function detectSaveDir() {
+    let key;
+    try { key = statKey(LOG_FILE); } catch (_) { key = null; }
+    if (key !== null && logDirCache.statKey === key) return logDirCache.dir;
+
+    const dir = detectSaveDirUncached();
+    if (key !== null) logDirCache = { statKey: key, dir };
+    return dir;
+}
+
+function detectSaveDirUncached() {
     try {
         const stat = fs.statSync(LOG_FILE);
         if (stat.size === 0) return null;
@@ -77,8 +100,7 @@ function intOr(s, fallback) {
 
 // ─── Parsers ─────────────────────────────────────────────────────────────────
 
-function readFieldsXml(saveDir) {
-    const file = path.join(saveDir, 'fields.xml');
+function readFieldsXml(file) {
     if (!fs.existsSync(file)) return null;
     const xml = fs.readFileSync(file, 'utf8');
     const map = new Map();
@@ -109,8 +131,7 @@ function readFieldsXml(saveDir) {
     return map;
 }
 
-function readCareerSavegameXml(saveDir) {
-    const file = path.join(saveDir, 'careerSavegame.xml');
+function readCareerSavegameXml(file) {
     if (!fs.existsSync(file)) return null;
     const xml = fs.readFileSync(file, 'utf8');
     const get = key => {
@@ -128,8 +149,7 @@ function readCareerSavegameXml(saveDir) {
     };
 }
 
-function readFarmsXml(saveDir) {
-    const file = path.join(saveDir, 'farms.xml');
+function readFarmsXml(file) {
     if (!fs.existsSync(file)) return null;
     const xml = fs.readFileSync(file, 'utf8');
     const out = {};
@@ -150,8 +170,7 @@ function readFarmsXml(saveDir) {
     return out;
 }
 
-function readFarmlandXml(saveDir) {
-    const file = path.join(saveDir, 'farmland.xml');
+function readFarmlandXml(file) {
     if (!fs.existsSync(file)) return null;
     const xml = fs.readFileSync(file, 'utf8');
     const map = new Map();
@@ -165,6 +184,25 @@ function readFarmlandXml(saveDir) {
     return map;
 }
 
+// mtime+size guard per XML file, keyed by absolute path — re-parsing all 4
+// files every 30s is wasted work when the save hasn't actually been written
+// since the last tick. On stat failure we fail open (parse fresh) rather than
+// trust a cache we can no longer validate.
+const xmlCache = new Map();   // filePath -> { statKey, result }
+
+function readCachedXml(file, parseFn) {
+    let key;
+    try { key = statKey(file); } catch (_) {
+        xmlCache.delete(file);
+        return parseFn(file);
+    }
+    const cached = xmlCache.get(file);
+    if (cached && cached.statKey === key) return cached.result;
+    const result = parseFn(file);
+    xmlCache.set(file, { statKey: key, result });
+    return result;
+}
+
 // ─── Refresh loop ────────────────────────────────────────────────────────────
 
 function refresh() {
@@ -173,10 +211,10 @@ function refresh() {
         state.saveDir = dir;
         state.error = null;
         if (!dir) { state.fields = null; state.meta = null; return; }
-        state.fields    = readFieldsXml(dir);
-        state.meta      = readCareerSavegameXml(dir);
-        state.farms     = readFarmsXml(dir);
-        state.farmlands = readFarmlandXml(dir);
+        state.fields    = readCachedXml(path.join(dir, 'fields.xml'),         readFieldsXml);
+        state.meta      = readCachedXml(path.join(dir, 'careerSavegame.xml'), readCareerSavegameXml);
+        state.farms     = readCachedXml(path.join(dir, 'farms.xml'),          readFarmsXml);
+        state.farmlands = readCachedXml(path.join(dir, 'farmland.xml'),       readFarmlandXml);
         state.readAt    = Date.now();
     } catch (e) {
         state.error = e.message || String(e);

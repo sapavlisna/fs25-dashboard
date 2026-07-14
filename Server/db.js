@@ -29,29 +29,70 @@ function readJsonl(filePath) {
     return out;
 }
 
-// In-memory cache of each JSONL file, keyed by path. The history files (esp.
-// prices.jsonl) grow to 100k+ rows; re-reading + reparsing the whole file from
-// disk on every /api/history/* request is the real cost. Read once, then serve
-// queries from RAM and keep the cache in step on every append/rewrite.
-// (Future step: split per save_id into separate files for bounded size +
-// per-save deletion — see CHANGELOG/db notes.)
+// Which save_id a set of rows belongs to "now" — whatever the newest row
+// carries. Same rule filterCurrentSave() below applies per query; used here to
+// scope the in-memory cache itself instead.
+function currentSaveIdOf(rows) {
+    return rows.length ? (rows[rows.length - 1].save_id || '') : '';
+}
+
+function filterToSave(rows, saveId) {
+    if (!saveId) return rows.slice();   // nothing to scope to → keep everything, as before
+    return rows.filter(r => (r.save_id || '') === saveId);
+}
+
+// In-memory cache of each JSONL file, keyed by path — scoped to the CURRENT
+// save only. The history files (esp. prices.jsonl) grow to 100k+ rows across
+// every playthrough ever played; keeping all of them in RAM forever (the old
+// behaviour) is what made RAM grow unbounded. Disk stays append-only and
+// complete (nothing is ever deleted there) — only the RAM cache is scoped to
+// the save currently being played. cacheSaveId tracks which save_id each
+// cache is scoped to, so a runtime save switch (a new row tagged with a
+// different save_id) can drop the stale rows and start fresh.
 const cache = Object.create(null);
+const cacheSaveId = Object.create(null);
 function getRows(filePath) {
     let rows = cache[filePath];
-    if (!rows) { rows = readJsonl(filePath); cache[filePath] = rows; }
+    if (!rows) {
+        const all = readJsonl(filePath);
+        cacheSaveId[filePath] = currentSaveIdOf(all);
+        rows = filterToSave(all, cacheSaveId[filePath]);
+        cache[filePath] = rows;
+    }
     return rows;
 }
 
+// mkdirSync is cheap per call but pointless to repeat on every single append —
+// DATA_DIR (parent of every FILES.* path) is already ensured once at module
+// load; this just guards it once per directory instead of once per row.
+const dirsEnsured = new Set();
+function ensureDir(dir) {
+    if (dirsEnsured.has(dir)) return;
+    fs.mkdirSync(dir, { recursive: true });
+    dirsEnsured.add(dir);
+}
+
 function appendJsonl(filePath, obj) {
-    fs.mkdirSync(path.dirname(filePath), { recursive: true });
-    fs.appendFileSync(filePath, JSON.stringify(obj) + '\n');
-    getRows(filePath).push(obj);   // keep cache in step
+    ensureDir(path.dirname(filePath));
+    fs.appendFileSync(filePath, JSON.stringify(obj) + '\n');   // disk: always complete, append-only
+
+    const rows = getRows(filePath);   // ensures cache is initialised/scoped
+    const saveId = obj.save_id || '';
+    if (saveId && saveId !== cacheSaveId[filePath]) {
+        // Save switched (or this is the first row to carry an id) — the cache
+        // was scoped to a different playthrough; drop it and start fresh.
+        cacheSaveId[filePath] = saveId;
+        cache[filePath] = [obj];
+        return;
+    }
+    rows.push(obj);   // keep cache in step
 }
 
 function writeJsonl(filePath, rows) {
-    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    ensureDir(path.dirname(filePath));
     fs.writeFileSync(filePath, rows.map(r => JSON.stringify(r)).join('\n') + (rows.length ? '\n' : ''));
-    cache[filePath] = rows.slice();   // replace cache with the rewritten set
+    cacheSaveId[filePath] = currentSaveIdOf(rows);
+    cache[filePath] = filterToSave(rows, cacheSaveId[filePath]);   // scope cache like a fresh load
 }
 
 // ─── State ────────────────────────────────────────────────────────────────────

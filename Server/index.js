@@ -375,7 +375,12 @@ app.post('/diag/replay/stop', (_req, res) => {
     replayer.stop();
     broadcastReplayStatus();
     // Return clients to live data right away.
-    try { broadcast(fs.readFileSync(DATA_FILE, 'utf8')); } catch (_) {}
+    try {
+        const raw = fs.readFileSync(DATA_FILE, 'utf8');
+        let data = null;
+        try { data = JSON.parse(raw); } catch (_) {}
+        broadcast(data, raw);
+    } catch (_) {}
     res.json({ active: false });
 });
 
@@ -582,9 +587,11 @@ function enrich(data) {
     return data;
 }
 
-function broadcast(rawString) {
-    let data;
-    try { data = JSON.parse(rawString); } catch (_) { data = null; }
+// `data` is the already-parsed payload object (or null if the caller couldn't
+// parse it) — callers own the single JSON.parse per tick so it doesn't happen
+// twice. `rawString` is only used as a last-resort message when `data` is
+// null (parse failed upstream).
+function broadcast(data, rawString) {
     if (data) trackModVersion(data);
     const enriched = data ? enrich(data) : null;
     if (enriched) recorder.observe(enriched);
@@ -757,7 +764,9 @@ watcher.on('change', f => {
             stats.lastDay = data.gameDay;
         }
 
-        broadcast(raw);
+        // `data` is already parsed above (used for db.saveSnapshot + stats) —
+        // hand it straight to broadcast() instead of re-parsing `raw` there.
+        broadcast(data, raw);
     } catch (e) {
         stats.errors++;
         log.error('watch', `parse selhal: ${e.message}`);

@@ -16,8 +16,11 @@
 // replaying is a dev/mock-side concern.
 //
 // Ring semantics: we keep the LAST `capFrames` frames in memory (a bug usually
-// lives near the end of a session), flush every few frames for crash-safety,
-// and rewrite the whole file from the ring on each flush.
+// lives near the end of a session). Each new frame is appended to the file as
+// a single line (cheap) — the full ring is only ever rewritten from scratch
+// on start/stop, on a marker/client-error event, or once the ring actually
+// wraps (oldest frame evicted from memory), batched at FLUSH_EVERY evictions
+// so a long, wrapped recording doesn't rewrite the whole file on every tick.
 
 'use strict';
 
@@ -136,6 +139,18 @@ function start(opts = {}) {
     return { name, file: rec.file };
 }
 
+// Append one already-built entry line to the recording file without touching
+// the rest of the file — the normal (non-wrap) path, O(1) per frame instead
+// of O(ring size).
+function appendLineToFile(entry) {
+    if (!rec) return;
+    try {
+        fs.appendFileSync(rec.file, JSON.stringify(entry) + '\n');
+    } catch (e) {
+        log.error('rec', `append selhal: ${e.message}`);
+    }
+}
+
 function appendFrame(payload) {
     if (!rec || !payload || typeof payload !== 'object') return;
     // Lift mod/save identity off the first frame that carries it.
@@ -143,13 +158,20 @@ function appendFrame(payload) {
     if (rec.schemaVersion == null && payload.schemaVersion != null) rec.schemaVersion = payload.schemaVersion;
     if (rec.saveName      == null && payload.saveMeta && payload.saveMeta.name) rec.saveName = payload.saveMeta.name;
 
-    rec.frames.push({ t: Date.now() - rec.startedAtMs, payload });
+    const entry = { t: Date.now() - rec.startedAtMs, payload };
+    rec.frames.push(entry);
     rec.total++;
+
     if (rec.frames.length > CAP_FRAMES) {
+        // Ring wraps: the oldest frame just left memory, so a plain append
+        // would leave its stale line on disk forever. Rewriting on every
+        // single eviction would reintroduce the same write amplification this
+        // fix removes, so batch it at the same cadence the old flush() ran at.
         rec.frames.shift();
         rec.truncated = true;
+        if (++rec.sinceFlush >= FLUSH_EVERY) { flush(); return; }   // flush() resets sinceFlush
     }
-    if (++rec.sinceFlush >= FLUSH_EVERY) flush();
+    appendLineToFile(entry);
 }
 
 // Ingest a client-log post (public/diag.js): JS errors and/or a settings

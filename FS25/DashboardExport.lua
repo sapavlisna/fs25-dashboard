@@ -22,7 +22,7 @@ DashboardExport.MOD_NAME       = g_currentModName or "FS25_Dashboard"
 DashboardExport.MOD_DIR        = g_currentModDirectory or ""
 -- MOD_VERSION is kept in sync with modDesc.xml by scripts/build-mod-generic.ps1.
 -- Do not edit by hand; bump via the build script.
-DashboardExport.MOD_VERSION    = "1.5.0.0"
+DashboardExport.MOD_VERSION    = "1.5.0.1"
 -- SCHEMA_VERSION tracks the dashboard_data.json shape — bump ONLY on breaking
 -- changes (renamed/removed fields). Server has MIN/MAX bounds and warns on
 -- mismatch. See src/Dashboard/docs/COMPATIBILITY.md.
@@ -35,6 +35,7 @@ DashboardExport.OUTPUT_FILE    = (getUserProfileAppPath and (getUserProfileAppPa
 DashboardExport.prevFields     = {}            -- fieldId → { fruitTypeId, growthState, isReady, area } (event detection)
 DashboardExport.fruitCache     = {}            -- farmlandId → { fruitIdx, growth, expiresAt } (avoid hammering density map)
 DashboardExport.FRUIT_TTL      = 300000        -- ms — safety re-scan once per 5 min (change detector invalidates sooner on edits)
+DashboardExport.FRUIT_TTL_OTHER = 600000       -- ms — cizí pole: re-probe max 1× za 10 min (nejsou v inkrementálním scanu)
 DashboardExport.scanState      = nil           -- { farmlandId, fieldRef, fruitList, cursor, partial } — current incremental scan
 DashboardExport.scanAccumMs    = 0             -- ms accumulated for scan pacing
 DashboardExport.SCAN_PERIOD    = 500           -- ms between scan chunks
@@ -47,8 +48,13 @@ DashboardExport.pendingEvents  = {}            -- queued sow/harvest events unti
 DashboardExport.pfCache        = {}            -- farmlandId → { data, expiresAt } (Precision Farming per-field)
 DashboardExport.PF_TTL_OWNED   = 30000         -- ms — refresh PF dat vlastněných polí
 DashboardExport.PF_TTL_OTHER   = 120000        -- ms — cizí pole stačí zřídka
-DashboardExport.PF_REFRESH_PER_TICK = 3        -- max PF přepočtů za export tick
-DashboardExport.pfRefreshBudget = 0
+DashboardExport.pfScanState    = nil           -- inkrementální stav rozpracovaného PF přepočtu (1 native call/tick)
+DashboardExport.statusCache    = {}            -- farmlandId → { data, expiresAt } — FieldUtil.getFieldStatus výsledky
+DashboardExport.STATUS_TTL     = 60000         -- ms — plow/lime/weed/stone se mění jen polní prací; invalidace i přes detectFieldChanges
+DashboardExport.currencyCache  = nil           -- { data, expiresAt } — AdditionalCurrencies XML čtení (disk I/O)
+DashboardExport.CURRENCY_TTL   = 60000         -- ms — měna se za hru prakticky nemění; drží disk I/O mimo hot path
+DashboardExport.pricesCache    = nil           -- { data, expiresAt } — sell-point ceny
+DashboardExport.PRICES_TTL     = 20000         -- ms — ceny FS25 ekonomiky se hýbou v řádu herních dnů, ne sekund
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- JSON encoder (pure Lua, no deps)
@@ -56,27 +62,29 @@ DashboardExport.pfRefreshBudget = 0
 -- arrays (table with numeric 1..N keys), objects (everything else).
 -- ─────────────────────────────────────────────────────────────────────────────
 
+local JSON_ESCAPES = {
+    ['\\'] = '\\\\', ['"'] = '\\"', ['\n'] = '\\n', ['\r'] = '\\r', ['\t'] = '\\t',
+}
+
 local function escapeStr(s)
-    s = tostring(s)
-    s = s:gsub('\\', '\\\\')
-    s = s:gsub('"',  '\\"')
-    s = s:gsub('\n', '\\n')
-    s = s:gsub('\r', '\\r')
-    s = s:gsub('\t', '\\t')
-    s = s:gsub('[%z\1-\8\11-\12\14-\31]', function(c) return string.format('\\u%04x', string.byte(c)) end)
-    return s
+    -- single gsub pass; strings in the payload number in the hundreds per tick
+    return (tostring(s):gsub('[%z\1-\31\\"]', function(c)
+        return JSON_ESCAPES[c] or string.format('\\u%04x', string.byte(c))
+    end))
 end
 
 local function isArray(t)
-    local n = 0
+    -- array iff keys are exactly the integers 1..n: for positive numeric keys
+    -- count == max only holds for a gap-free 1..n sequence
+    local n, maxk = 0, 0
     for k, _ in pairs(t) do
         if type(k) ~= "number" then return false end
-        if k > n then n = k end
+        n = n + 1
+        if k > maxk then maxk = k end
     end
     -- consider empty tables arrays only if explicitly marked; otherwise object
-    if n == 0 then return false end
-    for i = 1, n do if t[i] == nil then return false end end
-    return true, n
+    if maxk == 0 then return false end
+    return maxk == n, maxk
 end
 
 local function encodeJson(v)
@@ -126,11 +134,19 @@ local function safeCall(fn, ...)
     return nil
 end
 
+-- Memoizace v rámci jednoho update ticku: getFarmId se volá ~10-15× za tick
+-- (collectFields, collectVehicles, collectStorages, tickFieldScan, …). farmId
+-- se během jednoho framu nemění, tak ho spočítáme jednou. update() cache resetuje.
+local farmIdCache = nil
+
 local function getFarmId()
+    if farmIdCache ~= nil then return farmIdCache end
     if g_currentMission and g_currentMission.getFarmId then
-        return g_currentMission:getFarmId() or 1
+        farmIdCache = g_currentMission:getFarmId() or 1
+    else
+        farmIdCache = 1
     end
-    return 1
+    return farmIdCache
 end
 
 local function round2(n) return math.floor((n or 0) * 100 + 0.5) / 100 end
@@ -145,6 +161,10 @@ end
 -- ─────────────────────────────────────────────────────────────────────────────
 
 function DashboardExport:collectAvailableFruits()
+    -- Session-static: the fruit catalog (incl. plantable/harvestable windows)
+    -- never changes while a save is loaded — compute once, reuse the table.
+    if self.fruitCatalogCache then return self.fruitCatalogCache end
+
     local out = {}
     if g_fruitTypeManager == nil then return out end
 
@@ -204,6 +224,7 @@ function DashboardExport:collectAvailableFruits()
     end
 
     table.sort(out, function(a, b) return (a.title or a.name) < (b.title or b.name) end)
+    if #out > 0 then self.fruitCatalogCache = out end  -- don't cache an empty early read
     return out
 end
 
@@ -369,6 +390,19 @@ end
 -- ─────────────────────────────────────────────────────────────────────────────
 
 function DashboardExport:collectCurrency()
+    -- TTL cache: computeCurrency čte dva XML soubory z disku (blokující I/O),
+    -- což je jediné disk-I/O na 2s hot path a zdroj nepravidelných spiků. Měna
+    -- se za hru prakticky nemění, tak stačí refresh po CURRENCY_TTL.
+    local now = g_currentMission and g_currentMission.time or 0
+    if self.currencyCache and self.currencyCache.expiresAt > now then
+        return self.currencyCache.data
+    end
+    local out = self:computeCurrency()
+    self.currencyCache = { data = out, expiresAt = now + self.CURRENCY_TTL }
+    return out
+end
+
+function DashboardExport:computeCurrency()
     local out = { code = "EUR", symbol = "€", factor = 1, prefix = true, converter = false, modActive = false }
 
     -- Derive the other mod's settings directory from ours.
@@ -483,6 +517,12 @@ function DashboardExport:collectPriceForecast()
         out.currentPeriod = g_currentMission.environment.currentPeriod or 1
         out.daysPerPeriod = g_currentMission.environment.daysPerPeriod or 1
     end
+    -- The factor curve is session-static; only currentPeriod/daysPerPeriod
+    -- above change at runtime. Reuse the fillTypes table once built.
+    if self.priceForecastCache then
+        out.fillTypes = self.priceForecastCache
+        return out
+    end
     if not g_fillTypeManager then return out end
 
     for _, ft in pairs(g_fillTypeManager.fillTypes or {}) do
@@ -510,6 +550,7 @@ function DashboardExport:collectPriceForecast()
     end
 
     table.sort(out.fillTypes, function(a, b) return (a.name or "") < (b.name or "") end)
+    if #out.fillTypes > 0 then self.priceForecastCache = out.fillTypes end
     return out
 end
 
@@ -535,15 +576,13 @@ end
 -- object, then field:getFieldState() for current fruit/growth.
 -- ─────────────────────────────────────────────────────────────────────────────
 
--- Cached density-derived fruit per farmland. The actual density-map scan is
--- driven incrementally by tickFieldScan() (called from update()) to spread
--- the cost — see FRUITS_PER_TICK. Here we only read the cache and fall back
--- to fieldState if no cached value exists yet.
 -- Authoritative single-point fruit lookup: reads the live density map at a
 -- world position and returns the engine's current truth for what's growing.
 -- This is what tools like the in-game crop scanner use. fieldState.fruitTypeIndex
 -- is *not* reliable (it can lag the actual density map by a season on community
 -- maps, and resolves to wrong indices on maps that don't follow vanilla order).
+-- Recurring refresh is driven incrementally by tickFieldScan() — direct probes
+-- from the export path happen only to seed a missing cache entry.
 local function probeFruitAt(wx, wz)
     if not (FSDensityMapUtil and FSDensityMapUtil.getFruitTypeIndexAtWorldPos) then
         return 0, 0
@@ -586,37 +625,44 @@ function DashboardExport:probeFieldFruit(field)
     return bestIdx, growthByIdx[bestIdx] or 0
 end
 
-function DashboardExport:getFieldFruit(field, farmlandId)
-    -- Primary: density-map probe (truth). Returns (idx, growthState).
-    local probeIdx, probeGrowth = self:probeFieldFruit(field)
-
-    -- Read fieldState only for diagnostics + fallback when probe fails.
-    local fs = safeCall(function() return field:getFieldState() end)
-    if not fs or not fs.isValid then fs = field.fieldState end
-    local fsFruit  = fs and fs.fruitTypeIndex or 0
-    local fsGrowth = fs and fs.growthState or 0
-
-    -- Diagnostic log when probe and fieldState disagree, throttled to avoid
-    -- spam (one per farmland per 30s).
-    if self.diagLastLog == nil then self.diagLastLog = {} end
+-- Fruit lookup strategy: density map je pravda (fieldState umí zaostávat
+-- o sezónu a na komunitních mapách mapovat na špatné indexy), ale živý probe
+-- pro každé pole při každém exportu neškáluje s velikostí mapy. Proto se čte
+-- fruitCache: vlastněná pole průběžně obnovuje tickFieldScan, živý 5bodový
+-- probe se dělá jen jako seed chybějícího záznamu (a re-probe expirovaného
+-- cizího pole). Growth se bere živě z fieldState, pokud se jeho fruit shoduje
+-- s cachovaným — jinak z cache.
+function DashboardExport:getFieldFruit(field, farmlandId, owned)
     local now = g_currentMission and g_currentMission.time or 0
-    local lastT = self.diagLastLog[farmlandId or 0] or 0
-    if probeIdx ~= fsFruit and now - lastT > 30000 then
-        self.diagLastLog[farmlandId or 0] = now
-        local probeName = "—"
-        local fsName    = "—"
-        if g_fruitTypeManager then
-            local pf = probeIdx > 0 and g_fruitTypeManager:getFruitTypeByIndex(probeIdx) or nil
-            local ff = fsFruit  > 0 and g_fruitTypeManager:getFruitTypeByIndex(fsFruit)  or nil
-            probeName = (pf and pf.name) or "—"
-            fsName    = (ff and ff.name) or "—"
-        end
-        print(string.format(
-            "[FS25_Dashboard][FRUIT-DIAG] farmlandId=%s probe=%d(%s,gs=%d) fieldState=%d(%s,gs=%d)",
-            tostring(farmlandId), probeIdx, probeName, probeGrowth, fsFruit, fsName, fsGrowth))
+
+    -- Živé fieldState čtení (density-map dotaz) jen pro VLASTNÍ pole. U cizích je
+    -- růst kosmetika a jejich fruit stačí z cache (refresh přes FRUIT_TTL_OTHER =
+    -- ~10 min) — ušetří to jeden density dotaz na cizí pole každý export.
+    -- detectFieldChanges čte lastFsFruit taky jen pro vlastní pole, takže vynechání
+    -- getFieldState u cizích polí nerozbije detekci setí/sklizně.
+    local fsFruit, fsGrowth = 0, 0
+    if owned then
+        local fs = safeCall(function() return field:getFieldState() end)
+        if not fs or not fs.isValid then fs = field.fieldState end
+        fsFruit  = fs and fs.fruitTypeIndex or 0
+        fsGrowth = fs and fs.growthState or 0
     end
 
-    if probeIdx > 0 then return probeIdx, probeGrowth end
+    local cached = self.fruitCache[farmlandId]
+    if not cached or (not owned and cached.expiresAt <= now) then
+        local probeIdx, probeGrowth = self:probeFieldFruit(field)
+        cached = {
+            fruitIdx    = probeIdx,
+            growth      = probeGrowth,
+            expiresAt   = now + (owned and self.FRUIT_TTL or self.FRUIT_TTL_OTHER),
+            lastFsFruit = fsFruit,
+        }
+        self.fruitCache[farmlandId] = cached
+    end
+
+    local idx = cached.fruitIdx or 0
+    local growth = (fsFruit == idx) and fsGrowth or (cached.growth or 0)
+    if idx > 0 then return idx, growth end
     return fsFruit > 0 and fsFruit or nil, fsGrowth
 end
 
@@ -691,9 +737,13 @@ function DashboardExport:tickFieldScan()
         -- change detector to spot edits (sow/harvest) and trigger a fresh scan.
         local fs = safeCall(function() return field:getFieldState() end) or field.fieldState
         local lastFs = fs and fs.fruitTypeIndex or 0
+        -- Growth: cheap 5-point probe; trust it only when it agrees with the
+        -- area-scan winner (probe body může trefit okraj s jinou plodinou).
+        local pIdx, pGrowth = self:probeFieldFruit(field)
+        local growth = (pIdx == bestIdx) and pGrowth or 0
         self.fruitCache[st.farmlandId] = {
             fruitIdx   = bestIdx,
-            growth     = 0,
+            growth     = growth,
             expiresAt  = now + self.FRUIT_TTL,
             lastFsFruit = lastFs,
         }
@@ -719,14 +769,21 @@ function DashboardExport:detectFieldChanges()
                 local nowFs = fs and fs.fruitTypeIndex or 0
                 if nowFs ~= cached.lastFsFruit then
                     cached.expiresAt = 0  -- invalidate; tickFieldScan will pick it up
+                    self.statusCache[fl.id] = nil  -- sow/harvest mění i plow/weed stav
                 end
             end
         end
     end
 end
 
-function DashboardExport:collectFieldStatus(field)
-    -- Returns FieldUtil-derived needs flags (plowing, lime, fertilizer, weeds, stones)
+function DashboardExport:collectFieldStatus(farmlandId, field)
+    -- Returns FieldUtil-derived needs flags (plowing, lime, fertilizer, weeds,
+    -- stones). Cached per farmland: the flags change only through field work,
+    -- so a TTL refresh + invalidation from detectFieldChanges is enough.
+    local now = g_currentMission and g_currentMission.time or 0
+    local cached = self.statusCache[farmlandId]
+    if cached and cached.expiresAt > now then return cached.data end
+
     local out = {
         needsPlowing       = false,
         needsCultivating   = false,
@@ -745,6 +802,12 @@ function DashboardExport:collectFieldStatus(field)
     if status.weedFactor          ~= nil then out.weedLevel          = math.floor(status.weedFactor * 3 + 0.5) end
     if status.stoneFactor         ~= nil then out.stoneLevel         = math.floor(status.stoneFactor * 3 + 0.5) end
 
+    -- expiry rozptýlit podle farmlandId, ať po startu neexpirují všechna pole
+    -- v jednom exportním ticku najednou
+    self.statusCache[farmlandId] = {
+        data = out,
+        expiresAt = now + self.STATUS_TTL + (farmlandId % 20) * 500,
+    }
     return out
 end
 
@@ -775,108 +838,217 @@ local function pfText(s)
     return s
 end
 
-function DashboardExport:computeFieldPF(pf, farmlandId, field, farmland)
-    local out = {}
+-- PF density-map dotazy jsou DRAHÉ na straně cizího módu (naměřeno ~15-20ms/call —
+-- 3 pole × ~20 volání najednou = ~1s freeze v jednom tiku, viz PLAN-precision-farming.md
+-- perf incident 2026-07-09). Proto se počítá inkrementálně: max 1 native call za
+-- SCAN_PERIOD (500ms), stejný princip jako tickFieldScan pro fruit density.
+--
+-- Dva klíčové perf škrty (2026-07-13):
+--   1) ŽÁDNÝ getFarmlandSampleState (cover mapa celé parcely, ~300ms/call, nedělitelný).
+--      `sampled` se odvozuje z bodových sond: getTypeIndexAtWorldPos vrací 0 na
+--      nevzorkovaném poli — stejný cover mechanismus, jen bodově a zdarma. UI ho
+--      stejně čte jen jako boolean (>0).
+--   2) Cizí pole se NEvzorkují body — N/pH cizích parcel je ve hře skryté, takže
+--      dostanou jen yieldPotential + soilType z farmland.soilDistribution (zdarma).
+--      Tím scanner nemarní native volání a stíhá refresh vlastních polí v TTL.
+function DashboardExport:pfPickTarget()
+    if g_farmlandManager == nil or g_farmlandManager.farmlands == nil then return nil end
+    local now = (g_currentMission and g_currentMission.time) or 0
+    local currentFarmId = getFarmId()
+    local mapping = (g_fieldManager and g_fieldManager.farmlandIdFieldMapping) or {}
+    local pick, pickExpires = nil, math.huge
+    for _, fl in pairs(g_farmlandManager.farmlands) do
+        if fl and fl.id then
+            local ownerId = fl.farmId or fl.ownerFarmId or 0
+            local cached = self.pfCache[fl.id]
+            local exp = cached and cached.expiresAt or 0
+            if exp <= now and exp < pickExpires then
+                pickExpires = exp
+                pick = { farmlandId = fl.id, field = mapping[fl.id] or fl.field, farmland = fl,
+                         owned = (ownerId == currentFarmId) }
+            end
+        end
+    end
+    return pick
+end
 
-    out.sampled = safeCall(function() return pf.coverMap:getFarmlandSampleState(farmlandId) end) or 0
-
-    -- Statická skladba půdy z farmland.soilDistribution (frakce per typ, suma≈1):
-    -- dominantní typ + vážený výnosový potenciál — známé i bez vzorkování.
-    local dist = farmland and farmland.soilDistribution
-    local domIdx, domFrac, wYield = 0, 0, 0
+function DashboardExport:pfBeginScan(pick)
+    local dist = pick.farmland and pick.farmland.soilDistribution
+    local distList = {}
     if type(dist) == "table" then
         for i, frac in pairs(dist) do
             local idx = tonumber(i) or 0
             if idx > 0 and type(frac) == "number" and frac > 0 then
-                local yp = safeCall(function() return pf.soilMap:getYieldPotentialBySoilTypeIndex(idx) end) or 1
-                wYield = wYield + yp * frac
-                if frac > domFrac then domFrac = frac; domIdx = idx end
+                table.insert(distList, { idx = idx, frac = frac })
             end
         end
     end
 
-    -- Vzorkovací body: centroid + 4 offsety (stejný vzor jako probeFieldFruit).
-    if field and field.posX and field.posZ then
+    -- Bodové N/pH/soilType sondy jen pro VLASTNÍ pole — cizí parcely mají N/pH
+    -- ve hře skryté, takže se spokojí s yieldPotential+soilType z distribuce.
+    local points = {}
+    local field = pick.field
+    if pick.owned and field and field.posX and field.posZ then
         local r = math.min(40, math.max(8, math.sqrt((field.areaHa or 0) * 10000) / 4))
-        local pts = {
+        points = {
             { field.posX,     field.posZ },
             { field.posX + r, field.posZ },
             { field.posX - r, field.posZ },
             { field.posX,     field.posZ + r },
             { field.posX,     field.posZ - r },
         }
-        local nSum, phSum, cnt = 0, 0, 0
-        local soilCounts = {}
-        for _, p in ipairs(pts) do
-            local sIdx = safeCall(function() return pf.soilMap:getTypeIndexAtWorldPos(p[1], p[2]) end) or 0
-            if sIdx > 0 then
-                soilCounts[sIdx] = (soilCounts[sIdx] or 0) + 1
-                nSum  = nSum  + (safeCall(function() return pf.nitrogenMap:getLevelAtWorldPos(p[1], p[2]) end) or 0)
-                phSum = phSum + (safeCall(function() return pf.pHMap:getLevelAtWorldPos(p[1], p[2]) end) or 0)
-                cnt = cnt + 1
+    end
+
+    self.pfScanState = {
+        farmlandId    = pick.farmlandId,
+        field         = field,
+        owned         = pick.owned,
+        distList      = distList,
+        distCursor    = 1,
+        points        = points,
+        pointCursor   = 1,
+        pointSubphase = 1,   -- 1=soilType, 2=nitrogen, 3=pH
+        domIdx = 0, domFrac = 0, wYield = 0,
+        nSum = 0, phSum = 0, cnt = 0,
+        soilCounts = {},
+        phase = "dist",
+        out = {},
+    }
+end
+
+-- Provede přesně JEDNU native operaci (max 1 cross-mod density-map call) a
+-- posune stavový automat o krok dál. Volat opakovaně, dokud phase == "done".
+function DashboardExport:pfStep(pf)
+    local st = self.pfScanState
+
+    if st.phase == "dist" then
+        if st.distCursor <= #st.distList then
+            local e = st.distList[st.distCursor]
+            local yp = safeCall(function() return pf.soilMap:getYieldPotentialBySoilTypeIndex(e.idx) end) or 1
+            st.wYield = st.wYield + yp * e.frac
+            if e.frac > st.domFrac then st.domFrac = e.frac; st.domIdx = e.idx end
+            st.distCursor = st.distCursor + 1
+        end
+        if st.distCursor > #st.distList then st.phase = "points" end
+
+    elseif st.phase == "points" then
+        if st.pointCursor > #st.points then
+            st.phase = "target"
+        else
+            local p = st.points[st.pointCursor]
+            if st.pointSubphase == 1 then
+                local sIdx = safeCall(function() return pf.soilMap:getTypeIndexAtWorldPos(p[1], p[2]) end) or 0
+                if sIdx > 0 then
+                    st.soilCounts[sIdx] = (st.soilCounts[sIdx] or 0) + 1
+                    st.pointSubphase = 2
+                else
+                    st.pointCursor = st.pointCursor + 1
+                end
+            elseif st.pointSubphase == 2 then
+                st.nSum = st.nSum + (safeCall(function() return pf.nitrogenMap:getLevelAtWorldPos(p[1], p[2]) end) or 0)
+                st.pointSubphase = 3
+            else
+                st.phSum = st.phSum + (safeCall(function() return pf.pHMap:getLevelAtWorldPos(p[1], p[2]) end) or 0)
+                st.cnt = st.cnt + 1
+                st.pointCursor = st.pointCursor + 1
+                st.pointSubphase = 1
             end
         end
-        if cnt > 0 then
+
+    elseif st.phase == "target" then
+        -- sampled odvozen z bodových sond: getTypeIndexAtWorldPos vrací 0 na
+        -- nevzorkovaném poli, takže cnt>0 == pole je (aspoň v sondách) vzorkované.
+        -- Cizí pole mají prázdné points → cnt==0 → sampled=0 (N/pH stejně skryté).
+        st.out.sampled = (st.cnt > 0) and 1 or 0
+        if st.cnt > 0 then
             local bIdx, bCnt = 0, 0
-            for i, c in pairs(soilCounts) do
+            for i, c in pairs(st.soilCounts) do
                 if c > bCnt then bIdx, bCnt = i, c end
             end
-            if bIdx > 0 then domIdx = bIdx end   -- vzorkovaná realita přebíjí distribuci
-            out.nitrogenActual = round2(safeCall(function()
-                return pf.nitrogenMap:getNitrogenValueFromInternalValue(nSum / cnt) end) or 0)
-            out.phActual = round2(safeCall(function()
-                return pf.pHMap:getPhValueFromInternalValue(phSum / cnt) end) or 0)
+            if bIdx > 0 then st.domIdx = bIdx end   -- vzorkovaná realita přebíjí distribuci
+            st.out.nitrogenActual = round2(safeCall(function()
+                return pf.nitrogenMap:getNitrogenValueFromInternalValue(st.nSum / st.cnt) end) or 0)
+            st.out.phActual = round2(safeCall(function()
+                return pf.pHMap:getPhValueFromInternalValue(st.phSum / st.cnt) end) or 0)
             -- getTargetLevelAtWorldPos vrací interní stav → převod na kg N/ha
             local nTarget = safeCall(function()
-                local internal = pf.nitrogenMap:getTargetLevelAtWorldPos(field.posX, field.posZ)
+                local internal = pf.nitrogenMap:getTargetLevelAtWorldPos(st.field.posX, st.field.posZ)
                 return (internal and internal > 0)
                     and pf.nitrogenMap:getNitrogenValueFromInternalValue(internal) or 0
             end) or 0
-            if nTarget > 0 then out.nitrogenTarget = round2(nTarget) end
+            if nTarget > 0 then st.out.nitrogenTarget = round2(nTarget) end
         end
-    end
+        st.phase = "soiltype"
 
-    if domIdx > 0 then
-        local st = pf.soilMap.soilTypes and pf.soilMap.soilTypes[domIdx]
-        out.soilTypeIndex = domIdx
-        out.soilType = (st and pfText(st.name or st.title)) or tostring(domIdx)
-        -- getOptimalPHValueForSoilTypeIndex vrací interní stav → převod na pH
-        local phT = safeCall(function()
-            local internal = pf.pHMap:getOptimalPHValueForSoilTypeIndex(domIdx)
-            return (internal and internal > 0)
-                and pf.pHMap:getPhValueFromInternalValue(internal) or 0
-        end) or 0
-        if phT > 0 then out.phTarget = round2(phT) end
+    elseif st.phase == "soiltype" then
+        if st.domIdx > 0 then
+            local soilSt = pf.soilMap.soilTypes and pf.soilMap.soilTypes[st.domIdx]
+            st.out.soilTypeIndex = st.domIdx
+            st.out.soilType = (soilSt and pfText(soilSt.name or soilSt.title)) or tostring(st.domIdx)
+            -- getOptimalPHValueForSoilTypeIndex vrací interní stav → převod na pH
+            local phT = safeCall(function()
+                local internal = pf.pHMap:getOptimalPHValueForSoilTypeIndex(st.domIdx)
+                return (internal and internal > 0)
+                    and pf.pHMap:getPhValueFromInternalValue(internal) or 0
+            end) or 0
+            if phT > 0 then st.out.phTarget = round2(phT) end
+        end
+        if st.wYield > 0 then st.out.yieldPotential = round2(st.wYield) end
+        st.phase = "done"
     end
-    if wYield > 0 then out.yieldPotential = round2(wYield) end
-
-    return out
 end
 
--- Per-field PF data s cache: mapové čtení je levné, ale 145 polí × 5 bodů × 3
--- mapy každé 2 s nechceme — refresh max PF_REFRESH_PER_TICK polí za export tick.
+function DashboardExport:tickPFScan()
+    local pf = pfHandle()
+    if not pf then return end
+
+    if not self.pfScanState then
+        local pick = self:pfPickTarget()
+        if not pick then return end
+        self:pfBeginScan(pick)
+    end
+
+    -- Per-step timing: pfStep dělá max 1 native call. Cover fáze (~300ms) je
+    -- zrušená; nejdražší zbývající krok je bodová N/pH sonda (~15-20ms). Log
+    -- s názvem fáze ukáže, kdyby přesto něco přeteklo 50ms.
+    local stepPhase    = self.pfScanState.phase
+    local stepFarmland = self.pfScanState.farmlandId
+    local t0 = getTimeSec()
+    self:pfStep(pf)
+    local stepMs = (getTimeSec() - t0) * 1000
+    if stepMs > 50 then
+        Logging.info(string.format("[%s] PERF pfStep phase=%s farmland=%s took=%.1fms",
+            self.MOD_NAME, tostring(stepPhase), tostring(stepFarmland), stepMs))
+    end
+
+    local st = self.pfScanState
+    if st.phase == "done" then
+        local now = (g_currentMission and g_currentMission.time) or 0
+        self.pfCache[st.farmlandId] = {
+            data = st.out,
+            expiresAt = now + (st.owned and self.PF_TTL_OWNED or self.PF_TTL_OTHER),
+        }
+        self.pfScanState = nil
+    end
+end
+
+-- Čistě čtení z cache — žádný cross-mod call, žádné riziko frame hitchu.
+-- Data doplňuje/obnovuje tickPFScan() na pozadí (viz update()).
 function DashboardExport:getFieldPF(farmlandId, field, farmland, owned)
-    local pf = pfHandle()
-    if not pf then return nil end
-    local now = (g_currentMission and g_currentMission.time) or 0
+    if not pfHandle() then return nil end
     local cached = self.pfCache[farmlandId]
-    if cached and cached.expiresAt > now then return cached.data end
-    if (self.pfRefreshBudget or 0) <= 0 then
-        return cached and cached.data or nil
-    end
-    self.pfRefreshBudget = self.pfRefreshBudget - 1
-    local data = safeCall(function() return self:computeFieldPF(pf, farmlandId, field, farmland) end)
-    self.pfCache[farmlandId] = {
-        data = data,
-        expiresAt = now + (owned and self.PF_TTL_OWNED or self.PF_TTL_OTHER),
-    }
-    return data
+    return cached and cached.data or nil
 end
 
--- Top-level katalog půdních typů pro legendu/UI (jednou za payload).
+-- Top-level katalog půdních typů pro legendu/UI. Session-statický (PF mod se
+-- nemůže objevit ani zmizet za běhu savu) — počítá se jen jednou.
 function DashboardExport:collectPFMeta()
+    if self.pfMetaCache then return self.pfMetaCache end
     local pf = pfHandle()
-    if not pf then return { active = false } end
+    if not pf then
+        self.pfMetaCache = { active = false }
+        return self.pfMetaCache
+    end
     local meta = { active = true }
     local types = {}
     local soilTypes = pf.soilMap and pf.soilMap.soilTypes
@@ -890,7 +1062,10 @@ function DashboardExport:collectPFMeta()
             })
         end
     end
-    if #types > 0 then meta.soilTypes = types end
+    if #types > 0 then
+        meta.soilTypes = types
+        self.pfMetaCache = meta  -- cache only once soilMap is fully initialized
+    end
     return meta
 end
 
@@ -918,7 +1093,7 @@ function DashboardExport:buildFieldRecord(farmlandId, field, ownerFarmId, curren
         end
     end
 
-    local fruitTypeIndex, growthState = self:getFieldFruit(field, farmlandId)
+    local fruitTypeIndex, growthState = self:getFieldFruit(field, farmlandId, owned)
     local plannedIdx = field.plannedFruitTypeIndex or 0
 
     local fruitTypeId, fruitName = "", ""
@@ -969,7 +1144,7 @@ function DashboardExport:buildFieldRecord(farmlandId, field, ownerFarmId, curren
         if pft then plannedFruit = pft.name or "" end
     end
 
-    local cond = self:collectFieldStatus(field)
+    local cond = self:collectFieldStatus(farmlandId, field)
     -- "Needs sowing" reflects the physical state of the field: owned, no crop
     -- currently growing on the density map. `plannedFruitTypeIndex` is FS25's
     -- intent flag (set after harvest or by manual choice) and is independent —
@@ -1008,7 +1183,6 @@ function DashboardExport:collectFields()
     local out = {}
     if g_farmlandManager == nil or g_farmlandManager.farmlands == nil then return out end
 
-    self.pfRefreshBudget = self.PF_REFRESH_PER_TICK
     local currentFarmId = getFarmId()
     local mapping = (g_fieldManager and g_fieldManager.farmlandIdFieldMapping) or {}
     local seen = {}
@@ -1100,20 +1274,33 @@ local FUEL_FILLTYPES = {
     HYDROGEN      = true,
 }
 
+-- Store title je pro daný configFileName neměnný — cache napořád (false = "bez titulku")
+local storeTitleCache = {}
+
 local function vehicleStoreTitle(v)
     if not (v.configFileName and g_storeManager and g_storeManager.getItemByXMLFilename) then return nil end
+    local hit = storeTitleCache[v.configFileName]
+    if hit ~= nil then return hit or nil end
+
+    local title = nil
     local item = safeCall(function() return g_storeManager:getItemByXMLFilename(v.configFileName) end)
-    if not item then return nil end
-    local brand = ""
-    if item.brandIndex and g_brandManager and g_brandManager.getBrandByIndex then
-        local b = safeCall(function() return g_brandManager:getBrandByIndex(item.brandIndex) end)
-        if b then brand = b.title or b.name or "" end
+    if item then
+        local brand = ""
+        if item.brandIndex and g_brandManager and g_brandManager.getBrandByIndex then
+            local b = safeCall(function() return g_brandManager:getBrandByIndex(item.brandIndex) end)
+            if b then brand = b.title or b.name or "" end
+        end
+        -- "None" / "NONE" is FS25's sentinel for no-brand items; treat as no brand
+        if brand == "None" or brand == "NONE" then brand = "" end
+        local model = item.name or item.shopTitle or ""
+        if brand ~= "" and model ~= "" then
+            title = brand .. " " .. model
+        elseif model ~= "" then
+            title = model
+        end
     end
-    -- "None" / "NONE" is FS25's sentinel for no-brand items; treat as no brand
-    if brand == "None" or brand == "NONE" then brand = "" end
-    local model = item.name or item.shopTitle or ""
-    if brand ~= "" and model ~= "" then return brand .. " " .. model end
-    return model ~= "" and model or nil
+    storeTitleCache[v.configFileName] = title or false
+    return title
 end
 
 -- ─── Implements / fillUnit ──────────────────────────────────────────────────
@@ -1141,19 +1328,21 @@ end
 -- arbitrary one (e.g. WHEAT for a bucket that could hold anything).
 -- The implement's own name already conveys what bin it is — the label
 -- only needs to say what's currently in it, or that it's empty.
-local function resolveFillTypeLabel(unit)
-    local function lookup(idx)
-        if idx == 0 or not g_fillTypeManager then return nil, nil end
-        local ft = safeCall(function() return g_fillTypeManager:getFillTypeByIndex(idx) end)
-        if ft and ft.name and ft.name ~= "" and ft.name ~= "UNKNOWN" then
-            return ft.name, (ft.title and ft.title ~= "Unknown") and ft.title or ft.name
-        end
-        return nil, nil
+-- Module-scope (dřív vnitřní closure resolveFillTypeLabel — alokovala se
+-- při každém volání, tj. per fillUnit napříč vehicles i implements).
+local function fillTypeLabelLookup(idx)
+    if idx == 0 or not g_fillTypeManager then return nil, nil end
+    local ft = safeCall(function() return g_fillTypeManager:getFillTypeByIndex(idx) end)
+    if ft and ft.name and ft.name ~= "" and ft.name ~= "UNKNOWN" then
+        return ft.name, (ft.title and ft.title ~= "Unknown") and ft.title or ft.name
     end
+    return nil, nil
+end
 
-    local n, t = lookup(unit.fillType or 0)
+local function resolveFillTypeLabel(unit)
+    local n, t = fillTypeLabelLookup(unit.fillType or 0)
     if n then return n, t end
-    n, t = lookup(unit.lastValidFillType or 0)
+    n, t = fillTypeLabelLookup(unit.lastValidFillType or 0)
     if n then return n, t end
     return "EMPTY", "—"
 end
@@ -1404,16 +1593,13 @@ function DashboardExport:collectVehicles()
             -- fillTypes table (allowed types) for a fuel match.
             if v.spec_fillUnit and v.spec_fillUnit.fillUnits then
                 for _, unit in pairs(v.spec_fillUnit.fillUnits) do
-                    local function nameOf(idx)
-                        if not (idx and g_fillTypeManager) then return nil end
-                        local ft = safeCall(function() return g_fillTypeManager:getFillTypeByIndex(idx) end)
-                        return ft and ft.name or nil
-                    end
-
-                    local matchedName = nameOf(unit.lastValidFillType)
+                    -- fillTypeName (module scope, ř. výše) vrací canonical ft.name
+                    -- ("DIESEL"…) — dřív zde stála identická closure `nameOf`
+                    -- alokovaná per fillUnit per vozidlo.
+                    local matchedName = fillTypeName(unit.lastValidFillType)
                     if matchedName == nil and type(unit.fillTypes) == "table" then
                         for idx, _ in pairs(unit.fillTypes) do
-                            local n = nameOf(idx)
+                            local n = fillTypeName(idx)
                             if n and (FUEL_FILLTYPES[n] or n == "DEF") then matchedName = n; break end
                         end
                     end
@@ -1763,7 +1949,10 @@ end
 --   • spec_productionPoint (produkce / kompostér — vstupy i výstupy)
 -- ─────────────────────────────────────────────────────────────────────────────
 
-local function fillTypeName(fillType)
+-- Vrací human-readable title ("Pšenice") pro zobrazení skladu/produkce —
+-- ODLIŠNÉ od fillTypeName (ř. 1374), která vrací canonical name ("WHEAT") pro
+-- fuel matching. Dřív obě sdílely jméno a druhá stínila první, což bylo matoucí.
+local function fillTypeTitle(fillType)
     local ftDesc = g_fillTypeManager and g_fillTypeManager:getFillTypeByIndex(fillType)
     return (ftDesc and (ftDesc.title or ftDesc.name)) or tostring(fillType)
 end
@@ -1795,7 +1984,7 @@ local function collectSiloRec(placeable, farmId)
     for fillType, level in pairs(fills) do
         if level and level > 0.1 then
             table.insert(rec.items, {
-                name     = fillTypeName(fillType),
+                name     = fillTypeTitle(fillType),
                 amount   = math.floor(level),
                 capacity = math.floor(capByType[fillType] or 0),
             })
@@ -1818,7 +2007,7 @@ local function collectBunkerRec(placeable)
     local ft = (bs.state == 4 or bs.state == 3) and bs.outputFillType or bs.inputFillType
     if level > 0.1 and ft and ft > 0 then
         table.insert(rec.items, {
-            name     = fillTypeName(ft),
+            name     = fillTypeTitle(ft),
             amount   = math.floor(level),
             capacity = 0,  -- bunker silo nemá pevnou kapacitu
         })
@@ -1848,7 +2037,7 @@ local function collectObjectStorageRec(placeable)
                     if type(title) == "string" and #title > 0 then
                         name = title
                     elseif first.fillType then
-                        name = fillTypeName(first.fillType)
+                        name = fillTypeTitle(first.fillType)
                     end
                 end
                 table.insert(rec.items, {
@@ -1873,21 +2062,25 @@ function DashboardExport:collectStorages()
     if not (g_currentMission and g_currentMission.placeableSystem) then return out end
     local farmId = getFarmId()
 
-    local collectors = { collectSiloRec, collectBunkerRec, collectObjectStorageRec }
-
-    -- A placeable carries exactly one of these specs in practice — break after
-    -- first match so we don't emit duplicate rows if a future placeable combines
-    -- e.g. spec_silo and spec_productionPoint on the same building.
+    -- Dispatch přímo podle přítomnosti specu — dřív se pro KAŽDÝ vlastněný
+    -- placeable (i domy/ploty) vytvořily a pcall-ovaly 3 closury, i když neměl
+    -- žádný storage spec. Teď se volá jen ta jedna collect*Rec funkce, která
+    -- odpovídá specu (pcall uvnitř ní chrání skutečné native volání).
+    -- Placeable nese v praxi právě jeden z těchto specs.
     for _, placeable in pairs(g_currentMission.placeableSystem.placeables or {}) do
         if isOwnedBy(placeable, farmId) then
-            for _, fn in ipairs(collectors) do
-                local rec = safeCall(function() return fn(placeable, farmId) end)
-                if rec then
-                    table.sort(rec.items, function(a, b) return a.name < b.name end)
-                    if #rec.items == 0 then rec.items = emptyArray() end
-                    table.insert(out, rec)
-                    break
-                end
+            local rec
+            if placeable.spec_silo then
+                rec = safeCall(function() return collectSiloRec(placeable, farmId) end)
+            elseif placeable.spec_bunkerSilo then
+                rec = safeCall(function() return collectBunkerRec(placeable) end)
+            elseif placeable.spec_objectStorage then
+                rec = safeCall(function() return collectObjectStorageRec(placeable) end)
+            end
+            if rec then
+                table.sort(rec.items, function(a, b) return a.name < b.name end)
+                if #rec.items == 0 then rec.items = emptyArray() end
+                table.insert(out, rec)
             end
         end
     end
@@ -1934,7 +2127,7 @@ local function buildProductionRecord(pp, nameHint)
         if level and level > 0.1 then
             local cap = safeCall(function() return storage:getCapacity(fillType) end) or 0
             table.insert(rec.items, {
-                name     = fillTypeName(fillType),
+                name     = fillTypeTitle(fillType),
                 amount   = math.floor(level),
                 capacity = math.floor(cap),
             })
@@ -1955,13 +2148,13 @@ local function buildProductionRecord(pp, nameHint)
         }
         for _, inp in ipairs(production.inputs or {}) do
             table.insert(r.inputs, {
-                name   = fillTypeName(inp.type or inp.fillTypeIndex or 0),
+                name   = fillTypeTitle(inp.type or inp.fillTypeIndex or 0),
                 amount = inp.amount or 0,
             })
         end
         for _, outp in ipairs(production.outputs or {}) do
             table.insert(r.outputs, {
-                name   = fillTypeName(outp.type or outp.fillTypeIndex or 0),
+                name   = fillTypeTitle(outp.type or outp.fillTypeIndex or 0),
                 amount = outp.amount or 0,
             })
         end
@@ -2023,6 +2216,19 @@ end
 -- ─────────────────────────────────────────────────────────────────────────────
 
 function DashboardExport:collectPrices()
+    -- TTL cache: computePrices iteruje všechny sell-pointy × accepted fill types
+    -- s native cenovými voláními. Ceny se v FS25 hýbou v řádu herních dnů, tak
+    -- 2s refresh je zbytečně agresivní — stačí PRICES_TTL.
+    local now = g_currentMission and g_currentMission.time or 0
+    if self.pricesCache and self.pricesCache.expiresAt > now then
+        return self.pricesCache.data
+    end
+    local out = self:computePrices()
+    self.pricesCache = { data = out, expiresAt = now + self.PRICES_TTL }
+    return out
+end
+
+function DashboardExport:computePrices()
     local out = {}
     if not (g_currentMission and g_currentMission.placeableSystem) then return out end
 
@@ -2158,7 +2364,9 @@ function DashboardExport:buildPayload()
 end
 
 function DashboardExport:writeOutput(payload)
+    local t0 = getTimeSec()
     local json = encodeJson(payload)
+    self.lastEncodeMs = (getTimeSec() - t0) * 1000
     local f = io.open(self.OUTPUT_FILE, "w")
     if f then
         f:write(json)
@@ -2215,13 +2423,25 @@ end
 function DashboardExport:update(dt)
     if not (g_currentMission and g_currentMission.isRunning) then return end
 
+    farmIdCache = nil  -- fresh farmId jednou za frame; sdílí ho scan i export
+
     self:dumpDiagnostics()
 
     -- Throttle density-map scans to one chunk every SCAN_PERIOD ms.
     self.scanAccumMs = self.scanAccumMs + dt
     if self.scanAccumMs >= self.SCAN_PERIOD then
         self.scanAccumMs = 0
+        local st0 = getTimeSec()
         self:tickFieldScan()
+        local scanMs = (getTimeSec() - st0) * 1000
+
+        local pf0 = getTimeSec()
+        self:tickPFScan()
+        local pfMs = (getTimeSec() - pf0) * 1000
+
+        if scanMs > 1 or pfMs > 1 then
+            Logging.info(string.format("[%s] PERF scan=%.1fms pf=%.1fms", self.MOD_NAME, scanMs, pfMs))
+        end
     end
 
     self.lastExportAt = self.lastExportAt + dt
@@ -2230,8 +2450,14 @@ function DashboardExport:update(dt)
 
     self:detectFieldChanges()  -- cheap; invalidates cache on sow/harvest
 
+    local t0 = getTimeSec()
     local payload = self:buildPayload()
+    local buildMs = (getTimeSec() - t0) * 1000
     self:writeOutput(payload)
+    local totalMs = (getTimeSec() - t0) * 1000
+    local encodeMs = self.lastEncodeMs or 0
+    Logging.info(string.format("[%s] PERF export total=%.1fms build=%.1fms encode=%.1fms write=%.1fms",
+        self.MOD_NAME, totalMs, buildMs, encodeMs, totalMs - buildMs - encodeMs))
 end
 
 function DashboardExport:deleteMap()
