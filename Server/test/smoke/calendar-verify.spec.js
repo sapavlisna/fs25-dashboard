@@ -5,7 +5,7 @@
 const { test, expect } = require('@playwright/test');
 
 async function setMockScenario(request, name) {
-    const resp = await request.post('http://localhost:3099/mock/scenario', { data: { scenario: name } });
+    const resp = await request.post('/mock/scenario', { data: { scenario: name } });
     if (!resp.ok()) throw new Error(`scenario ${name}: ${resp.status()}`);
     await new Promise(r => setTimeout(r, 3000));
 }

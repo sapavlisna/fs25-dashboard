@@ -6,7 +6,9 @@
 const { test, expect } = require('@playwright/test');
 const WebSocket = require('ws');
 
-const PORT = 3099;
+// A raw WebSocket bypasses Playwright's baseURL, so it needs the port explicitly
+// — from sandbox-env so a sharded run connects to its OWN server, not shard 1's.
+const { wsURL } = require('./sandbox-env');
 
 function frame(t, gameDay, balance) {
     return JSON.stringify({
@@ -37,7 +39,7 @@ test.describe('mockup mode (replay as live)', () => {
         const { name } = await up.json();
 
         // Raw WS client to observe what the server pushes.
-        const ws = new WebSocket(`ws://localhost:${PORT}`);
+        const ws = new WebSocket(wsURL);
         const got = [];
         ws.on('message', d => { try { got.push(JSON.parse(d.toString())); } catch (_) {} });
         await new Promise((res, rej) => { ws.on('open', res); ws.on('error', rej); });

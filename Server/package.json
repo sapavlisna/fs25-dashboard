@@ -1,6 +1,6 @@
 {
   "name": "fs25-dashboard",
-  "version": "1.5.0",
+  "version": "1.10.0",
   "description": "FS25 Dashboard – real-time web dashboard for Farming Simulator 25",
   "main": "index.js",
   "bin": "index.js",
@@ -25,10 +25,15 @@
     "replay": "node scripts/replay.js",
     "test:unit": "node --test test/unit/config.test.js test/unit/dashboardState.test.js test/unit/db.test.js test/unit/relay-client.test.js test/unit/savegame.test.js test/unit/validate-json.test.js",
     "test:diag": "node test/diag.test.js",
-    "smoke": "playwright test --config=test/smoke/playwright.config.js --reporter=list",
-    "test:all": "playwright test --config=test/smoke/playwright.config.js --reporter=list",
+    "smoke": "node scripts/run-sharded.js --scope smoke --shards 1 && node scripts/run-sharded.js --scope visual --shards 1",
+    "test:smoke": "node scripts/run-sharded.js --scope smoke && node scripts/run-sharded.js --scope visual --shards 1",
+    "test:state": "node scripts/run-sharded.js --scope state",
+    "capture:help": "node scripts/run-sharded.js --scope help --shards 1",
+    "test:par": "node scripts/run-sharded.js --scope smoke && node scripts/run-sharded.js --scope state && node scripts/run-sharded.js --scope visual --shards 1",
+    "test:all": "node scripts/run-sharded.js --scope all --shards 1",
     "test:flash": "playwright test --config=test/smoke/playwright.flash.config.js --reporter=list",
-    "build": "pkg . --targets node20-win-x64 --output dist/FS25_Dashboard_Server.exe --compress GZip"
+    "build": "pkg . --targets node20-win-x64 --output dist/FS25_Dashboard_Server.exe --compress GZip",
+    "test:visual": "node scripts/run-sharded.js --scope visual --shards 1"
   },
   "pkg": {
     "assets": [

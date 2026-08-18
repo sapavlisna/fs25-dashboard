@@ -1,6 +1,12 @@
 // Playwright config for the Dashboard smoke suite.
-// Spawns mock-data + the dashboard server on port 3099 with an isolated
-// sandbox data dir under .tmp/smoke so the real history is never touched.
+// Spawns mock-data + the dashboard server on an isolated port with a throwaway
+// sandbox data dir so the real history is never touched.
+//
+// Port, sandbox dir and scope come from sandbox-env.js (SMOKE_PORT /
+// SMOKE_SANDBOX / SMOKE_SCOPE). With no env set this is the original behaviour:
+// port 3099, .tmp/smoke, every spec. A sharded run (scripts/run-sharded.js)
+// hands each shard its own port + sandbox — that is what lets shards run in
+// parallel while each one still has a single server and a single worker.
 //
 // Screenshot baselines are stored in test/smoke/screenshots/.
 // Run with --update-snapshots to regenerate baselines.
@@ -8,24 +14,23 @@
 
 const path = require('path');
 const { defineConfig } = require('@playwright/test');
+const env = require('./sandbox-env');
 
-const REPO_ROOT = path.resolve(__dirname, '..', '..', '..', '..', '..');
-const SANDBOX   = path.join(REPO_ROOT, '.tmp', 'smoke');
-const MOCK_FILE = path.join(SANDBOX, 'dashboard_data.json');
-const DATA_DIR  = path.join(SANDBOX, 'data');
-const PORT = 3099;
+const { PORT, SANDBOX, MOCK_FILE, DATA_DIR, REPO_ROOT, baseURL, RETRIES } = env;
+const { testMatch, testIgnore } = env.testFilters();
 
 module.exports = defineConfig({
     testDir: __dirname,
-    testMatch: '**/*.spec.js',
-    // animals-flash.spec.js runs under its own harness (playwright.flash.config.js,
-    // port 3098 + flash-global-setup.js) — under this config it lacks
-    // __FLASH_MOCK_FILE and fails instantly.
-    testIgnore: '**/animals-flash.spec.js',
+    testMatch,
+    testIgnore,
     globalSetup: require.resolve('./global-setup.js'),
     timeout: 45_000,
-    fullyParallel: false,         // single server — one test at a time
+    // Still one test at a time: a single sandbox server with stateful mock
+    // scenarios cannot be shared by concurrent workers. Parallelism comes from
+    // running several shards, each with its own server.
+    fullyParallel: false,
     workers: 1,
+    retries: RETRIES,
     reporter: [['list']],
 
     // Screenshot diff settings — referenced by scenarios.spec.js
@@ -37,7 +42,7 @@ module.exports = defineConfig({
     },
 
     use: {
-        baseURL: `http://localhost:${PORT}`,
+        baseURL,
         trace: 'retain-on-failure',
         screenshot: 'only-on-failure',
         // Viewport consistent across scenario screenshots
@@ -62,7 +67,7 @@ module.exports = defineConfig({
             // Dashboard server — reads sandbox mock file, writes sandbox history.
             // DASHBOARD_MOCK=1 enables POST /mock/scenario endpoint.
             command: `node "${path.join(REPO_ROOT, 'src/Dashboard/Server/index.js')}"`,
-            url: `http://localhost:${PORT}`,
+            url: baseURL,
             reuseExistingServer: false,
             stdout: 'pipe',
             stderr: 'pipe',

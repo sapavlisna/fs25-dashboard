@@ -12,6 +12,8 @@ const log      = require('./logger');
 const recorder = require('./recorder');
 const replayer = require('./replayer');
 const relay    = require('./relay-client');
+const mapOverview = require('./mapOverview');
+const payloadShape = require('./payloadShape');
 const { DashboardState } = require('./dashboardState');
 
 const { PORT, HOST, DATA_FILE, PUBLIC_DIR, DATA_DIR } = config;
@@ -25,9 +27,12 @@ const dashState = new DashboardState(path.join(DATA_DIR, 'dashboard-state.json')
 // ─── Schema compatibility ────────────────────────────────────────────────────
 // The mod stamps `schemaVersion` on every payload. Bump these bounds when the
 // JSON shape changes in a way the server cares about. See COMPATIBILITY.md.
+// Schema 2 slimmed the payload (defaulted field keys stripped, static sections
+// moved to their own file); enrich() reconstructs both, and doing so on a
+// schema-1 payload is a no-op, so 1 stays supported.
 const SERVER_VERSION    = pkg.version;
 const MIN_MOD_SCHEMA    = 1;
-const MAX_MOD_SCHEMA    = 1;
+const MAX_MOD_SCHEMA    = 2;
 
 // Track what mod version + schema we've seen so we warn only on change.
 // We normalise undefined → null so the comparison below doesn't fire every
@@ -211,6 +216,30 @@ app.get('/api/setup/browse', async (req, res) => {
     } catch (e) {
         res.status(500).json({ error: e.message });
     }
+});
+
+// Live Map background — the current map mod's overview.dds, converted to PNG
+// and cached (see mapOverview.js). 404 (not an error) if unavailable; the
+// frontend just draws without a background image in that case.
+app.get('/api/map-overview', async (_req, res) => {
+    const meta = savegame.getMeta();
+    const mapId = meta && meta.mapId;
+    if (!mapId) return res.status(404).json({ error: 'no map loaded yet' });
+    const pngPath = await mapOverview.ensureOverviewImage(mapId);
+    if (!pngPath) return res.status(404).json({ error: 'overview image unavailable' });
+    // ~2 MB that only ever changes when the map mod itself changes, so let the
+    // browser keep it. must-revalidate + sendFile's ETag/Last-Modified means a
+    // repeat visit costs a 304, and a rebuilt PNG (new mtime) still wins.
+    res.set('Cache-Control', 'public, max-age=86400, must-revalidate');
+    res.sendFile(pngPath);
+});
+
+// Static field/parcel outlines for the Live Map, read from the mod's geometry
+// file. 404 until the mod has finished tracing and written it.
+app.get('/api/field-polygons', (_req, res) => {
+    const store = loadFieldPolys();
+    if (!store.polys) return res.status(404).json({ error: 'field polygons not available yet' });
+    res.json({ rev: store.rev, polys: store.polys });
 });
 
 app.get('/api/savegame', (_req, res) => {
@@ -547,9 +576,80 @@ const wss = new WebSocketServer({ server });
 //       saveFruitType / saveGroundType / weedState / sprayLevel / limeLevel /
 //       plowLevel — used by client to show precise condition + override fruit
 //       when the mod hasn't picked up a recent change yet.
+// Static per-map field outlines, cached from the payload and served once via
+// /api/field-polygons instead of riding every ~2 s broadcast.
+const fieldPolyStore = { polys: null, rev: 0 };   // rev = geometry file mtime
+
+// Outlines come from their own file, written once by the mod after it finishes
+// tracing (see GEOMETRY_FILE in DashboardExport.lua). They used to ride the 2 s
+// payload, which cost ~42 ms of game frame time per tick to encode data we threw
+// away right here. Re-read only when the file's mtime moves.
+const GEOMETRY_FILE = path.join(path.dirname(config.DATA_FILE), 'dashboard_map_geometry.json');
+
+function loadFieldPolys() {
+    let mtime;
+    try {
+        mtime = fs.statSync(GEOMETRY_FILE).mtimeMs;
+    } catch (_) {
+        return fieldPolyStore;   // not written yet — whatever we already have (usually nothing)
+    }
+    if (fieldPolyStore.rev === mtime) return fieldPolyStore;
+
+    try {
+        const parsed = JSON.parse(fs.readFileSync(GEOMETRY_FILE, 'utf8'));
+        if (parsed && parsed.polys) {
+            fieldPolyStore.polys = parsed.polys;
+            fieldPolyStore.rev = mtime;
+            log.info('map', `loaded ${parsed.count || Object.keys(parsed.polys).length} map outlines from geometry file`);
+        }
+    } catch (e) {
+        log.warn('map', `geometry file unreadable: ${e.message}`);   // half-written; next tick retries
+    }
+    return fieldPolyStore;
+}
+
+// Session-static payload sections (fruit catalog, price-forecast curve) come
+// from their own file for the same reason the outlines do: the mod would
+// otherwise re-encode 27.4 % of a 146 KB payload every 2 s for data that cannot
+// change while a save is loaded. Re-read only when the mtime moves.
+const STATIC_FILE = path.join(path.dirname(config.DATA_FILE), 'dashboard_static.json');
+const staticStore = { data: null, rev: 0 };
+
+function loadStaticSections() {
+    let mtime;
+    try {
+        mtime = fs.statSync(STATIC_FILE).mtimeMs;
+    } catch (_) {
+        return staticStore.data;   // not written yet — mod still inlines them
+    }
+    if (staticStore.rev === mtime) return staticStore.data;
+
+    try {
+        const parsed = JSON.parse(fs.readFileSync(STATIC_FILE, 'utf8'));
+        // loadMap() blanks the file to `{}` on a map switch; ignore that until
+        // this session's real catalog lands.
+        if (parsed && Array.isArray(parsed.availableFruits)) {
+            staticStore.data = parsed;
+            staticStore.rev = mtime;
+            log.info('static', `loaded ${parsed.availableFruits.length} crops + `
+                + `${(parsed.priceForecastFillTypes || []).length} forecast fillTypes from static file`);
+        } else {
+            staticStore.data = null;
+            staticStore.rev = mtime;
+        }
+    } catch (e) {
+        log.warn('static', `static file unreadable: ${e.message}`);   // half-written; next tick retries
+    }
+    return staticStore.data;
+}
+
 function enrich(data) {
     if (!data || typeof data !== 'object') return data;
     try {
+        // Put back the field defaults and static sections the mod left out, so
+        // everything downstream sees the full shape.
+        payloadShape.restorePayloadShape(data, loadStaticSections());
+
         if (data.farmBalance != null && data.gameDay != null) {
             const prev = db.getBalanceBefore(data.gameDay);
             if (prev) data.farmBalanceDeltaDay = data.farmBalance - prev.balance;
@@ -557,6 +657,11 @@ function enrich(data) {
 
         const meta = savegame.getMeta();
         if (meta) data.saveMeta = meta;
+
+        // Outlines live in their own file; publish its revision so the map page
+        // knows when to re-fetch. The mod writes it once the trace finishes, so
+        // this flips from 0 to a real mtime a few seconds into a session.
+        data.polyRev = loadFieldPolys().rev;
 
         const saveFields = savegame.getFields();
         if (saveFields && Array.isArray(data.fields)) {
@@ -711,8 +816,18 @@ const stats = {
 };
 let lastEventsSnapshot = 0; // count we've seen so we can detect new ones
 
-watcher.on('add',    f => log.info('watch', `sleduji ${f}`));
-watcher.on('change', f => {
+// An 'add' fires when the file appears while we are already watching: first
+// run, a wiped data dir, a reinstalled mod. The payload in it is real data, so
+// ingest it instead of leaving the page on '—' until the next write. History is
+// skipped for 'add' — at server start the file can still hold a leftover export
+// from an earlier session, and the next 'change' records the live state anyway.
+watcher.on('add', f => {
+    log.info('watch', `sleduji ${f}`);
+    ingestPayload(f, { history: false });
+});
+watcher.on('change', f => ingestPayload(f, { history: true }));
+
+function ingestPayload(f, { history }) {
     // In mockup/replay mode the dashboard is driven by a recording, not the
     // live file — ignore writes so stale/live data can't override the replay.
     if (replayer.isActive()) return;
@@ -742,26 +857,28 @@ watcher.on('change', f => {
         stats.lastVehN   = vN;
 
         // db.saveSnapshot writes daily/event rows. Log only when it actually wrote.
-        const prevEv = lastEventsSnapshot;
-        const prevDay = stats.lastDay;
-        db.saveSnapshot(data);
-        // Detect new events by comparing the events-array contents we just received.
-        const evNow = (data.events || []).length;
-        if (evNow > prevEv) {
-            const newOnes = (data.events || []).slice(prevEv);
-            for (const e of newOnes) {
-                log.write('events', `${e.type} field ${e.fieldId} (${e.fruitName ?? e.fruitTypeId ?? '?'})`);
-                stats.eventsSaved++;
+        if (history) {
+            const prevEv = lastEventsSnapshot;
+            const prevDay = stats.lastDay;
+            db.saveSnapshot(data);
+            // Detect new events by comparing the events-array contents we just received.
+            const evNow = (data.events || []).length;
+            if (evNow > prevEv) {
+                const newOnes = (data.events || []).slice(prevEv);
+                for (const e of newOnes) {
+                    log.write('events', `${e.type} field ${e.fieldId} (${e.fruitName ?? e.fruitTypeId ?? '?'})`);
+                    stats.eventsSaved++;
+                }
             }
-        }
-        lastEventsSnapshot = evNow;
+            lastEventsSnapshot = evNow;
 
-        if (data.gameDay != null && data.gameDay !== prevDay) {
-            if (prevDay !== null) {
-                log.write('db', `denní snapshot — game day ${data.gameDay}, €${(data.farmBalance ?? 0).toLocaleString('cs-CZ')}`);
-                stats.daysSaved++;
+            if (data.gameDay != null && data.gameDay !== prevDay) {
+                if (prevDay !== null) {
+                    log.write('db', `denní snapshot — game day ${data.gameDay}, €${(data.farmBalance ?? 0).toLocaleString('cs-CZ')}`);
+                    stats.daysSaved++;
+                }
+                stats.lastDay = data.gameDay;
             }
-            stats.lastDay = data.gameDay;
         }
 
         // `data` is already parsed above (used for db.saveSnapshot + stats) —
@@ -771,11 +888,43 @@ watcher.on('change', f => {
         stats.errors++;
         log.error('watch', `parse selhal: ${e.message}`);
     }
-});
+}
 watcher.on('error', e => {
     stats.errors++;
     log.error('watch', e.message || String(e));
 });
+
+// ─── Fast position channel ─────────────────────────────────────────────────
+// The mod writes positions to their own file several times a second while the
+// main payload stays on its 2 s cycle (see writePositions() in the mod). These
+// frames are forwarded raw: no enrich, no history, no recorder — they are pure
+// presentation and re-running the enrich pipeline 4× a second would undo the
+// point of splitting them out. `awaitWriteFinish` is off for the same reason;
+// its 150 ms settle delay would eat most of the latency we just bought, and a
+// torn read simply fails JSON.parse and is skipped.
+const POSITIONS_FILE = path.join(path.dirname(config.DATA_FILE), 'dashboard_positions.json');
+let positionFrames = 0;
+
+const posWatcher = chokidar.watch(POSITIONS_FILE, { persistent: true, ignoreInitial: false });
+
+posWatcher.on('change', f => {
+    if (replayer.isActive()) return;
+    let parsed;
+    try {
+        parsed = JSON.parse(fs.readFileSync(f, 'utf8'));
+    } catch (_) {
+        return;   // mid-write; the next frame is 250 ms away
+    }
+    positionFrames++;
+    if (positionFrames === 1) {
+        log.info('watch', `position channel connected (${(parsed.vehicles || []).length} vehicles)`);
+    }
+    const msg = JSON.stringify({ __positions: parsed });
+    wss.clients.forEach(c => { if (c.readyState === 1) c.send(msg); });
+    relay.send(msg);
+});
+
+posWatcher.on('error', e => log.warn('watch', `positions: ${e.message || String(e)}`));
 
 // 1-minute heartbeat. Shows you the server is alive and processing data,
 // without spamming a line per tick.
@@ -810,6 +959,29 @@ app.use((err, req, res, _next) => {
 });
 
 // ─── Start ───────────────────────────────────────────────────────────────────
+
+// Launched from the desktop shortcut, an unhandled listen error is 15 lines of
+// Node stack trace in a console window that the user opened by clicking a
+// picture. The overwhelmingly common case — the server is already running and
+// they clicked twice — deserves one sentence and the URL they actually wanted.
+//
+// Both the HTTP server and the WebSocketServer re-emit it (wss is attached to
+// the same socket), so the guard sits on both or the raw trace still escapes.
+function handleListenError(err) {
+    if (err && err.code === 'EADDRINUSE') {
+        log.error('boot', `Port ${PORT} už někdo používá — nejspíš tenhle server běží podruhé.`);
+        log.info('boot', `Jestli dashboard už běží, otevři http://localhost:${PORT} a tohle okno zavři.`);
+        log.info('boot', `Jinak změň port v config.local.json ("port": 3001) nebo přes DASHBOARD_PORT.`);
+    } else if (err && err.code === 'EACCES') {
+        log.error('boot', `Port ${PORT} je zakázaný (potřebuje vyšší oprávnění). Zvol port nad 1024.`);
+    } else {
+        log.error('boot', `Server nenastartoval: ${(err && err.message) || err}`);
+    }
+    process.exit(1);
+}
+
+server.on('error', handleListenError);
+wss.on('error', handleListenError);
 
 server.listen(PORT, HOST, () => {
     // Shorten the data-file path so the banner stays narrow.

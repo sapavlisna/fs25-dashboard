@@ -6,7 +6,8 @@
 //   5. Screenshot for visual diff (only on failure by default)
 //
 // Lifecycle is handled by playwright.config.js webServer block: it boots the
-// mock generator + a sandboxed dashboard server on port 3099 before tests run.
+// mock generator + a sandboxed dashboard server (port from sandbox-env, 3099 by
+// default) before tests run.
 
 const { test, expect } = require('@playwright/test');
 
@@ -96,6 +97,30 @@ test.describe('Dashboard pages', () => {
                           'nastaveni', 'zvonecek', 'flash', 'motivy', 'faq']) {
             await expect(page.locator(`#${id}`)).toBeAttached();
         }
+
+        expect(errors, errors.join('\n')).toEqual([]);
+    });
+
+    test('map (live positions)', async ({ page }) => {
+        const errors = watchForErrors(page);
+        await page.goto('/map.html');
+
+        await expect(page.locator('#map-canvas')).toBeVisible();
+        // Mock data includes mapSize/player/vehicle positions from the first
+        // tick, so the "waiting for data" placeholder should never show.
+        await expect(page.locator('#map-empty')).toBeHidden({ timeout: 10_000 });
+
+        // Layer toggles are built from LAYERS at DOMContentLoaded and each one
+        // persists through DashState, so a reload must remember the choice.
+        // 'Čísla polí' is on by default — switch it off and check it stays off.
+        await page.locator('#layers-btn').click();
+        const fieldLabels = page.locator('#layers-panel label', { hasText: 'Čísla polí' })
+            .locator('input[type=checkbox]');
+        await expect(fieldLabels).toBeChecked();
+        await fieldLabels.uncheck();
+        await page.reload();
+        await page.locator('#layers-btn').click();
+        await expect(fieldLabels).not.toBeChecked();
 
         expect(errors, errors.join('\n')).toEqual([]);
     });

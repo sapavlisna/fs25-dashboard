@@ -43,6 +43,7 @@
         <a href="/">Dashboard</a>
         <a href="/calendar.html">Kalendář polí</a>
         <a href="/history.html">Historie</a>
+        <a href="/map.html">Mapa</a>
         <a href="/help.html" class="active">❓ Nápověda</a>
     </div>
     <div class="nav-status">
@@ -71,10 +72,21 @@
                     <li><a href="#sec-sklady">Sklady</a></li>
                     <li><a href="#sec-vyrobny">Výrobny</a></li>
                     <li><a href="#sec-ceny">Výkupní ceny</a></li>
+                    <li><a href="#sec-zakazky">Zakázky</a></li>
                 </ol>
             </li>
             <li><a href="#kalendar">Kalendář polí</a></li>
             <li><a href="#historie">Historie</a></li>
+            <li>
+                <a href="#mapa">Mapa (živá)</a>
+                <ol>
+                    <li><a href="#mapa-vrstvy">Vrstvy</a></li>
+                    <li><a href="#mapa-trasy">Trasy AI</a></li>
+                    <li><a href="#mapa-ovladani">Ovládání</a></li>
+                    <li><a href="#mapa-vypnuti">Vypnutí živé mapy</a></li>
+                </ol>
+            </li>
+            <li><a href="#pf">Precision Farming</a></li>
             <li>
                 <a href="#funkce">Společné funkce</a>
                 <ol>
@@ -188,7 +200,7 @@
                     <tr><td><strong>v1.x.x</strong></td>
                         <td>Verze módu v běžící hře (čteno z payloadu). Server svoji verzi
                         kontroluje proti módu a varuje, když nesedí.</td></tr>
-                    <tr><td>Dashboard / Kalendář polí / Historie / Nápověda</td>
+                    <tr><td>Dashboard / Kalendář polí / Historie / <strong>Mapa</strong> / Nápověda</td>
                         <td>Přepínání mezi stránkami. Aktivní stránka je zvýrazněná.
                         Na telefonu skrytě za <strong>☰</strong> burger menu
                         (<a href="#mobilni">detail</a>).</td></tr>
@@ -347,6 +359,35 @@
                 <strong>„Skrýt vše bez skladu“</strong> odfiltruje na komodity, které
                 aktuálně vlastníš (jdou prodat hned).
             </p>
+
+            <h3 id="sec-zakazky">📋 Zakázky</h3>
+            <p>
+                <strong>Přijaté</strong> zakázky tvé farmy — ne nabídka z vývěsky.
+                Jakmile zakázku v hře přijmeš, objeví se tady; po dokončení nebo vypršení
+                zmizí. Ikona před názvem odpovídá typu misie (sklizeň, setí, hnojení,
+                transport…), jak ho pojmenovala hra.
+            </p>
+            <div class="help-table-wrap"><table class="help-table">
+                <thead><tr><th>Sloupec</th><th>Co znamená</th></tr></thead>
+                <tbody>
+                    <tr><td>Zakázka</td><td>Ikona typu + název misie z hry.</td></tr>
+                    <tr><td>Pole</td>
+                        <td>Číslo pole, na kterém se zakázka plní. Transportní a podobné
+                        zakázky pole nemají — buňka zůstane prázdná, není to chyba.</td></tr>
+                    <tr><td>Postup</td>
+                        <td>Splněno v procentech. Výchozí řazení tabulky, takže rozdělaná
+                        práce je nahoře.</td></tr>
+                    <tr><td>Odměna</td><td>Výplata po dokončení.</td></tr>
+                    <tr><td>Zbývá</td>
+                        <td>Zbývající čas v <strong>herních</strong> minutách. Zakázky bez
+                        termínu tu mají prázdno.</td></tr>
+                </tbody>
+            </table></div>
+            <div class="help-callout">
+                Číslo pole u zakázky je stejné jako sloupec <strong>ID</strong> v sekci
+                Pole, takže se dá spárovat — pozor, že to <em>není</em> číslo parcely
+                (sloupec ZP). Viz <a href="#sec-pole">Pole – přehled</a>.
+            </div>
         </section>
 
         <!-- ───────────────────────────────────────────────────────────── -->
@@ -520,6 +561,152 @@
                 <strong>Nedostatek dat:</strong> Některé grafy potřebují alespoň 2 záznamy
                 v DB. Při čerstvém startu uvidíš místo grafu zprávu „Zatím málo dat“.
             </div>
+        </section>
+
+        <!-- ───────────────────────────────────────────────────────────── -->
+        <section id="mapa" class="help-section">
+            <h2>🗺 Mapa (živá)</h2>
+            <p>
+                Mapa mapy z hry s <strong>živými pozicemi</strong> — kde právě jsi, kde
+                stojí tvoje vozidla a kudy jedou pomocníci. Podkladem je stejný snímek
+                terénu, jaký používá herní PDA mapa; přes něj se kreslí obrysy polí,
+                stanice a značky.
+            </p>
+            <p>
+                Pozice se obnovují <strong>4× za sekundu</strong> po samostatném kanálu,
+                takže se pohyb jeví plynule, i když ostatní data (plodiny, sklady, ceny)
+                chodí jen každé 2 sekundy.
+            </p>
+
+            <h3 id="mapa-vrstvy">Vrstvy</h3>
+            <p>
+                Tlačítko <strong>☰ Vrstvy</strong> vlevo nahoře rozbalí seznam, ve kterém
+                se dá každá vrstva vypnout. Volba se pamatuje v prohlížeči.
+            </p>
+            <div class="help-table-wrap"><table class="help-table">
+                <thead><tr><th>Vrstva</th><th>Co kreslí</th><th>Zapnuto</th></tr></thead>
+                <tbody>
+                    <tr><td>Pole</td><td>Obrysy polí, obarvené podle plodiny; vlastní pole sytěji než cizí.</td><td>ano</td></tr>
+                    <tr><td>Čísla polí</td><td>Číslo pole ve středu parcely.</td><td>ano</td></tr>
+                    <tr><td>Vozidla</td><td>Šipka na pozici vozidla, otočená podle směru jízdy. Zelená = v provozu, šedá = nečinné.</td><td>ano</td></tr>
+                    <tr><td>Jména vozidel</td><td>Popisek se jménem vedle značky.</td><td>ne</td></tr>
+                    <tr><td>Trasy AI</td><td>Cesty AutoDrive / Courseplay — viz níže.</td><td>ano</td></tr>
+                    <tr><td>Já</td><td>Tvoje pozice — největší značka se žlutou aurou. Když sedíš ve vozidle, ukazuje pozici toho vozidla.</td><td>ano</td></tr>
+                    <tr><td colspan="3"><em>Stanice</em></td></tr>
+                    <tr><td>Prodejní body</td><td>Kam se dá prodávat.</td><td>ano</td></tr>
+                    <tr><td>Sklady</td><td>Silá a nakládací místa.</td><td>ne</td></tr>
+                    <tr><td>Obchody</td><td>Obchod se stroji a se zvířaty.</td><td>ne</td></tr>
+                    <tr><td>Produkce</td><td>Výrobny.</td><td>ano</td></tr>
+                    <tr><td>Zvířata</td><td>Chovy (kravín, prasečák…).</td><td>ne</td></tr>
+                    <tr><td>Palivo</td><td>Čerpací stanice.</td><td>ne</td></tr>
+                </tbody>
+            </table></div>
+
+            <h3 id="mapa-trasy">Trasy AI</h3>
+            <p>
+                Když pomocníka řídí <strong>AutoDrive</strong> nebo <strong>Courseplay</strong>,
+                mapa vykreslí celou jeho naplánovanou cestu. Barva říká, který mód trasu
+                vede:
+            </p>
+            <ul>
+                <li><span class="help-swatch--route help-swatch--route-ad"></span>
+                    <strong>AutoDrive</strong> — přejezdy mezi místy (naložit, odvézt, vrátit se).</li>
+                <li><span class="help-swatch--route help-swatch--route-cp"></span>
+                    <strong>Courseplay</strong> — práce na poli (řádky sem a tam).</li>
+            </ul>
+            <p>
+                <strong>Už ujetá</strong> část trasy je tmavší a tenčí, <strong>zbývající</strong>
+                jasná a silnější — na první pohled je tedy vidět, jak daleko je práce.
+                Čáry mají tmavý obrys, aby byly čitelné i nad světlým strništěm nebo nad
+                lesem.
+            </p>
+            <div class="help-callout">
+                <strong>Vanilla pomocník trasu nemá.</strong> Když práci zadáš přímo ve hře
+                (bez AutoDrive/Courseplay), hra si cestu počítá průběžně a nikde ji nedrží
+                jako seznam bodů — mód ji proto nemá odkud přečíst. Vozidlo na mapě
+                uvidíš, čáru za ním ne. Není to chyba.
+            </div>
+            <p>
+                Trasy se obnovují asi každé 2 sekundy (ne 4× za sekundu jako značky) —
+                mění se totiž jen při zadání nové práce a přenášet stovky bodů častěji by
+                bylo plýtvání.
+            </p>
+
+            <h3 id="mapa-ovladani">Ovládání</h3>
+            <div class="help-table-wrap"><table class="help-table">
+                <thead><tr><th>Akce</th><th>Jak</th></tr></thead>
+                <tbody>
+                    <tr><td>Přiblížit / oddálit</td><td>Kolečko myši, tlačítka <strong>+</strong> / <strong>−</strong>, nebo dvěma prsty na mobilu. Zoom se drží u kurzoru, ne u středu.</td></tr>
+                    <tr><td>Posun</td><td>Tažení myší (kurzor se změní na ruku) nebo prstem.</td></tr>
+                    <tr><td>Celá mapa</td><td>Tlačítko <strong>⤢</strong> — vrátí výchozí výřez.</td></tr>
+                </tbody>
+            </table></div>
+            <p>
+                Výchozí výřez <strong>není celý terén</strong>, ale okolí tvé farmy —
+                stejně jako herní PDA mapa. Dekorativní okraje mapy, kam se jezdit nedá,
+                se tak needívají zbytečně do záběru.
+            </p>
+            <div class="help-callout">
+                Obrysy polí a parcel si mód spočítá jednou po načtení savegame a uloží je
+                do zvláštního souboru. Prvních několik sekund po spuštění hry proto může
+                být mapa bez obrysů — dopočítá se sama, není třeba nic dělat.
+            </div>
+
+            <h3 id="mapa-vypnuti">Vypnutí živé mapy (v hře)</h3>
+            <p>
+                Data pro mapu stojí výkon: pozice se čtou 4× za sekundu a obrysy polí se
+                po načtení savegame trasují. Kdo stránku Mapa nepoužívá, může celý tento
+                kanál vypnout přímo ve hře — <strong>Esc → Nastavení → Obecné →
+                sekce Dashboard → Živá mapa: NE</strong>.
+            </p>
+            <p>
+                Vypnutím zmizí pozice vozidel a hráče, obrysy polí i mapové značky.
+                <strong>Zbytek dashboardu běží beze změny</strong> — pole, vozidla,
+                zvířata, sklady, ceny i počasí se exportují dál. Volba se ukládá
+                <strong>pro každý savegame zvlášť</strong> (do
+                <code>&lt;savegame&gt;/dashboardSettings.xml</code>), takže jeden save
+                může mít mapu zapnutou a druhý ne. Výchozí stav je zapnuto.
+            </p>
+        </section>
+
+        <!-- ───────────────────────────────────────────────────────────── -->
+        <section id="pf" class="help-section">
+            <h2>🧪 Precision Farming</h2>
+            <p>
+                Když máš zapnutý oficiální mód <strong>Precision Farming</strong>,
+                dashboard z něj přečte stav půdy a nabídne ho na dvou místech. Bez toho
+                módu se nic z toho nezobrazuje — žádné prázdné sloupce, prostě to tam
+                není.
+            </p>
+            <h3>Sloupec „Půda / PF“ v sekci Pole</h3>
+            <p>
+                Zapíná se v <a href="#sekce-cfg">⚙ nastavení sekce</a> Pole volbou
+                <strong>Sloupec Půda / PF</strong> (výchozí je vypnutý). Ukazuje:
+            </p>
+            <div class="help-table-wrap"><table class="help-table">
+                <thead><tr><th>Údaj</th><th>Co znamená</th></tr></thead>
+                <tbody>
+                    <tr><td>typ půdy</td>
+                        <td>Např. „Bahnitý jíl“. V tooltipu je <strong>výnosový potenciál</strong>
+                        (×0,9 znamená 90 % běžného výnosu).</td></tr>
+                    <tr><td>N&nbsp;<em>aktuální→cíl</em></td>
+                        <td>Dusík v kg/ha. Když je aktuální pod 75 % cíle, čte se žlutě —
+                        pole si říká o hnojení.</td></tr>
+                    <tr><td>pH&nbsp;<em>aktuální→cíl</em></td>
+                        <td>Kyselost půdy a hodnota optimální pro danou půdu (vápnění).</td></tr>
+                </tbody>
+            </table></div>
+            <div class="help-callout">
+                <strong>Proč u některých polí N a pH chybí:</strong> hra tyto hodnoty
+                skrývá, dokud na poli neodebereš <strong>vzorek půdy</strong>. Dashboard to
+                zrcadlí — dokud vzorek nemáš, uvidíš jen typ půdy a výnosový potenciál.
+                U cizích polí zůstanou skryté vždy.
+            </div>
+            <h3>Tooltip v Kalendáři polí</h3>
+            <p>
+                V <a href="#kalendar">Kalendáři polí</a> najdeš typ půdy a výnosový
+                potenciál v popisku pole — užitečné při plánování, které pole čím osít.
+            </p>
         </section>
 
         <!-- ───────────────────────────────────────────────────────────── -->

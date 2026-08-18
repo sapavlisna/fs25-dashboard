@@ -4,7 +4,7 @@
 // Skips:  /profit.html (user opt-out)
 //
 // Screenshots go to: src/Dashboard/docs/qa-mobile-2026-05-26/
-// Uses the same mock server setup as playwright.config.js (port 3099).
+// Uses the same mock server setup as playwright.config.js (port from sandbox-env).
 //
 // Run:  npx playwright test --config=test/smoke/playwright.config.js mobile-qa.spec.js
 //       (add --update-snapshots on first run to create baselines)

@@ -3,7 +3,9 @@
 // Exit 0 = OK, exit 1 = errors found
 
 const fs   = require('fs');
+const path = require('path');
 const config = require('../config');
+const payloadShape = require('../payloadShape');
 
 const DATA_FILE = process.argv[2] || config.DATA_FILE;
 
@@ -18,6 +20,17 @@ catch (e) { die('Cannot read file: ' + e.message); }
 let d;
 try { d = JSON.parse(raw); }
 catch (e) { die('Invalid JSON: ' + e.message); }
+
+// This reads the mod's raw file, upstream of the server's enrich(). The mod
+// omits defaulted field keys and keeps the session-static sections in
+// dashboard_static.json, so restore both before checking — otherwise every
+// stripped `owned`/`growthState` would read as missing. See payloadShape.js.
+let statics = null;
+try {
+    statics = JSON.parse(
+        fs.readFileSync(path.join(path.dirname(DATA_FILE), 'dashboard_static.json'), 'utf8'));
+} catch (_) { /* absent before the mod's first export — sections ride inline then */ }
+payloadShape.restorePayloadShape(d, statics);
 
 // ─── Checks ───────────────────────────────────────────────────────────────────
 
@@ -48,6 +61,13 @@ need(Array.isArray(d.animals),           'animals must be an array');
 need(Array.isArray(d.vehicles),          'vehicles must be an array');
 if (d.events !== undefined) need(Array.isArray(d.events), 'events must be an array (or absent)');
 if (d.pf != null) need(typeof d.pf.active === 'boolean', 'pf.active must be boolean');
+// Live Map — optional, only present once the mod ships position export.
+if (d.mapSize != null) need(d.mapSize > 0, 'mapSize must be > 0');
+if (d.player != null) {
+    need(typeof d.player.x === 'number', 'player.x must be a number');
+    need(typeof d.player.z === 'number', 'player.z must be a number');
+    inRangeOpt(d.player.headingDeg, -1, 361, 'player.headingDeg');
+}
 
 if (d.vehicles && d.vehicles.length === 0) warn('vehicles array is empty – is the mod loaded in a savegame with vehicles?');
 if (d.animals  && d.animals.length  === 0) warn('animals array is empty – is the husbandrySystem accessible?');
@@ -59,6 +79,17 @@ for (const [i, f] of (d.fields || []).entries()) {
     need(typeof f.owned === 'boolean',    `fields[${i}].owned must be boolean`);
     inRange(f.growthPercent, 0, 100,      `fields[${i}].growthPercent`);
     inRange(f.growthState, 0, 20,         `fields[${i}].growthState`);
+    // Live Map — optional, only present once the mod ships position export.
+    if (f.posX != null || f.posZ != null) {
+        need(typeof f.posX === 'number', `fields[${i}].posX must be a number`);
+        need(typeof f.posZ === 'number', `fields[${i}].posZ must be a number`);
+    }
+    // Live Map field outline — optional boundary polygon [[x,z],…].
+    if (f.poly != null) {
+        need(Array.isArray(f.poly) && f.poly.length >= 3, `fields[${i}].poly must be an array of ≥3 points`);
+        if (Array.isArray(f.poly)) need(f.poly.every(p => Array.isArray(p) && p.length === 2
+            && typeof p[0] === 'number' && typeof p[1] === 'number'), `fields[${i}].poly points must be [x,z] number pairs`);
+    }
     // Precision Farming — optional, per-field; only checked when present.
     if (f.pf) {
         inRangeOpt(f.pf.sampled,        0, 2,     `fields[${i}].pf.sampled`);
@@ -78,6 +109,12 @@ for (const [i, v] of (d.vehicles || []).entries()) {
     inRange(v.fuelPercent, 0, 100,        `vehicles[${i}].fuelPercent`);
     if (v.adBlueCapacity != null) {
         inRange(v.adBluePercent, 0, 100,  `vehicles[${i}].adBluePercent`);
+    }
+    // Live Map — optional, only present once the mod ships position export.
+    if (v.x != null || v.z != null) {
+        need(typeof v.x === 'number',     `vehicles[${i}].x must be a number`);
+        need(typeof v.z === 'number',     `vehicles[${i}].z must be a number`);
+        inRangeOpt(v.headingDeg, -1, 361, `vehicles[${i}].headingDeg`);
     }
 }
 

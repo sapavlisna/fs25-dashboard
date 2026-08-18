@@ -1,0 +1,815 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mapa – FS25</title>
+<script>
+    (function () {
+        try {
+            var KNOWN = { 'dark-green':1, 'dark-blue':1, 'light':1, 'high-contrast':1, 'fs25-native':1 };
+            var q = (location.search.match(/[?&]theme=([\w-]+)/) || [])[1];
+            var stored = null, raw = localStorage.getItem('fs25.dash.v1.theme');
+            if (raw != null) { try { stored = JSON.parse(raw); } catch (_) { stored = raw; } }   // tolerate legacy-raw
+            if (typeof stored !== 'string' || !KNOWN[stored]) stored = null;   // drop corrupt / over-encoded
+            var t = (q && KNOWN[q]) ? q : (stored || 'dark-green');
+            document.documentElement.setAttribute('data-theme', t);
+            try { localStorage.setItem('fs25.dash.v1.theme', JSON.stringify(t)); } catch (_) {}   // normalise to JSON (self-heal)
+        } catch (e) {
+            document.documentElement.setAttribute('data-theme', 'dark-green');
+        }
+    })();
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Nunito+Sans:wght@400;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<script src="serverSync.js" defer></script>
+<script src="state.js" defer></script>
+<script src="diag.js" defer></script>
+<script src="i18n.en.js" defer></script>
+<script src="i18n.js" defer></script>
+<script src="theme.js" defer></script>
+<script src="notifications.js" defer></script>
+<script src="bell.js" defer></script>
+<script src="app.js" defer></script>
+<style>
+.map-wrap {
+    position: relative;
+    height: calc(100vh - 60px);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+}
+#map-canvas { display: block; width: 100%; height: 100%; cursor: grab; touch-action: none; }
+#map-canvas.dragging { cursor: grabbing; }
+
+.map-zoom {
+    position: absolute; top: 12px; right: 12px; z-index: 2;
+    display: flex; flex-direction: column; gap: 4px;
+}
+.map-zoom button {
+    width: 32px; height: 32px; padding: 0;
+    background: var(--surface2); color: var(--text);
+    border: 1px solid var(--border); border-radius: 8px;
+    font-size: 18px; line-height: 1; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+}
+.map-zoom button:hover { background: var(--surface); }
+.map-zoom button:active { transform: translateY(1px); }
+
+.map-toolbar {
+    position: absolute; top: 12px; left: 12px; z-index: 2;
+    background: var(--surface2); border: 1px solid var(--border);
+    border-radius: 8px; padding: 6px 12px;
+    display: flex; align-items: center; gap: 8px;
+    font-size: 12px; color: var(--muted);
+}
+.map-toolbar { flex-direction: column; align-items: stretch; padding: 0; overflow: visible; }
+.map-toolbar #layers-btn {
+    background: transparent; color: var(--text); border: 0;
+    padding: 6px 12px; font-size: 12px; cursor: pointer; text-align: left;
+    display: flex; align-items: center; gap: 6px; white-space: nowrap;
+}
+.map-toolbar #layers-btn:hover { color: var(--accent); }
+.layers-panel {
+    display: flex; flex-direction: column; gap: 2px;
+    padding: 4px 12px 8px; border-top: 1px solid var(--border);
+    max-height: 60vh; overflow-y: auto;
+}
+.layers-panel[hidden] { display: none; }
+.layers-panel label { display: flex; align-items: center; gap: 6px; cursor: pointer; padding: 2px 0; color: var(--text); }
+.layers-panel .layers-sep { border-top: 1px solid var(--border); margin: 4px 0 2px; padding-top: 4px; color: var(--muted); font-size: 11px; }
+
+.map-legend {
+    position: absolute; bottom: 12px; left: 12px; z-index: 2;
+    background: var(--surface2); border: 1px solid var(--border);
+    border-radius: 8px; padding: 8px 12px;
+    font-size: 12px; color: var(--muted);
+    display: flex; flex-direction: column; gap: 4px;
+}
+.map-legend .row { display: flex; align-items: center; gap: 6px; }
+.map-legend .swatch { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+/* Routes are lines on the map, so their swatch is a dash rather than a dot.
+   The dark outline mirrors the casing the canvas draws under each route, so the
+   legend reads as the same object the map shows. */
+.map-legend .swatch.line {
+    width: 16px; height: 4px; border-radius: 2px;
+    outline: 1px solid rgba(0,0,0,0.72);
+}
+/* Rows for layers that are switched off are dimmed rather than hidden, so the
+   legend stays a stable reference for what the colours mean. */
+.map-legend .row.off { opacity: 0.35; }
+
+.map-empty {
+    position: absolute; inset: 0; align-items: center; justify-content: center;
+    color: var(--muted); font-size: 13px; text-align: center; padding: 20px;
+}
+.map-empty:not([hidden]) { display: flex; }
+</style>
+</head>
+<body>
+
+<nav>
+    <span class="nav-brand">🌾 FS25</span>
+    <div class="nav-links">
+        <a href="/">Dashboard</a>
+        <a href="/calendar.html">Kalendář polí</a>
+        <a href="/history.html">Historie</a>
+        <a href="/map.html" class="active">Mapa</a>
+        <a href="/help.html">❓ Nápověda</a>
+    </div>
+    <div class="nav-status">
+        <span class="bell-slot" id="bell-slot"></span>
+        <span class="dot" id="ws-dot"></span>
+        <span id="ws-label">Připojování…</span>
+    </div>
+</nav>
+
+<main>
+    <div class="map-wrap">
+        <canvas id="map-canvas"></canvas>
+        <div class="map-toolbar">
+            <button id="layers-btn" type="button" aria-expanded="false" aria-controls="layers-panel">☰ Vrstvy</button>
+            <div class="layers-panel" id="layers-panel" hidden></div>
+        </div>
+        <div class="map-zoom">
+            <button id="zoom-in" title="Přiblížit" aria-label="Přiblížit">+</button>
+            <button id="zoom-out" title="Oddálit" aria-label="Oddálit">−</button>
+            <button id="zoom-reset" title="Celá mapa" aria-label="Zpět na celou mapu">⤢</button>
+        </div>
+        <!-- Colours must match ROUTE_STYLE in the script below. -->
+        <div class="map-legend">
+            <div class="row" data-layer="player"><span class="swatch" style="background: var(--accent2)"></span> Ty</div>
+            <div class="row" data-layer="vehicles"><span class="swatch" style="background: var(--accent)"></span> Vozidlo (aktivní)</div>
+            <div class="row" data-layer="vehicles"><span class="swatch" style="background: var(--muted)"></span> Vozidlo (nečinné)</div>
+            <div class="row" data-layer="routes"><span class="swatch line" style="background: #00a8ff"></span> Trasa AutoDrive</div>
+            <div class="row" data-layer="routes"><span class="swatch line" style="background: #d640ff"></span> Trasa Courseplay</div>
+        </div>
+        <div class="map-empty" id="map-empty" hidden>Čeká se na pozice z módu…</div>
+    </div>
+</main>
+
+<script>
+const canvas = document.getElementById('map-canvas');
+const ctx = canvas.getContext('2d');
+const emptyEl = document.getElementById('map-empty');
+
+const DEFAULT_MAP_SIZE = 2048;   // fallback for mods that don't export mapSize yet
+// Fraction of overview.dds taken up by the out-of-bounds border on each side.
+// The terrain lives in the centre 50 % (inset 25 % per edge) — FS25 convention.
+const MAP_INSET = 0.25;
+const MAP_SPAN = 1 - 2 * MAP_INSET;   // 0.5 → terrain width as fraction of image
+// GIANTS' overview.dds is a dim, low-contrast top-down render. Lift it at draw
+// time so the map reads clearly on the dark UI without touching fields/labels.
+const MAP_BG_FILTER = 'brightness(1.35) contrast(1.12) saturate(1.25)';
+let lastData = null;
+
+// Toggleable map layers. `def` is the default visibility; each choice is saved
+// per-key in localStorage so it survives reloads. Adding a layer later (silos,
+// selling points, shops, animals, productions once the mod exports their
+// positions) is just another entry here plus a render block gated by layerOn().
+const LAYERS = [
+    { key: 'fields',       label: 'Pole',          def: true  },
+    { key: 'fieldLabels',  label: 'Čísla polí',    def: true  },
+    { key: 'vehicles',     label: 'Vozidla',       def: true  },
+    { key: 'vehicleNames', label: 'Jména vozidel', def: false },
+    { key: 'routes',       label: 'Trasy AI',      def: true  },
+    { key: 'player',       label: 'Já',            def: true  },
+    { sep: 'Stanice' },
+    { key: 'sell',         label: 'Prodejní body', def: true  },
+    { key: 'silo',         label: 'Sklady',        def: false },
+    { key: 'shop',         label: 'Obchody',       def: false },
+    { key: 'production',   label: 'Produkce',      def: true  },
+    { key: 'animal',       label: 'Zvířata',       def: false },
+    { key: 'fuel',         label: 'Palivo',        def: false },
+];
+// Icon + colour per station category (matches the mod's hotspot `t` values).
+const HOTSPOT_STYLE = {
+    sell:       { glyph: '💰', color: '#e8c14a' },
+    silo:       { glyph: '🌾', color: '#c9a45b' },
+    shop:       { glyph: '🛒', color: '#5aa0e8' },
+    production: { glyph: '🏭', color: '#b98ce0' },
+    animal:     { glyph: '🐄', color: '#d09a6a' },
+    fuel:       { glyph: '⛽', color: '#e8735a' },
+};
+const layerState = {};
+function layerOn(key) { return layerState[key] !== false; }
+
+// Checkbox per layer key, so setLayer can keep the panel in step with the legend.
+const layerCheckboxes = {};
+const layerKey = (k) => 'map.layer.' + k;
+
+// Single path for changing a layer, whichever control triggered it: state,
+// persistence, both UIs, redraw.
+function setLayer(key, on) {
+    layerState[key] = on;
+    if (window.DashState) window.DashState.set(layerKey(key), on);
+    if (layerCheckboxes[key]) layerCheckboxes[key].checked = on;
+    syncLegend();
+    if (lastData) render(lastData);
+}
+
+function syncLegend() {
+    for (const row of document.querySelectorAll('.map-legend .row[data-layer]')) {
+        row.classList.toggle('off', layerState[row.dataset.layer] === false);
+    }
+}
+
+// View state (user zoom/pan). viewZoom = 1 means "fit whole content" (the
+// auto-framed window from contentWindow); >1 zooms in. viewCx/viewCz override
+// the auto-fit centre once the user pans/zooms (null = follow auto-fit).
+// Kept in JS only (not persisted) — a reload returns to the fit view.
+const MAX_ZOOM = 16;
+let viewZoom = 1;
+let viewCx = null, viewCz = null;
+let lastVp = null, lastBaseWin = null;
+
+function screenSize() {
+    const r = canvas.getBoundingClientRect();
+    return [r.width, r.height];
+}
+
+function resizeCanvas() {
+    const rect = canvas.parentElement.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width  = Math.round(rect.width  * dpr);
+    canvas.height = Math.round(rect.height * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    if (lastData) render(lastData);
+}
+window.addEventListener('resize', resizeCanvas);
+
+// Content bounds (world coords) — the square window we actually draw. The full
+// terrain is mapSize × mapSize but the interesting area (fields + yard) usually
+// fills only the centre, leaving a big empty grass margin. So we fit a square
+// window around the field extent (+ player/vehicles) — this frames the whole
+// farm the way the in-game PDA map does, instead of the full decorative terrain.
+const MIN_WINDOW_M = 400;   // never zoom in tighter than this (tiny single-field farms)
+
+function contentWindow(data, mapSize) {
+    let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+    const add = (x, z) => {
+        if (x == null || z == null) return;
+        if (x < minX) minX = x; if (x > maxX) maxX = x;
+        if (z < minZ) minZ = z; if (z > maxZ) maxZ = z;
+    };
+    for (const f of (data.fields || [])) {
+        const poly = polyFor(f);
+        if (poly) { for (const p of poly) add(p[0], p[1]); }
+        else add(f.posX, f.posZ);
+    }
+    for (const v of (data.vehicles || [])) add(v.x, v.z);
+    if (data.player) add(data.player.x, data.player.z);
+    if (!isFinite(minX)) return { cx: 0, cz: 0, size: mapSize };   // nothing → whole terrain
+
+    const cx = (minX + maxX) / 2, cz = (minZ + maxZ) / 2;
+    const span = Math.max(maxX - minX, maxZ - minZ) * 1.06;        // ~3% margin each side
+    const size = Math.min(mapSize, Math.max(span, MIN_WINDOW_M));   // never exceed terrain, never a pinhole
+    return { cx, cz, size };
+}
+
+// Stable per-crop fill colour so the map reads like the game's crop overlay.
+// Hash the fruit id to a hue; empty/unknown crops render neutral grey.
+function fieldColor(field) {
+    const id = field.fruitTypeId || '';
+    if (!id) return { h: 0, s: 0, l: 62 };
+    let hash = 0;
+    for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) & 0xffff;
+    return { h: hash % 360, s: 58, l: 55 };
+}
+
+// Fill viewport: the canvas shows a rectangular slice of the world, no
+// letterbox. One scale for both axes (no distortion) — zoom=1 fits the content
+// window into the smaller canvas dimension, the larger dimension just reveals
+// more world. The window centre sits at the canvas centre. Overview image and
+// field polygons both use this single transform, so they always stay aligned.
+function mapViewport(win, w, h) {
+    return { scale: Math.min(w, h) / win.size, cx: win.cx, cz: win.cz, w, h };
+}
+
+function worldToPixel(x, z, vp) {
+    return [
+        vp.w / 2 + (x - vp.cx) * vp.scale,
+        vp.h / 2 + (z - vp.cz) * vp.scale,
+    ];
+}
+
+function pixelToWorld(px, py, vp) {
+    return [
+        vp.cx + (px - vp.w / 2) / vp.scale,
+        vp.cz + (py - vp.h / 2) / vp.scale,
+    ];
+}
+
+// Keep the window centre inside the terrain so at least part of the map is
+// always visible. Off-map margin renders as empty surface (there are no fields
+// out there), never as fields floating on a blank background.
+function clampCentre(c, mapSize) {
+    const mb = mapSize / 2;
+    return Math.max(-mb, Math.min(mb, c));
+}
+
+// Background: the map mod's own overview.dds (converted server-side), same
+// top-down image GIANTS uses for the in-game PDA. The terrain fills only the
+// centre of the image (see MAP_INSET) — the draw call below crops to it.
+// Best-effort: 404 (older mod / no ffmpeg / mod not found) just means no
+// background image, the canvas still renders fields/vehicles/player.
+let overviewImg = null, overviewMapId = null, overviewLoading = null;
+
+function ensureOverviewImage(mapId) {
+    if (!mapId || mapId === overviewMapId || mapId === overviewLoading) return;
+    overviewLoading = mapId;
+    const img = new Image();
+    img.onload = () => {
+        overviewImg = img;
+        overviewMapId = mapId;
+        overviewLoading = null;
+        if (lastData) render(lastData);
+    };
+    img.onerror = () => { overviewLoading = null; };
+    // Keyed by map, not by Date.now(): a timestamp busted the browser cache on
+    // every single page load and re-pulled ~2 MB that had not changed. The mapId
+    // changes exactly when the image should.
+    img.src = '/api/map-overview?map=' + encodeURIComponent(mapId);
+}
+
+// Field outlines are static per map, so the server serves them here rather than
+// in every ~2 s payload. Cached by mapId and keyed by field id. The mod spreads
+// outline building over several exports to avoid stalling a frame, so the set
+// grows for the first seconds after a load — `polyRev` from the payload tells us
+// when to pick the new ones up.
+let fieldPolys = null, fieldPolysLoading = false, fieldPolysTried = null;
+
+function ensureFieldPolygons(mapId, rev) {
+    // One stamp for "what we last attempted", rather than tracking map and rev
+    // separately: the endpoint 404s until the mod writes the geometry file, and
+    // on that path there is no map id to record — so a two-part guard never
+    // matched and re-fired the request on every single payload.
+    const stamp = (mapId || 'default') + '|' + rev;
+    if (fieldPolysLoading || fieldPolysTried === stamp) return;
+    fieldPolysTried = stamp;
+    fieldPolysLoading = true;
+    fetch('/api/field-polygons')
+        .then(r => r.ok ? r.json() : null)
+        .then(d => {
+            fieldPolysLoading = false;
+            if (!d || !d.polys) return;   // not written yet; rev will move when it is
+            fieldPolys = d.polys;
+            if (lastData) render(lastData);
+        })
+        .catch(() => { fieldPolysLoading = false; fieldPolysTried = null; });   // network blip: allow a retry
+}
+
+function polyFor(field) {
+    return fieldPolys && fieldPolys[field.id] || null;
+}
+
+// ── Fast position channel ──────────────────────────────────────────────────
+// The mod writes positions ~4× a second to a separate file; the server forwards
+// each frame as a `fs25:positions` event. Only markers move — everything else
+// on the page still comes from the 2 s payload. Vehicles are matched by name,
+// the only stable identity the payload carries.
+let livePositions = null;
+// Routes ride the position channel but only every ~2 s, so they're kept
+// separately — a frame without the key must not wipe them.
+let liveRoutes = [];
+
+window.addEventListener('fs25:positions', e => {
+    livePositions = e.detail;
+    if (Array.isArray(e.detail.routes)) liveRoutes = e.detail.routes;
+    if (lastData) render(lastData);
+});
+
+// Colour per route source. AutoDrive courses are transport runs between
+// stations; Courseplay ones are fieldwork — different jobs, different colours.
+//
+// Saturated, not pastel: these lines sit on a PHOTOGRAPHIC backdrop (FS25's
+// overview image) with translucent field fills on top, so a mid-tone colour has
+// no reliable contrast — it vanishes against stubble one moment and against
+// forest the next.
+// The driven part is a solid DARKER shade, not a translucent light one: with a
+// dark casing underneath, translucency lets the casing bleed through and the
+// line turns almost black (seen in testing — the driven half was unreadable).
+// A solid dark shade keeps it legible and still clearly "behind" the bright
+// remaining part.
+const ROUTE_STYLE = {
+    ad: { done: '#0a6ea8', left: '#00a8ff' },
+    cp: { done: '#8f2ab0', left: '#d640ff' },
+};
+
+// Dark outline drawn UNDER the coloured line, the way map services draw routes
+// over satellite imagery: it gives the line a contrasting edge no matter what is
+// beneath it. drawArrow() already does the same for markers (`rim`).
+const ROUTE_CASING = 'rgba(0,0,0,0.72)';
+
+// Widths: the remaining part is the one the user needs to follow, so it is the
+// heavier of the two. The driven part stays thinner and semi-transparent so a
+// glance still reads progress.
+const ROUTE_W_LEFT = 4.5;
+const ROUTE_W_DONE = 3;
+const CASING_EXTRA = 3;   // total casing width = line width + this
+
+function strokePath(pts, from, to, vp, color, width) {
+    if (to - from < 1) return;
+    ctx.beginPath();
+    for (let i = from; i <= to; i++) {
+        const [px, py] = worldToPixel(pts[i][0], pts[i][1], vp);
+        if (i === from) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    }
+    ctx.strokeStyle = color;
+    ctx.lineWidth = width;
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+    ctx.stroke();
+}
+
+function applyLivePositions(vehicles) {
+    if (!livePositions || !Array.isArray(livePositions.vehicles)) return vehicles;
+    const byName = new Map();
+    for (const v of livePositions.vehicles) byName.set(v.n, v);
+    return vehicles.map(v => {
+        const live = byName.get(v.name);
+        // Spread keeps fuel/type/isInUse from the slow payload and overlays only
+        // the three fields that actually move.
+        return live ? { ...v, x: live.x, z: live.z, headingDeg: live.h } : v;
+    });
+}
+
+// Label with a dark outline behind the fill so text stays legible over a
+// busy satellite-image background, not just a plain surface colour.
+function drawLabel(text, x, y, color, align) {
+    ctx.textAlign = align;
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = 'rgba(0,0,0,0.65)';
+    ctx.strokeText(text, x, y);
+    ctx.fillStyle = color;
+    ctx.fillText(text, x, y);
+}
+
+// Directional marker. A concave "kite" with a dark outline reads clearly over
+// any background; `halo` adds a soft glow ring so the player / active vehicles
+// pop out. Optionally a bright rim for extra contrast.
+// `headingDeg` is a compass bearing (0 = north, clockwise) — the mod normalises
+// engine yaw into that before exporting. The arrow is drawn pointing up (north)
+// and canvas rotation is clockwise because +y runs down, so the bearing maps
+// straight onto ctx.rotate with no correction here.
+function drawArrow(px, py, headingDeg, size, color, opts) {
+    opts = opts || {};
+    const rad = (headingDeg || 0) * Math.PI / 180;
+    ctx.save();
+    ctx.translate(px, py);
+    if (opts.halo) {
+        ctx.beginPath();
+        ctx.arc(0, 0, size * 1.55, 0, Math.PI * 2);
+        ctx.fillStyle = opts.halo;
+        ctx.fill();
+    }
+    ctx.rotate(rad);
+    ctx.beginPath();
+    ctx.moveTo(0, -size);
+    ctx.lineTo(size * 0.66, size * 0.72);
+    ctx.lineTo(0, size * 0.32);
+    ctx.lineTo(-size * 0.66, size * 0.72);
+    ctx.closePath();
+    ctx.fillStyle = color;
+    ctx.fill();
+    ctx.lineWidth = opts.rimWidth || 1.6;
+    ctx.strokeStyle = opts.rim || 'rgba(0,0,0,0.85)';
+    ctx.stroke();
+    ctx.restore();
+}
+
+// Station marker: a rounded chip with a coloured rim and an emoji glyph, sized
+// constant in screen pixels so it stays readable at any zoom.
+function drawHotspot(px, py, glyph, color) {
+    const r = 9;
+    ctx.beginPath();
+    ctx.arc(px, py, r, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(20,26,20,0.82)';
+    ctx.fill();
+    ctx.lineWidth = 1.8;
+    ctx.strokeStyle = color;
+    ctx.stroke();
+    ctx.font = '11px "Nunito Sans", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(glyph, px, py + 0.5);
+}
+
+function render(data) {
+    lastData = data;
+    const rect = canvas.getBoundingClientRect();
+    const w = rect.width, h = rect.height;
+    ctx.clearRect(0, 0, w, h);
+
+    const mapSize = data.mapSize || DEFAULT_MAP_SIZE;
+    const fields = Array.isArray(data.fields) ? data.fields : [];
+    const hotspots = Array.isArray(data.mapHotspots) ? data.mapHotspots : [];
+    // Positions come from the fast channel when it's running (~4 Hz) and fall
+    // back to the 2 s payload otherwise, so the map still works against a
+    // recording, the relay viewer, or an older mod.
+    const vehicles = applyLivePositions(Array.isArray(data.vehicles) ? data.vehicles : []);
+    const player = (livePositions && livePositions.player) || data.player || null;
+
+    const hasAnyPosition = fields.some(f => f.posX != null && f.posZ != null)
+        || vehicles.some(v => v.x != null && v.z != null)
+        || player != null;
+    emptyEl.hidden = hasAnyPosition;
+    if (!hasAnyPosition) return;
+
+    // Auto-fit window, then apply user zoom (shrinks the window) and pan
+    // (moves its centre). Zooming via the window keeps line/label widths
+    // constant in pixels and lets the overview slice recompute for free.
+    const base = contentWindow(data, mapSize);
+    lastBaseWin = base;
+    const size = base.size / viewZoom;
+    const cx = clampCentre(viewCx != null ? viewCx : base.cx, mapSize);
+    const cz = clampCentre(viewCz != null ? viewCz : base.cz, mapSize);
+    const win = { cx, cz, size };
+    const vp = mapViewport(win, w, h);
+    lastVp = vp;
+
+    const mapId = data.saveMeta && data.saveMeta.mapId;
+    ensureOverviewImage(mapId);
+    ensureFieldPolygons(mapId, data.polyRev);
+    if (overviewImg && overviewMapId === mapId) {
+        // Draw the overview slice that covers the visible world rect, clipped to
+        // the terrain bounds so it never samples outside the image. Uses the
+        // same world→pixel transform as everything else, so background and
+        // fields stay aligned at every zoom/pan. Off-map area stays empty.
+        const img = overviewImg;
+        const mb = mapSize / 2;
+        const halfWm = (w / vp.scale) / 2, halfHm = (h / vp.scale) / 2;
+        const ixMin = Math.max(vp.cx - halfWm, -mb), ixMax = Math.min(vp.cx + halfWm, mb);
+        const izMin = Math.max(vp.cz - halfHm, -mb), izMax = Math.min(vp.cz + halfHm, mb);
+        if (ixMax > ixMin && izMax > izMin) {
+            // FS25 overview.dds is NOT a 1:1 image of the terrain: the playable
+            // terrain occupies only the CENTRE portion, framed by a decorative
+            // out-of-bounds border. World ±mapSize/2 maps to that centre window,
+            // not the whole image — matches the LiveMap Companion mod, and
+            // verified against Kolonia (fields land exactly on the DDS textures).
+            const imgPerMX = (img.width * MAP_SPAN) / mapSize;
+            const imgPerMY = (img.height * MAP_SPAN) / mapSize;
+            const insetX = img.width * MAP_INSET, insetY = img.height * MAP_INSET;
+            const sx = insetX + (ixMin + mb) * imgPerMX, sy = insetY + (izMin + mb) * imgPerMY;
+            const sw = (ixMax - ixMin) * imgPerMX, sh = (izMax - izMin) * imgPerMY;
+            const [dx, dy] = worldToPixel(ixMin, izMin, vp);
+            ctx.save();
+            ctx.filter = MAP_BG_FILTER;
+            ctx.drawImage(img, sx, sy, sw, sh, dx, dy, (ixMax - ixMin) * vp.scale, (izMax - izMin) * vp.scale);
+            ctx.restore();
+        }
+    }
+
+    const style = getComputedStyle(document.documentElement);
+    // Frame the terrain bounds so any off-map margin reads as "outside the map".
+    ctx.strokeStyle = style.getPropertyValue('--border').trim() || '#2e3a34';
+    ctx.lineWidth = 1;
+    const [bx0, by0] = worldToPixel(-mapSize / 2, -mapSize / 2, vp);
+    const [bx1, by1] = worldToPixel(mapSize / 2, mapSize / 2, vp);
+    ctx.strokeRect(bx0 + 0.5, by0 + 0.5, bx1 - bx0 - 1, by1 - by0 - 1);
+
+    const cAccent  = style.getPropertyValue('--accent').trim()  || '#7fb069';
+    const cAccent2 = style.getPropertyValue('--accent2').trim() || '#e8a838';
+    const cMuted   = style.getPropertyValue('--muted').trim()   || '#8a9a82';
+    const cBorder  = style.getPropertyValue('--border').trim()  || '#2e3a34';
+    const cText    = style.getPropertyValue('--text').trim()    || '#e6ecdf';
+
+    ctx.font = '11px "Nunito Sans", sans-serif';
+    ctx.textBaseline = 'middle';
+
+    // Fields: real boundary polygons (world-space outlines from the mod). Fill
+    // by crop colour like the game's crop map; owned fields get a bright accent
+    // outline so they stand out, others a faint one. Field number at the
+    // centroid (matches the in-game "Zemědělská půda" numbering).
+    if (layerOn('fields')) {
+        for (const f of fields) {
+            const poly = polyFor(f);
+            if (!poly || poly.length < 3) continue;
+            ctx.beginPath();
+            for (let i = 0; i < poly.length; i++) {
+                const [px, py] = worldToPixel(poly[i][0], poly[i][1], vp);
+                if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+            }
+            ctx.closePath();
+            const c = fieldColor(f);
+            ctx.fillStyle = `hsla(${c.h}, ${c.s}%, ${c.l}%, ${f.owned ? 0.55 : 0.28})`;
+            ctx.fill();
+            ctx.lineWidth = f.owned ? 2 : 0.75;
+            ctx.strokeStyle = f.owned ? cAccent2 : 'rgba(0,0,0,0.45)';
+            ctx.stroke();
+        }
+        if (layerOn('fieldLabels')) {
+            for (const f of fields) {
+                if (f.posX == null || f.posZ == null) continue;
+                const poly = polyFor(f);
+                if (!poly || poly.length < 3) continue;
+                const [px, py] = worldToPixel(f.posX, f.posZ, vp);
+                drawLabel(String(f.id), px, py, f.owned ? '#fff' : 'rgba(255,255,255,0.8)', 'center');
+            }
+        }
+    }
+
+    // Station hotspots (selling points, silos, shops, productions, animals,
+    // fuel). Drawn under vehicles/player. Each category is its own toggle.
+    for (const hs of hotspots) {
+        if (hs.x == null || hs.z == null) continue;
+        const st = HOTSPOT_STYLE[hs.t];
+        if (!st || !layerOn(hs.t)) continue;
+        const [px, py] = worldToPixel(hs.x, hs.z, vp);
+        drawHotspot(px, py, st.glyph, st.color);
+    }
+
+    // AI routes, under the vehicle markers so the marker stays on top. The part
+    // already driven is drawn faint and what's left solid, so a glance shows how
+    // far along a job is — `f` is the driven fraction straight from the mod.
+    // Vanilla AI helpers never appear here: they have no waypoint list.
+    if (layerOn('routes')) {
+        for (const r of liveRoutes) {
+            if (!Array.isArray(r.p) || r.p.length < 2) continue;
+            const st = ROUTE_STYLE[r.s] || ROUTE_STYLE.ad;
+            const cut = Math.max(0, Math.min(r.p.length - 1,
+                Math.round((r.f || 0) * (r.p.length - 1))));
+            // Both casings first, then both colours: otherwise the casing of the
+            // remaining part would paint over the driven part where they meet.
+            strokePath(r.p, 0, cut, vp, ROUTE_CASING, ROUTE_W_DONE + CASING_EXTRA);
+            strokePath(r.p, cut, r.p.length - 1, vp, ROUTE_CASING, ROUTE_W_LEFT + CASING_EXTRA);
+            strokePath(r.p, 0, cut, vp, st.done, ROUTE_W_DONE);
+            strokePath(r.p, cut, r.p.length - 1, vp, st.left, ROUTE_W_LEFT);
+        }
+    }
+
+    // Vehicles — bright green when in use, cool grey when idle; dark rim so they
+    // stay legible over fields and background alike.
+    if (layerOn('vehicles')) {
+        for (const v of vehicles) {
+            if (v.x == null || v.z == null) continue;
+            const [px, py] = worldToPixel(v.x, v.z, vp);
+            const active = v.isInUse;
+            drawArrow(px, py, v.headingDeg, active ? 9 : 8, active ? '#37d24a' : '#c3ccbe',
+                { rim: '#0c130c', rimWidth: 1.8, halo: active ? 'rgba(55,210,74,0.28)' : null });
+            if (layerOn('vehicleNames')) drawLabel(v.name || '', px + 12, py, cText, 'left');
+        }
+    }
+
+    // Local player — biggest, brightest marker with an amber halo so "me" is
+    // always the easiest thing to find on the map.
+    if (layerOn('player') && player && player.x != null && player.z != null) {
+        const [px, py] = worldToPixel(player.x, player.z, vp);
+        drawArrow(px, py, player.headingDeg, 12, '#ffd11a',
+            { rim: '#3a2a00', rimWidth: 2, halo: 'rgba(255,209,26,0.35)' });
+        drawLabel('Ty', px + 14, py, '#fff', 'left');
+    }
+}
+
+// ── Zoom / pan ───────────────────────────────────────────────────────────────
+// Set the zoom level, keeping the world point under (anchorX,anchorY) fixed on
+// screen so wheel/pinch zoom feels anchored at the cursor, not the centre.
+function applyZoom(newZoom, anchorX, anchorY) {
+    newZoom = Math.max(1, Math.min(MAX_ZOOM, newZoom));
+    if (!lastVp || !lastBaseWin) { viewZoom = newZoom; if (lastData) render(lastData); return; }
+    const [wx, wz] = pixelToWorld(anchorX, anchorY, lastVp);
+    viewZoom = newZoom;
+    const [w, h] = screenSize();
+    const size = lastBaseWin.size / viewZoom;
+    const scale = Math.min(w, h) / size;
+    viewCx = wx - (anchorX - w / 2) / scale;
+    viewCz = wz - (anchorY - h / 2) / scale;
+    if (lastData) render(lastData);
+}
+
+function zoomBy(factor, anchorX, anchorY) {
+    const [w, h] = screenSize();
+    applyZoom(viewZoom * factor, anchorX != null ? anchorX : w / 2, anchorY != null ? anchorY : h / 2);
+}
+
+function panByPixels(dxPx, dyPx) {
+    if (!lastVp || !lastBaseWin) return;
+    if (viewCx == null) { viewCx = lastBaseWin.cx; viewCz = lastBaseWin.cz; }
+    viewCx -= dxPx / lastVp.scale;
+    viewCz -= dyPx / lastVp.scale;
+    if (lastData) render(lastData);
+}
+
+function resetView() {
+    viewZoom = 1; viewCx = null; viewCz = null;
+    if (lastData) render(lastData);
+}
+
+window.addEventListener('DOMContentLoaded', () => {
+    // DashState comes from a deferred script — only safe to read from here on.
+    // Build the layer toggles from LAYERS, restoring each saved choice.
+    const panel = document.getElementById('layers-panel');
+    for (const L of LAYERS) {
+        if (L.sep) {
+            const s = document.createElement('div');
+            s.className = 'layers-sep';
+            s.textContent = L.sep;
+            panel.appendChild(s);
+            continue;
+        }
+        const saved = window.DashState ? window.DashState.get(layerKey(L.key), L.def) : L.def;
+        layerState[L.key] = saved;
+        const label = document.createElement('label');
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.checked = saved !== false;
+        cb.addEventListener('change', () => setLayer(L.key, cb.checked));
+        label.appendChild(cb);
+        label.appendChild(document.createTextNode(' ' + L.label));
+        panel.appendChild(label);
+        layerCheckboxes[L.key] = cb;
+    }
+
+    // The legend doubles as a switch: its rows carry data-layer, so clicking one
+    // toggles that layer and dims the row. Cheaper to reach than opening the
+    // layers panel, and it keeps one source of truth — both paths go through
+    // setLayer, so checkbox and legend can never disagree.
+    for (const row of document.querySelectorAll('.map-legend .row[data-layer]')) {
+        row.tabIndex = 0;
+        row.setAttribute('role', 'button');
+        row.title = 'Kliknutím zapnout/vypnout';
+        const toggle = () => setLayer(row.dataset.layer, layerState[row.dataset.layer] === false);
+        row.addEventListener('click', toggle);
+        row.addEventListener('keydown', e => {
+            if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); }
+        });
+    }
+    syncLegend();
+    const layersBtn = document.getElementById('layers-btn');
+    layersBtn.addEventListener('click', () => {
+        const open = panel.hidden;
+        panel.hidden = !open;
+        layersBtn.setAttribute('aria-expanded', String(open));
+    });
+
+    // Zoom buttons
+    document.getElementById('zoom-in').addEventListener('click', () => zoomBy(1.4));
+    document.getElementById('zoom-out').addEventListener('click', () => zoomBy(1 / 1.4));
+    document.getElementById('zoom-reset').addEventListener('click', resetView);
+
+    // Wheel zoom, anchored at the cursor
+    canvas.addEventListener('wheel', e => {
+        e.preventDefault();
+        zoomBy(e.deltaY < 0 ? 1.2 : 1 / 1.2, e.offsetX, e.offsetY);
+    }, { passive: false });
+
+    // Drag to pan (mouse) — track on window so a drag survives leaving the canvas
+    let dragging = false, lastX = 0, lastY = 0;
+    canvas.addEventListener('mousedown', e => {
+        dragging = true; lastX = e.offsetX; lastY = e.offsetY;
+        canvas.classList.add('dragging');
+    });
+    window.addEventListener('mousemove', e => {
+        if (!dragging) return;
+        const r = canvas.getBoundingClientRect();
+        const x = e.clientX - r.left, y = e.clientY - r.top;
+        panByPixels(x - lastX, y - lastY);
+        lastX = x; lastY = y;
+    });
+    window.addEventListener('mouseup', () => {
+        dragging = false; canvas.classList.remove('dragging');
+    });
+    canvas.addEventListener('dblclick', e => { e.preventDefault(); resetView(); });
+
+    // Touch: one finger pans, two fingers pinch-zoom
+    let touchMode = null, tLastX = 0, tLastY = 0, tLastDist = 0;
+    const touchXY = t => { const r = canvas.getBoundingClientRect(); return [t.clientX - r.left, t.clientY - r.top]; };
+    canvas.addEventListener('touchstart', e => {
+        if (e.touches.length === 1) { touchMode = 'pan'; [tLastX, tLastY] = touchXY(e.touches[0]); }
+        else if (e.touches.length >= 2) {
+            touchMode = 'pinch';
+            const [ax, ay] = touchXY(e.touches[0]), [bx, by] = touchXY(e.touches[1]);
+            tLastDist = Math.hypot(bx - ax, by - ay);
+        }
+    }, { passive: true });
+    canvas.addEventListener('touchmove', e => {
+        if (touchMode === 'pan' && e.touches.length === 1) {
+            const [x, y] = touchXY(e.touches[0]);
+            panByPixels(x - tLastX, y - tLastY);
+            tLastX = x; tLastY = y;
+        } else if (touchMode === 'pinch' && e.touches.length >= 2) {
+            const [ax, ay] = touchXY(e.touches[0]), [bx, by] = touchXY(e.touches[1]);
+            const dist = Math.hypot(bx - ax, by - ay);
+            if (tLastDist > 0) zoomBy(dist / tLastDist, (ax + bx) / 2, (ay + by) / 2);
+            tLastDist = dist;
+        }
+        e.preventDefault();
+    }, { passive: false });
+    canvas.addEventListener('touchend', e => {
+        if (e.touches.length === 0) touchMode = null;
+        else if (e.touches.length === 1) { touchMode = 'pan'; [tLastX, tLastY] = touchXY(e.touches[0]); }
+    }, { passive: true });
+
+    resizeCanvas();
+    FS25App.connect(data => {
+        if (!data) return;
+        render(data);
+    });
+});
+</script>
+
+</body>
+</html>

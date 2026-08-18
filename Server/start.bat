@@ -23,3 +23,11 @@ if not exist node_modules (
 echo  Server log (Ctrl+C to stop):
 echo  -------------------------------------------
 node index.js
+
+REM Launched from a desktop shortcut there is no console to fall back to, so a
+REM crash on startup (port taken, Node missing, bad config) would flash past and
+REM vanish. Hold the window open regardless of how the server ended.
+echo.
+echo  -------------------------------------------
+echo  Server ukoncen. Stiskni klavesu pro zavreni okna.
+pause >nul

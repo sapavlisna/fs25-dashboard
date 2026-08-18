@@ -2231,6 +2231,21 @@ body.tt-drag-active .tt-hidden-zone [data-tt-hidden] {
 .help-swatch--cut      { background: #888; }
 .help-swatch--withered { background: #e05252; }
 
+/* AI route swatches — a dash, not a square, because routes are lines on the map.
+   The dark outline mirrors the casing map.html draws under each route, so the
+   swatch reads as the same object the canvas shows. Colours must stay in sync
+   with ROUTE_STYLE in map.html. */
+.help-swatch--route {
+    display: inline-block;
+    width: 16px; height: 4px;
+    border-radius: 2px;
+    vertical-align: middle;
+    margin-right: 4px;
+    outline: 1px solid rgba(0, 0, 0, 0.72);
+}
+.help-swatch--route-ad { background: #00a8ff; }
+.help-swatch--route-cp { background: #d640ff; }
+
 /* Theme preview cards */
 .help-theme-grid {
     display: grid;

@@ -83,6 +83,17 @@ const LOG_FILE = pick(
     path.join(FS25_DOCS, 'log.txt'),
 );
 
+// Mods folder — used to locate a map mod's ZIP for the Live Map background
+// image (see mapOverview.js). Default assumes the standard install location;
+// override if mods live elsewhere (e.g. a custom Steam library mount).
+// mapOverview.js also tries auto-discovery from log.txt's "Mod Directory:"
+// line, since that's more reliable than this static default for such setups.
+const MODS_DIR = pick(
+    'DASHBOARD_MODS_DIR',
+    'modsDir',
+    path.join(FS25_DOCS, 'mods'),
+);
+
 // ─── Behaviour tunables ──────────────────────────────────────────────────────
 
 const SAVEGAME_REFRESH_MS = parseInt(pick('SAVEGAME_REFRESH_MS', 'savegameRefreshMs', '30000'), 10);
@@ -189,7 +200,7 @@ function browseForFolder(initialDir) {
 
 module.exports = {
     PORT, HOST,
-    FS25_DOCS, DATA_FILE, LOG_FILE,
+    FS25_DOCS, DATA_FILE, LOG_FILE, MODS_DIR,
     SAVEGAME_REFRESH_MS,
     PUBLIC_DIR, DATA_DIR,
     RELAY_URL, RELAY_PUBLISH_KEY, RELAY_ENABLED,

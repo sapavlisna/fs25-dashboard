@@ -22,14 +22,35 @@ DashboardExport.MOD_NAME       = g_currentModName or "FS25_Dashboard"
 DashboardExport.MOD_DIR        = g_currentModDirectory or ""
 -- MOD_VERSION is kept in sync with modDesc.xml by scripts/build-mod-generic.ps1.
 -- Do not edit by hand; bump via the build script.
-DashboardExport.MOD_VERSION    = "1.5.0.1"
+DashboardExport.MOD_VERSION    = "1.10.0.1"
 -- SCHEMA_VERSION tracks the dashboard_data.json shape — bump ONLY on breaking
 -- changes (renamed/removed fields). Server has MIN/MAX bounds and warns on
 -- mismatch. See src/Dashboard/docs/COMPATIBILITY.md.
-DashboardExport.SCHEMA_VERSION = 1
+--
+-- 2: the payload no longer restates data the server can reconstruct — field
+--    records omit defaulted keys, and the fruit catalog + price-forecast curve
+--    moved to dashboard_static.json. A server older than 1.5 will render an
+--    empty crop calendar and broken owned-field filters, hence the bump.
+DashboardExport.SCHEMA_VERSION = 2
 DashboardExport.EXPORT_PERIOD  = 2000          -- ms between writes
 DashboardExport.OUTPUT_FILE    = (getUserProfileAppPath and (getUserProfileAppPath() .. "dashboard_data.json"))
                                   or "dashboard_data.json"
+-- Map outlines are static per map, so they get their own file written ONCE
+-- rather than riding every 2 s export. Encoding ~3600 polygon points each tick
+-- cost ~42 ms of frame time (measured: encode 10 ms → 52 ms once outlines were
+-- ready) for data the server caches after reading it the first time.
+DashboardExport.GEOMETRY_FILE  = (getUserProfileAppPath and (getUserProfileAppPath() .. "dashboard_map_geometry.json"))
+                                  or "dashboard_map_geometry.json"
+-- Player/vehicle positions on a short period so the Live Map reads as realtime,
+-- without dragging the whole payload along. See writePositions().
+DashboardExport.POSITIONS_FILE = (getUserProfileAppPath and (getUserProfileAppPath() .. "dashboard_positions.json"))
+                                  or "dashboard_positions.json"
+-- Session-static payload sections (fruit catalog, price-forecast curve), written
+-- ONCE per save like GEOMETRY_FILE. They were 27.4 % of a measured 146 KB
+-- payload re-encoded every 2 s. See maybeWriteStatic().
+DashboardExport.STATIC_FILE    = (getUserProfileAppPath and (getUserProfileAppPath() .. "dashboard_static.json"))
+                                  or "dashboard_static.json"
+DashboardExport.POSITION_PERIOD = 250          -- ms between position writes (4 Hz)
 
 -- Runtime state
 DashboardExport.prevFields     = {}            -- fieldId → { fruitTypeId, growthState, isReady, area } (event detection)
@@ -40,6 +61,8 @@ DashboardExport.scanState      = nil           -- { farmlandId, fieldRef, fruitL
 DashboardExport.scanAccumMs    = 0             -- ms accumulated for scan pacing
 DashboardExport.SCAN_PERIOD    = 500           -- ms between scan chunks
 DashboardExport.FRUITS_PER_CHUNK = 5           -- density queries per chunk
+DashboardExport.GEOM_BUDGET_MS = 1             -- ms per frame spent building live-map geometry
+DashboardExport.FIELD_POLY_PER_EXPORT = 16     -- new field outlines built per export
 DashboardExport.prevBalance    = nil           -- last seen balance (delta detection — server actually does this; we just emit current)
 DashboardExport.lastExportAt   = 0
 DashboardExport.lastDirtyAt    = 0
@@ -55,6 +78,11 @@ DashboardExport.currencyCache  = nil           -- { data, expiresAt } — Additi
 DashboardExport.CURRENCY_TTL   = 60000         -- ms — měna se za hru prakticky nemění; drží disk I/O mimo hot path
 DashboardExport.pricesCache    = nil           -- { data, expiresAt } — sell-point ceny
 DashboardExport.PRICES_TTL     = 20000         -- ms — ceny FS25 ekonomiky se hýbou v řádu herních dnů, ne sekund
+DashboardExport.fsSnapshot     = nil           -- field → raw getFieldState() v rámci JEDNOHO exportu (viz detectFieldChanges)
+DashboardExport.DEBUG          = false         -- true = plný PERF log každý tick
+DashboardExport.PERF_LOG_MS    = 25            -- ms — nad tímto prahem se PERF řádek loguje vždy
+DashboardExport.PERF_LOG_FIRST = 5             -- prvních N exportů loguj vždy (baseline po startu)
+DashboardExport.settings       = nil           -- DashboardSettings — co se exportuje (viz DashboardSettings.lua), naplní loadMap()
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- JSON encoder (pure Lua, no deps)
@@ -65,60 +93,111 @@ DashboardExport.PRICES_TTL     = 20000         -- ms — ceny FS25 ekonomiky se 
 local JSON_ESCAPES = {
     ['\\'] = '\\\\', ['"'] = '\\"', ['\n'] = '\\n', ['\r'] = '\\r', ['\t'] = '\\t',
 }
+local ESCAPE_CLASS = '[%z\1-\31\\"]'
 
+local function escapeRepl(c)
+    return JSON_ESCAPES[c] or string.format('\\u%04x', string.byte(c))
+end
+
+-- gsub allocates a fresh string even when it replaces nothing; find allocates
+-- nothing. Almost every string in the payload (field/crop/vehicle names) needs
+-- no escaping at all, so the find guard skips the allocation entirely.
 local function escapeStr(s)
-    -- single gsub pass; strings in the payload number in the hundreds per tick
-    return (tostring(s):gsub('[%z\1-\31\\"]', function(c)
-        return JSON_ESCAPES[c] or string.format('\\u%04x', string.byte(c))
-    end))
+    if string.find(s, ESCAPE_CLASS) == nil then return s end
+    return (string.gsub(s, ESCAPE_CLASS, escapeRepl))
 end
 
-local function isArray(t)
-    -- array iff keys are exactly the integers 1..n: for positive numeric keys
-    -- count == max only holds for a gap-free 1..n sequence
-    local n, maxk = 0, 0
-    for k, _ in pairs(t) do
-        if type(k) ~= "number" then return false end
-        n = n + 1
-        if k > maxk then maxk = k end
+-- '"key":' prefixes, built once per distinct key. Without this, escapeStr runs
+-- for every key of every record — 179 fields × 25 keys = 4475 gsub calls per
+-- tick over ~25 distinct keys. Keys are string literals from this file plus
+-- stringified farmland ids (geometry file), so the cache is bounded.
+local keyPrefixCache = {}
+
+local function keyPrefix(k)
+    local p = keyPrefixCache[k]
+    if p == nil then
+        p = '"' .. escapeStr(k) .. '":'
+        keyPrefixCache[k] = p
     end
-    -- consider empty tables arrays only if explicitly marked; otherwise object
-    if maxk == 0 then return false end
-    return maxk == n, maxk
+    return p
 end
 
-local function encodeJson(v)
+-- Small non-negative integers dominate the payload (growth states, levels,
+-- percentages, counts, ids) — precomputed strings keep them out of
+-- string.format, which allocates on every call.
+local SMALL_INT = {}
+for i = 0, 512 do SMALL_INT[i] = string.format("%d", i) end
+
+local function numberToStr(v)
+    if v ~= v or v == math.huge or v == -math.huge then return "null" end
+    if v == math.floor(v) then
+        if v >= 0 and v <= 512 then return SMALL_INT[v] end
+        if math.abs(v) < 1e15 then return string.format("%d", v) end
+    end
+    return (string.format("%.4f", v):gsub("%.?0+$", ""))
+end
+
+-- Append the encoding of `v` to `buf` starting at index `n`; returns the new n.
+--
+-- The index rides in and out of the recursion instead of using `#buf + 1`,
+-- which is an O(log n) length probe and would run ~19 000 times per tick.
+--
+-- Array test is a fast path: a table is an array iff [1] exists. The payload
+-- never mixes numeric and string keys in one table and every array here is
+-- filled sequentially, so the old full `pairs` scan (an extra O(n) pass just to
+-- decide — 179 iterations for `fields` alone) bought nothing.
+local function encTo(buf, n, v)
     local tv = type(v)
     if v == nil then
-        return "null"
+        n = n + 1; buf[n] = "null"
     elseif tv == "boolean" then
-        return v and "true" or "false"
+        n = n + 1; buf[n] = v and "true" or "false"
     elseif tv == "number" then
-        if v ~= v or v == math.huge or v == -math.huge then return "null" end
-        if v == math.floor(v) and math.abs(v) < 1e15 then
-            return string.format("%d", v)
-        end
-        return string.format("%.4f", v):gsub("%.?0+$", "")
+        n = n + 1; buf[n] = numberToStr(v)
     elseif tv == "string" then
-        return '"' .. escapeStr(v) .. '"'
+        buf[n + 1] = '"'
+        buf[n + 2] = escapeStr(v)
+        buf[n + 3] = '"'
+        n = n + 3
     elseif tv == "table" then
-        if v.__emptyArray then return "[]" end
-        local arr, n = isArray(v)
-        if arr then
-            local parts = {}
-            for i = 1, n do parts[i] = encodeJson(v[i]) end
-            return "[" .. table.concat(parts, ",") .. "]"
+        if v.__emptyArray then
+            n = n + 1; buf[n] = "[]"
+        elseif v[1] ~= nil then
+            n = n + 1; buf[n] = "["
+            for i = 1, #v do
+                if i > 1 then n = n + 1; buf[n] = "," end
+                n = encTo(buf, n, v[i])
+            end
+            n = n + 1; buf[n] = "]"
         else
-            local parts = {}
+            n = n + 1; buf[n] = "{"
+            local first = true
             for k, val in pairs(v) do
                 if type(k) == "string" then
-                    parts[#parts + 1] = '"' .. escapeStr(k) .. '":' .. encodeJson(val)
+                    if first then first = false else n = n + 1; buf[n] = "," end
+                    n = n + 1; buf[n] = keyPrefix(k)
+                    n = encTo(buf, n, val)
                 end
             end
-            return "{" .. table.concat(parts, ",") .. "}"
+            n = n + 1; buf[n] = "}"
         end
+    else
+        n = n + 1; buf[n] = "null"
     end
-    return "null"
+    return n
+end
+
+-- Reused across ticks so the table keeps its capacity: a fresh table would grow
+-- from empty to ~19 000 slots every export, re-allocating and copying about a
+-- dozen times on the way. Entries are cleared afterwards so the previous tick's
+-- strings stay collectable. Not reentrant — nothing here encodes recursively.
+local encBuf = {}
+
+local function encodeJson(v)
+    local n = encTo(encBuf, 0, v)
+    local s = table.concat(encBuf, "", 1, n)
+    for i = 1, n do encBuf[i] = nil end
+    return s
 end
 
 -- Empty array sentinel — distinguishes [] from {} during JSON encode
@@ -150,6 +229,63 @@ local function getFarmId()
 end
 
 local function round2(n) return math.floor((n or 0) * 100 + 0.5) / 100 end
+local function round0(n) return math.floor((n or 0) + 0.5) end
+
+-- Owner farm id without allocating a closure. safeCall takes varargs, so a
+-- method can be passed as (fn, self) instead of being wrapped in
+-- `function() return o:getOwnerFarmId() end` — which allocates a fresh closure
+-- (it captures `o`) on every single call. This runs per vehicle at 4 Hz from
+-- writePositions and per placeable/vehicle on every export.
+local function ownerFarmId(o)
+    return (o.getOwnerFarmId and safeCall(o.getOwnerFarmId, o)) or o.ownerFarmId or 0
+end
+
+-- Engine yaw → compass bearing for the Live Map: 0° = north, growing clockwise
+-- (east 90°, south 180°, west 270°).
+--
+-- The engine's yaw is NOT that bearing. MultiCharacters derives a facing yaw
+-- from a direction vector as `math.atan2(dx, dz)` (MultiCharacterManager.lua:1423,
+-- live-proven — it is what turns the character on exiting a vehicle), so a yaw of
+-- θ points along (sin θ, cos θ). Since north is -Z and east is +X, a compass
+-- bearing A points along (sin A, -cos A). Equating the two gives A = 180 - θ:
+-- yaw 0 faces SOUTH, yaw 180 faces north.
+--
+-- Note this is a reflection plus an offset, not a rotation — an earlier -90 fix
+-- assumed a pure rotation and was wrong by ~55°. Confirmed in game 2026-07-26:
+-- the arrow tracks the real facing on both foot and vehicles.
+-- Lua's modulo is floor-based, so the result is always in [0, 360).
+local function headingFromYaw(yawRad)
+    return round2((180 - math.deg(yawRad or 0)) % 360)
+end
+
+-- Squared perpendicular distance of point (px,pz) to segment (ax,az)-(bx,bz).
+local function segDist2(px, pz, ax, az, bx, bz)
+    local dx, dz = bx - ax, bz - az
+    local len2 = dx * dx + dz * dz
+    local t = 0
+    if len2 > 0 then
+        t = ((px - ax) * dx + (pz - az) * dz) / len2
+        if t < 0 then t = 0 elseif t > 1 then t = 1 end
+    end
+    local ex, ez = px - (ax + t * dx), pz - (az + t * dz)
+    return ex * ex + ez * ez
+end
+
+-- Douglas-Peucker line simplification (recursive). Marks points to keep in
+-- `keep`. Preserves corners, drops near-collinear points — turns FS25's dense
+-- field outlines (100+ pts) into a handful without visible change on a map.
+local function dpSimplify(pts, tol2, first, last, keep)
+    local maxD, idx = -1, -1
+    for i = first + 1, last - 1 do
+        local d = segDist2(pts[i][1], pts[i][2], pts[first][1], pts[first][2], pts[last][1], pts[last][2])
+        if d > maxD then maxD = d; idx = i end
+    end
+    if idx > 0 and maxD > tol2 then
+        dpSimplify(pts, tol2, first, idx, keep)
+        keep[idx] = true
+        dpSimplify(pts, tol2, idx, last, keep)
+    end
+end
 
 local function pctOf(value, capacity)
     if not capacity or capacity == 0 then return 0 end
@@ -642,7 +778,17 @@ function DashboardExport:getFieldFruit(field, farmlandId, owned)
     -- getFieldState u cizích polí nerozbije detekci setí/sklizně.
     local fsFruit, fsGrowth = 0, 0
     if owned then
-        local fs = safeCall(function() return field:getFieldState() end)
+        -- detectFieldChanges() already queried this field's state earlier in the
+        -- same export; reuse it rather than hitting the density map twice.
+        -- `false` there means the call returned nil, `nil` means it never ran
+        -- (no fruitCache entry yet, i.e. first export for this field).
+        local snap = self.fsSnapshot
+        local raw = snap and snap[field]
+        if raw == nil then
+            raw = safeCall(field.getFieldState, field) or false
+            if snap then snap[field] = raw end
+        end
+        local fs = raw or nil
         if not fs or not fs.isValid then fs = field.fieldState end
         fsFruit  = fs and fs.fruitTypeIndex or 0
         fsGrowth = fs and fs.growthState or 0
@@ -735,7 +881,7 @@ function DashboardExport:tickFieldScan()
         end
         -- Snapshot of fieldState.fruitTypeIndex at finalize time — used by the
         -- change detector to spot edits (sow/harvest) and trigger a fresh scan.
-        local fs = safeCall(function() return field:getFieldState() end) or field.fieldState
+        local fs = safeCall(field.getFieldState, field) or field.fieldState
         local lastFs = fs and fs.fruitTypeIndex or 0
         -- Growth: cheap 5-point probe; trust it only when it agrees with the
         -- area-scan winner (probe body může trefit okraj s jinou plodinou).
@@ -759,13 +905,30 @@ function DashboardExport:detectFieldChanges()
     if not (g_farmlandManager and g_fieldManager) then return end
     local farmId = getFarmId()
     local mapping = g_fieldManager.farmlandIdFieldMapping or {}
+    -- Snapshot the raw getFieldState() result for this export. That call
+    -- re-queries the density map (see the file header), and getFieldFruit()
+    -- needs the same reading for the same owned fields moments later in the
+    -- very same tick — it used to repeat the query for every owned field.
+    --
+    -- Raw, not normalized: this function falls back to field.fieldState when
+    -- the call returns nil, getFieldFruit also rejects a non-isValid state.
+    -- Storing the raw value lets each caller keep its own rule. `false` records
+    -- "asked, got nil" so a miss is distinguishable from "not asked".
+    --
+    -- Keyed by the field object, not an id: collectFields emits records in two
+    -- overlapping id spaces (farmland id vs field number) — same reason
+    -- getFieldPolygon keys its cache this way.
+    local snap = {}
+    self.fsSnapshot = snap
     for _, fl in pairs(g_farmlandManager.farmlands or {}) do
         local ownerId = fl.farmId or fl.ownerFarmId or 0
         if ownerId == farmId then
             local field = mapping[fl.id] or fl.field
             local cached = field and self.fruitCache[fl.id]
             if cached then
-                local fs = safeCall(function() return field:getFieldState() end) or field.fieldState
+                local raw = safeCall(field.getFieldState, field)
+                snap[field] = raw or false
+                local fs = raw or field.fieldState
                 local nowFs = fs and fs.fruitTypeIndex or 0
                 if nowFs ~= cached.lastFsFruit then
                     cached.expiresAt = 0  -- invalidate; tickFieldScan will pick it up
@@ -793,7 +956,7 @@ function DashboardExport:collectFieldStatus(farmlandId, field)
         stoneLevel         = 0,
     }
     if FieldUtil == nil or FieldUtil.getFieldStatus == nil then return out end
-    local status = safeCall(function() return FieldUtil.getFieldStatus(field) end)
+    local status = safeCall(FieldUtil.getFieldStatus, field)
     if not status then return out end
 
     if status.plowFactor          ~= nil then out.needsPlowing       = status.plowFactor < 0.5 end
@@ -821,10 +984,19 @@ end
 -- (nitrogenActual/phActual = nil, dokud sampled == 0).
 -- ─────────────────────────────────────────────────────────────────────────────
 
+-- The handle is session-static (the PF mod cannot appear or vanish mid-save —
+-- see collectPFMeta), but getFieldPF asked for it once per field per export.
+-- Only a POSITIVE result is cached: at save load PF may not have initialized
+-- g_precisionFarming yet, and caching that miss would disable PF for the whole
+-- session. Cleared in deleteMap.
+local pfHandleCache = nil
+
 local function pfHandle()
+    if pfHandleCache ~= nil then return pfHandleCache end
     if g_modIsLoaded and g_modIsLoaded["FS25_precisionFarming"]
         and FS25_precisionFarming ~= nil then
-        return FS25_precisionFarming.g_precisionFarming
+        pfHandleCache = FS25_precisionFarming.g_precisionFarming
+        return pfHandleCache
     end
     return nil
 end
@@ -1144,6 +1316,10 @@ function DashboardExport:buildFieldRecord(farmlandId, field, ownerFarmId, curren
         if pft then plannedFruit = pft.name or "" end
     end
 
+    -- Outline goes to the geometry file keyed by the same id the record carries,
+    -- not into the record itself — see GEOMETRY_FILE.
+    self:recordGeometry(farmlandId, self:getFieldPolygon(field))
+
     local cond = self:collectFieldStatus(farmlandId, field)
     -- "Needs sowing" reflects the physical state of the field: owned, no crop
     -- currently growing on the density map. `plannedFruitTypeIndex` is FS25's
@@ -1157,6 +1333,21 @@ function DashboardExport:buildFieldRecord(farmlandId, field, ownerFarmId, curren
         farmlandId       = farmlandId,
         area             = area,
         farmlandAreaHa   = farmlandAreaHa,
+        -- Purchase price of the parcel, straight off the farmland object (the
+        -- same field the in-game land-buy screen shows). Present on owned
+        -- parcels too, where it reads as the sale value. 0/absent means the map
+        -- doesn't sell this one.
+        farmlandPrice    = farmland and farmland.price and round0(farmland.price) or 0,
+        -- World coords for the Live Map, rounded to whole metres — the field's
+        -- own outline is already stored that way (collectFieldPolygon), so
+        -- centimetre precision on the centroid was both inconsistent and the
+        -- most expensive number shape to encode (%.4f + a trailing-zero gsub,
+        -- twice per field).
+        -- Guarded: round0(nil) would return 0 and drop the marker in the middle
+        -- of the map instead of leaving the key absent.
+        posX             = field.posX and round0(field.posX) or nil,
+        posZ             = field.posZ and round0(field.posZ) or nil,
+
         owned            = owned,
         fruitTypeId      = fruitTypeId,
         fruitName        = fruitName,
@@ -1179,6 +1370,347 @@ function DashboardExport:buildFieldRecord(farmlandId, field, ownerFarmId, curren
     }
 end
 
+-- Field records carry a lot of "nothing to report" — an unowned or parcel-only
+-- field sends false/0/"" for most of the condition block. Measured on a live
+-- 179-field payload that was 49 013 B of 146 KB (34 %) spent restating
+-- defaults. Dropping them here is what STRIP_DEFAULTS below undoes on the
+-- server, so the shape the frontend sees is unchanged.
+--
+-- Values are matched by identity (`==`), so a real 0 that happens to equal the
+-- default is dropped too — which is exactly the point: the server puts the same
+-- 0 back. Anything absent from this table is always sent.
+local FIELD_DEFAULTS = {
+    fruitTypeId        = "",
+    fruitName          = "",
+    growthState        = 0,
+    maxGrowthState     = 0,
+    growthPercent      = 0,
+    isReadyToHarvest   = false,
+    isCut              = false,
+    isWithered         = false,
+    daysToHarvest      = 0,
+    needsSowing        = false,
+    plannedFruit       = "",
+    needsPlowing       = false,
+    needsCultivating   = false,
+    needsLime          = false,
+    fertilizationLevel = 0,
+    weedLevel          = 0,
+    stoneLevel         = 0,
+    owned              = false,
+    farmlandPrice      = 0,
+    -- NOT isParcelOnly: it is only ever set (to true) on parcel-only records and
+    -- absent everywhere else, so listing it would save nothing while making the
+    -- server add `false` to records that never carried the key.
+}
+
+local function stripFieldDefaults(rec)
+    for k, default in pairs(FIELD_DEFAULTS) do
+        if rec[k] == default then rec[k] = nil end
+    end
+    return rec
+end
+
+-- Field shape for the Live Map. Preferred source is `field.densityMapPolygon`
+-- (pointsX/pointsZ arrays, already in world space) — the same source the LiveMap
+-- Companion mod uses; it is the engine's own field outline, so it matches the
+-- in-game map exactly and needs no I3D node walk. Fallback to `field.polygonPoints`
+-- (I3D scene nodes → getWorldTranslation) for anything without a densityMapPolygon.
+-- Geometry is STATIC — computed once per field and cached. Coords rounded to whole
+-- metres to keep the JSON payload small. See knowledge/fs25-field-boundary-geometry.md.
+function DashboardExport:collectFieldPolygon(field)
+    if field == nil then return nil end
+    local raw = {}
+    local usedFallback = false
+
+    local dmp = field.densityMapPolygon
+    if type(dmp) == "table" and type(dmp.pointsX) == "table" and type(dmp.pointsZ) == "table" then
+        for i, x in ipairs(dmp.pointsX) do
+            local z = dmp.pointsZ[i]
+            if type(x) == "number" and type(z) == "number" then
+                raw[#raw + 1] = { x, z }
+            end
+        end
+    end
+
+    if #raw < 3 then   -- no densityMapPolygon (or too few points): fall back to I3D nodes
+        usedFallback = true
+        raw = {}
+        local points = field.polygonPoints
+        if points == nil and field.getPolygonPoints then
+            points = safeCall(function() return field:getPolygonPoints() end)
+        end
+        if type(points) == "table" then
+            for _, node in ipairs(points) do
+                if type(node) == "number" and node ~= 0 then
+                    local x, _, z = getWorldTranslation(node)
+                    raw[#raw + 1] = { x, z }
+                end
+            end
+        end
+    end
+
+    local n = #raw
+    if n < 3 then return nil end
+
+    -- DIAG: record which source produced this polygon (logged once by collectFields)
+    if usedFallback then
+        self._polySrcFallback = (self._polySrcFallback or 0) + 1
+    else
+        self._polySrcDMP = (self._polySrcDMP or 0) + 1
+    end
+
+    -- Simplify: FS25 outlines carry 100+ vertices; ~4 m tolerance keeps the
+    -- shape but cuts the JSON payload by ~5×. Endpoints of the ring are always
+    -- kept; DP fills in the significant vertices between them.
+    local keep = { [1] = true, [n] = true }
+    dpSimplify(raw, 16, 1, n, keep)   -- tol² = 4 m²·… (16 = 4 m)
+    local out = {}
+    for i = 1, n do
+        if keep[i] then out[#out + 1] = { round0(raw[i][1]), round0(raw[i][2]) } end
+    end
+    if #out < 3 then return nil end
+    return out
+end
+
+-- Keyed by the field object itself, not by an id: collectFields() reaches here
+-- twice with different id spaces — farmland.id on the farmland walk, the field
+-- number on the fallback walk — and those two overlap, so an id key hands one
+-- field another field's outline. The field reference is unambiguous.
+function DashboardExport:getFieldPolygon(field)
+    if field == nil then return nil end
+    self.fieldPolyCache = self.fieldPolyCache or {}
+    local cached = self.fieldPolyCache[field]
+    if cached ~= nil then return cached or nil end   -- `false` = computed, no polygon
+
+    -- Budgeted: a map with 90+ fields would otherwise build every outline in
+    -- the first export's frame. Whatever doesn't fit arrives in a later export.
+    if (self._fieldPolyBudget or 0) <= 0 then return nil end
+    self._fieldPolyBudget = self._fieldPolyBudget - 1
+
+    local poly = safeCall(function() return self:collectFieldPolygon(field) end) or false
+    self.fieldPolyCache[field] = poly
+    return poly or nil
+end
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Farmland parcel outlines — parcels WITHOUT a cultivable field (meadow/forest/
+-- unused) have no field.polygonPoints; their shape lives only in the farmland
+-- bit-vector info layer. Scan it ONCE (static per map, cached forever), bucket
+-- grid cells per farmlandId, then trace each parcel's outline from its pixel
+-- edge segments. Downsampled for speed; DP smooths the stair-step. World
+-- transform matches field polygons (terrain-centred). See research in
+-- knowledge/fs25-field-boundary-geometry.md.
+-- ─────────────────────────────────────────────────────────────────────────────
+local FL_KEYMUL = 100000   -- grid-cell / vertex packing multiplier (grid dim < this)
+
+-- Phase A — sample the farmland bit-vector into one cell set per parcel.
+-- At ~512² effective resolution that is a quarter-million engine reads: far too
+-- much for a single frame on a large map, so it walks row by row under a
+-- millisecond budget and resumes on the next tick. `flScan` carries the cursor;
+-- `farmlandScanDone` flips once the last row is in (or the map is unavailable,
+-- so callers stop waiting on it).
+function DashboardExport:tickFarmlandScan(budgetMs)
+    if self.farmlandScanDone then return end
+
+    local st = self.flScan
+    if st == nil then
+        st = { z = 0 }
+        self.flScan = st
+        self.farmlandMasks = {}
+        local fm = g_farmlandManager
+        local map = fm and getBitVectorMapPoint
+            and ((fm.getLocalMap and safeCall(function() return fm:getLocalMap() end)) or fm.localMap)
+        local W, H = fm and fm.localMapWidth, fm and fm.localMapHeight
+        if map and (not W or not H) and getBitVectorMapSize then
+            local a, b = getBitVectorMapSize(map)
+            W = W or a; H = H or b
+        end
+        if not (map and W and H and W > 0 and H > 0) then
+            self.farmlandScanDone = true   -- nothing to scan; parcels stay outline-less
+            self.flScan = nil
+            return
+        end
+        st.map  = map
+        st.bits = fm.numberOfBits
+            or (getBitVectorMapNumChannels and getBitVectorMapNumChannels(map)) or 8
+        st.notBuyable = FarmlandManager and FarmlandManager.NOT_BUYABLE_FARM_ID
+        self.flMapW, self.flMapH = W, H
+        self.flStep = math.max(1, math.floor(W / 512))
+        self.flTs   = (g_currentMission and g_currentMission.terrainSize) or 2048
+    end
+
+    local masks, step = self.farmlandMasks, self.flStep
+    local W, H = self.flMapW, self.flMapH
+    local map, bits, notBuyable = st.map, st.bits, st.notBuyable
+    local t0 = getTimeSec()
+    while st.z < H do
+        local gz = math.floor(st.z / step)
+        for x = 0, W - 1, step do
+            local id = getBitVectorMapPoint(map, x, st.z, 0, bits)
+            if id and id > 0 and id ~= notBuyable then
+                local m = masks[id]
+                if not m then m = {}; masks[id] = m end
+                m[math.floor(x / step) * FL_KEYMUL + gz] = true
+            end
+        end
+        st.z = st.z + step
+        if (getTimeSec() - t0) * 1000 >= budgetMs then return end
+    end
+
+    self.farmlandScanDone = true
+    self.flScan = nil
+end
+
+-- Phase B — turn queued parcels into outlines, again under a budget. One trace
+-- is normally well under a millisecond, but a fragmented parcel can be much
+-- worse, so the budget is checked after every one.
+function DashboardExport:tickFarmlandTrace(budgetMs)
+    local q = self.flTraceQueue
+    if q == nil then return end
+    self.farmlandPolyCache = self.farmlandPolyCache or {}
+    local t0 = getTimeSec()
+    while #q > 0 do
+        local id = table.remove(q, 1)
+        self.flTraceQueued[id] = nil
+        local m = self.farmlandMasks and self.farmlandMasks[id]
+        self.farmlandPolyCache[id] = (m and safeCall(function() return self:traceMaskOutline(m) end)) or false
+        self.geomParcels = (self.geomParcels or 0) + 1
+        if (getTimeSec() - t0) * 1000 >= budgetMs then return end
+    end
+end
+
+-- Driven every frame from update(): scan first, then trace. Idle until an export
+-- actually asks for a parcel outline, so maps with no parcel-only farmland never
+-- pay. Runs per-frame rather than per-scan-chunk because a sub-millisecond slice
+-- 60× a second finishes the whole job in seconds, where the same total work
+-- taken in bigger bites every 500 ms would drag on for half a minute.
+function DashboardExport:tickMapGeometry(budgetMs)
+    local q = self.flTraceQueue
+    if q == nil or #q == 0 then return end
+
+    local t0 = getTimeSec()
+    if not self.farmlandScanDone then
+        self:tickFarmlandScan(budgetMs)
+    else
+        self:tickFarmlandTrace(budgetMs)
+    end
+    self.geomMsTotal = (self.geomMsTotal or 0) + (getTimeSec() - t0) * 1000
+    self.geomFrames  = (self.geomFrames or 0) + 1
+
+    if #q == 0 and self.farmlandScanDone and not self.geomLogged then
+        self.geomLogged = true
+        Logging.info(string.format("[%s] live-map geometry ready — %d parcel outlines, %.0f ms spread over %d frames",
+            self.MOD_NAME, self.geomParcels or 0, self.geomMsTotal, self.geomFrames or 0))
+    end
+end
+
+-- Trace a cell-set into its outer ring: emit CW boundary edges (a cell side is
+-- boundary iff the neighbour across it is outside), then chain them.
+function DashboardExport:traceMaskOutline(cells)
+    local nextV = {}
+    for key in pairs(cells) do
+        local gx = math.floor(key / FL_KEYMUL)
+        local gz = key - gx * FL_KEYMUL
+        if not cells[gx * FL_KEYMUL + (gz - 1)] then nextV[gx * FL_KEYMUL + gz]           = (gx + 1) * FL_KEYMUL + gz       end -- top   L→R
+        if not cells[(gx + 1) * FL_KEYMUL + gz] then nextV[(gx + 1) * FL_KEYMUL + gz]     = (gx + 1) * FL_KEYMUL + (gz + 1) end -- right T→B
+        if not cells[gx * FL_KEYMUL + (gz + 1)] then nextV[(gx + 1) * FL_KEYMUL + (gz + 1)] = gx * FL_KEYMUL + (gz + 1)     end -- bot   R→L
+        if not cells[(gx - 1) * FL_KEYMUL + gz] then nextV[gx * FL_KEYMUL + (gz + 1)]     = gx * FL_KEYMUL + gz             end -- left  B→T
+    end
+    local start
+    for v in pairs(nextV) do start = v; break end
+    if not start then return nil end
+    -- Stop on ANY revisited vertex, not just on `start`. Where a parcel pinches
+    -- to a diagonal touch, one vertex carries two outgoing edges and the second
+    -- write wins, so the chain can enter a loop that never passes through
+    -- `start` again. Watching only `start` let those run to the guard, and since
+    -- dpSimplify below is O(n²), a 50k-vertex ring cost over a second — this was
+    -- measured at ~1.2 s per parcel. Bounding by "already seen" caps the ring at
+    -- the real number of boundary vertices (~150 for a typical parcel).
+    local ring, v, seen = {}, start, {}
+    repeat
+        seen[v] = true
+        local vx = math.floor(v / FL_KEYMUL)
+        ring[#ring + 1] = { vx, v - vx * FL_KEYMUL }
+        v = nextV[v]
+    until v == nil or seen[v]
+    if #ring < 3 then return nil end
+
+    local step, W, H, ts = self.flStep, self.flMapW, self.flMapH, self.flTs
+    local f = ts / W
+    local raw = {}
+    for _, p in ipairs(ring) do
+        raw[#raw + 1] = { (p[1] * step - W * 0.5) * f, (p[2] * step - H * 0.5) * f }
+    end
+    local n = #raw
+    local keep = { [1] = true, [n] = true }
+    dpSimplify(raw, 25, 1, n, keep)   -- ~5 m tolerance
+    local out = {}
+    for i = 1, n do if keep[i] then out[#out + 1] = { round0(raw[i][1]), round0(raw[i][2]) } end end
+    if #out < 3 then return nil end
+    return out
+end
+
+-- Non-blocking: hand back the outline if it is ready, otherwise queue it and
+-- return nil. tickMapGeometry() fills it in over the following ticks and a
+-- later export carries it — the alternative was scanning the whole bit-vector
+-- and tracing every parcel inside one frame.
+function DashboardExport:getFarmlandPoly(id)
+    self.farmlandPolyCache = self.farmlandPolyCache or {}
+    local cached = self.farmlandPolyCache[id]
+    if cached ~= nil then return cached or nil end
+
+    self.flTraceQueue   = self.flTraceQueue or {}
+    self.flTraceQueued  = self.flTraceQueued or {}
+    if not self.flTraceQueued[id] then
+        self.flTraceQueued[id] = true
+        self.flTraceQueue[#self.flTraceQueue + 1] = id
+    end
+    return nil
+end
+
+-- Collect an outline under the same id the field/parcel record carries, so the
+-- server can join the two without knowing how either id was derived.
+function DashboardExport:recordGeometry(id, poly)
+    if poly == nil or id == nil then return end
+    self.geomPolys = self.geomPolys or {}
+    if self.geomPolys[id] == nil then
+        self.geomPolys[id] = poly
+        self.geometryWritten = false   -- something new to publish
+    end
+end
+
+-- Write the outline file once the whole set is built. "Built" means two things
+-- are quiet: no field outline consumed budget this export (so they are all
+-- cached) and the parcel trace queue has drained.
+function DashboardExport:maybeWriteGeometry()
+    if self.geometryWritten then return end
+    if self.geomPolys == nil then return end
+    if (self._fieldPolyBudget or 0) < self.FIELD_POLY_PER_EXPORT then return end
+    if self.flTraceQueue ~= nil and #self.flTraceQueue > 0 then return end
+    if not self.farmlandScanDone then return end
+
+    -- Keys must be strings: encodeJson's object branch skips non-string keys
+    -- outright, and a gap-free set of numeric ids would encode as an ARRAY and
+    -- lose the ids entirely. Both failure modes are silent.
+    local out, n = {}, 0
+    for id, poly in pairs(self.geomPolys) do
+        out[tostring(id)] = poly
+        n = n + 1
+    end
+    if n == 0 then return end
+
+    local t0 = getTimeSec()
+    local json = encodeJson({ count = n, polys = out })
+    local f = io.open(self.GEOMETRY_FILE, "w")
+    if f == nil then return end   -- retry next export
+    f:write(json)
+    f:close()
+    self.geometryWritten = true
+    Logging.info(string.format("[%s] map geometry written — %d outlines, %.0f ms (one-off, not in the 2 s payload)",
+        self.MOD_NAME, n, (getTimeSec() - t0) * 1000))
+end
+
 function DashboardExport:collectFields()
     local out = {}
     if g_farmlandManager == nil or g_farmlandManager.farmlands == nil then return out end
@@ -1186,6 +1718,12 @@ function DashboardExport:collectFields()
     local currentFarmId = getFarmId()
     local mapping = (g_fieldManager and g_fieldManager.farmlandIdFieldMapping) or {}
     local seen = {}
+    local seenFields = {}   -- field objects already emitted (by reference)
+    self._fieldPolyBudget = self.FIELD_POLY_PER_EXPORT
+    -- field object → the id its record was emitted under. Contracts hold a
+    -- direct field reference but no id, and the two id spaces here (farmland id
+    -- vs field number) mean there is no way to derive it afterwards.
+    self.fieldIdByRef = {}
 
     -- Primary: walk farmlands, look up field via FieldManager's official mapping.
     -- For owned farmlands with no field (meadow/yard), still emit a stub so they
@@ -1197,22 +1735,35 @@ function DashboardExport:collectFields()
             if field ~= nil then
                 local rec = self:buildFieldRecord(farmland.id, field, ownerId, currentFarmId, farmland)
                 if rec then
-                    table.insert(out, rec)
+                    out[#out + 1] = rec
                     seen[farmland.id] = true
+                    seenFields[field] = true
+                    self.fieldIdByRef[field] = farmland.id
                 end
-            elseif ownerId == currentFarmId then
+            else
+                -- Parcel with no cultivable field (meadow/forest/unused). The
+                -- in-game PDA map still draws it, so emit it with its outline
+                -- traced from the farmland bit-vector and its parcel centroid.
+                -- `isParcelOnly` lets field tables filter these out while the
+                -- map still shows them.
+                self:recordGeometry(farmland.id, self:getFarmlandPoly(farmland.id))
+
                 local area = 0
-                if farmland.totalFieldArea and farmland.totalFieldArea > 0 then
-                    area = round2(farmland.totalFieldArea / 10000)
-                elseif farmland.areaInHa then
+                if farmland.areaInHa and farmland.areaInHa > 0 then
                     area = round2(farmland.areaInHa)
+                elseif farmland.totalFieldArea and farmland.totalFieldArea > 0 then
+                    area = round2(farmland.totalFieldArea / 10000)
                 end
-                table.insert(out, {
+                out[#out + 1] = {
                     id                 = farmland.id,
                     farmlandId         = farmland.id,
+                    posX               = round0(farmland.xWorldPos or 0),
+                    posZ               = round0(farmland.zWorldPos or 0),
                     area               = area,
                     farmlandAreaHa     = area,    -- no field → both are the same
-                    owned              = true,
+                    farmlandPrice      = farmland.price and round0(farmland.price) or 0,
+                    owned              = (ownerId == currentFarmId),
+                    isParcelOnly       = true,
                     fruitTypeId        = "",
                     fruitName          = "",
                     growthState        = 0,
@@ -1230,34 +1781,49 @@ function DashboardExport:collectFields()
                     fertilizationLevel = 0,
                     weedLevel          = 0,
                     stoneLevel         = 0,
-                    pf                 = self:getFieldPF(farmland.id, nil, farmland, true),
-                })
+                    pf                 = self:getFieldPF(farmland.id, nil, farmland, ownerId == currentFarmId),
+                }
                 seen[farmland.id] = true
             end
         end
     end
 
-    -- Fallback: fields that exist in fieldManager but their farmland binding
-    -- wasn't picked up by the mapping (rare; defensive only).
+    -- Fill in every remaining field. The in-game PDA map numbers *fields*
+    -- (g_fieldManager.fields is 1-indexed by field number), and some fields —
+    -- unowned/peripheral ones without their own farmland — are missed by the
+    -- farmland walk above. Emit them keyed by field number so the map's field
+    -- count matches the game. `seenFields` skips fields already emitted (by
+    -- reference), so a field owned via a farmland keeps its farmland id.
     if g_fieldManager and g_fieldManager.fields then
-        for _, field in pairs(g_fieldManager.fields) do
-            local flId = (field.farmland and field.farmland.id) or nil
-            if flId == nil and field.posX and field.posZ and g_farmlandManager.getFarmlandIdAtWorldPosition then
-                flId = safeCall(function() return g_farmlandManager:getFarmlandIdAtWorldPosition(field.posX, field.posZ) end)
-            end
-            if flId and not seen[flId] then
-                local fl = g_farmlandManager:getFarmlandById(flId)
+        for fieldNo, field in pairs(g_fieldManager.fields) do
+            if field ~= nil and not seenFields[field] then
+                local fl = field.farmland
                 local ownerId = (fl and (fl.farmId or fl.ownerFarmId)) or 0
-                local rec = self:buildFieldRecord(flId, field, ownerId, currentFarmId, fl)
+                local rec = self:buildFieldRecord(fieldNo, field, ownerId, currentFarmId, fl)
                 if rec then
-                    table.insert(out, rec)
-                    seen[flId] = true
+                    out[#out + 1] = rec
+                    seenFields[field] = true
+                    self.fieldIdByRef[field] = fieldNo
                 end
             end
         end
     end
 
+
     table.sort(out, function(a, b) return (a.id or 0) < (b.id or 0) end)
+
+    -- DIAG (once): report which source the cultivable-field outlines came from —
+    -- densityMapPolygon (preferred) vs the polygonPoints I3D fallback. Waits for
+    -- an export that spent none of its budget: that is the first one where every
+    -- outline was already cached, so the counts are final.
+    if not self._polySrcLogged
+        and self._fieldPolyBudget == self.FIELD_POLY_PER_EXPORT
+        and ((self._polySrcDMP or 0) + (self._polySrcFallback or 0)) > 0 then
+        self._polySrcLogged = true
+        Logging.info(string.format("[%s][DIAG] field outline source: densityMapPolygon=%d fallback(polygonPoints)=%d",
+            self.MOD_NAME, self._polySrcDMP or 0, self._polySrcFallback or 0))
+    end
+
     return out
 end
 
@@ -1283,11 +1849,11 @@ local function vehicleStoreTitle(v)
     if hit ~= nil then return hit or nil end
 
     local title = nil
-    local item = safeCall(function() return g_storeManager:getItemByXMLFilename(v.configFileName) end)
+    local item = safeCall(g_storeManager.getItemByXMLFilename, g_storeManager, v.configFileName)
     if item then
         local brand = ""
         if item.brandIndex and g_brandManager and g_brandManager.getBrandByIndex then
-            local b = safeCall(function() return g_brandManager:getBrandByIndex(item.brandIndex) end)
+            local b = safeCall(g_brandManager.getBrandByIndex, g_brandManager, item.brandIndex)
             if b then brand = b.title or b.name or "" end
         end
         -- "None" / "NONE" is FS25's sentinel for no-brand items; treat as no brand
@@ -1330,9 +1896,24 @@ end
 -- only needs to say what's currently in it, or that it's empty.
 -- Module-scope (dřív vnitřní closure resolveFillTypeLabel — alokovala se
 -- při každém volání, tj. per fillUnit napříč vehicles i implements).
+-- fillType index → descriptor, memoized. The mapping is session-static (fill
+-- types come from the loaded map/mods and cannot change while a save runs), but
+-- every lookup used to be a pcall into the engine — and lookups run per fillUnit
+-- per allowed fillType, which for a multi-purpose tank is dozens per vehicle per
+-- export. `false` caches a known miss. Cleared in deleteMap.
+local fillTypeDescCache = {}
+
+local function fillTypeDesc(idx)
+    if not (idx and idx ~= 0 and g_fillTypeManager) then return nil end
+    local hit = fillTypeDescCache[idx]
+    if hit ~= nil then return hit or nil end
+    local ft = safeCall(g_fillTypeManager.getFillTypeByIndex, g_fillTypeManager, idx)
+    fillTypeDescCache[idx] = ft or false
+    return ft
+end
+
 local function fillTypeLabelLookup(idx)
-    if idx == 0 or not g_fillTypeManager then return nil, nil end
-    local ft = safeCall(function() return g_fillTypeManager:getFillTypeByIndex(idx) end)
+    local ft = fillTypeDesc(idx)
     if ft and ft.name and ft.name ~= "" and ft.name ~= "UNKNOWN" then
         return ft.name, (ft.title and ft.title ~= "Unknown") and ft.title or ft.name
     end
@@ -1372,8 +1953,7 @@ end
 -- surfaced — a combine showed no fill. Collect them here, excluding fuel/DEF
 -- (those are already shown as the fuel bar).
 local function fillTypeName(idx)
-    if not (idx and idx ~= 0 and g_fillTypeManager) then return nil end
-    local ft = safeCall(function() return g_fillTypeManager:getFillTypeByIndex(idx) end)
+    local ft = fillTypeDesc(idx)
     return ft and ft.name or nil
 end
 
@@ -1419,7 +1999,7 @@ local function collectImplements(vehicle, depth)
     if depth > 3 then return {} end                      -- anti-loop guard
     if not (vehicle and vehicle.getAttachedImplements) then return {} end
     local result = {}
-    for _, impl in pairs(safeCall(function() return vehicle:getAttachedImplements() end) or {}) do
+    for _, impl in pairs(safeCall(vehicle.getAttachedImplements, vehicle) or {}) do
         if impl.object then
             local fillUnits = getImplementFillUnits(impl)
             if fillUnits then
@@ -1430,7 +2010,7 @@ local function collectImplements(vehicle, depth)
             end
             -- Recurse: trailer-with-trailer, header on combine, etc.
             local sub = collectImplements(impl.object, depth + 1)
-            for _, s in ipairs(sub) do table.insert(result, s) end
+            for _, s in ipairs(sub) do result[#result + 1] = s end
         end
     end
     return result
@@ -1560,20 +2140,233 @@ local function getAITask(v)
     return getAutoDriveTask(v) or getCourseplayTask(v) or getVanillaAITask(v)
 end
 
+-- Local player world position + heading, for the Live Map. Falls back to the
+-- vehicle the player is currently driving (own position is frozen/stale while
+-- seated). See knowledge/fs25-player-vehicle-position-api.md.
+function DashboardExport:collectPlayer()
+    local player = g_localPlayer
+    if player == nil then return nil end
+
+    if player.getIsInVehicle and safeCall(player.getIsInVehicle, player) then
+        local v = safeCall(player.getCurrentVehicle, player)
+        if v and v.rootNode then
+            local vx, _, vz = getWorldTranslation(v.rootNode)
+            local _, headingRad, _ = getWorldRotation(v.rootNode)
+            return { x = round2(vx), z = round2(vz), headingDeg = headingFromYaw(headingRad) }
+        end
+        return nil
+    end
+
+    -- getWorldTranslation always returns exactly 3 values (x, y, z) — unlike
+    -- player:getPosition(), whose return arity turned out to be unreliable
+    -- (runtime-observed to silently drop z via Lua multi-return truncation).
+    if player.rootNode == nil then return nil end
+    local x, _, z = getWorldTranslation(player.rootNode)
+
+    -- Prefer getYaw() — the character rotates via a separate camera/root node,
+    -- so getWorldRotation(rootNode) is not a reliable heading source.
+    local yaw = (player.getYaw and safeCall(player.getYaw, player)) or 0
+    return { x = round2(x), z = round2(z), headingDeg = headingFromYaw(yaw) }
+end
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Fast position channel
+--
+-- Positions are the only thing in the payload that changes every frame; crops,
+-- silos, prices and the rest move on a scale of minutes. Exporting all of it
+-- fast enough to look live would mean paying the full ~10 ms encode several
+-- times a second, so positions get their own tiny file on a short period while
+-- the main export stays at 2 s. Keys are one letter — this is rewritten four
+-- times a second and every byte is encode work.
+-- ─────────────────────────────────────────────────────────────────────────────
+-- ─────────────────────────────────────────────────────────────────────────────
+-- AI routes for the Live Map
+--
+-- Two sources, both handing out world coordinates:
+--   AutoDrive  — v.ad.drivePathModule:getWayPoints() → {x=,z=} list + current ix
+--                (DrivePathModule.lua:384)
+--   Courseplay — v:getFieldWorkCourse() → Course, :getWaypointPosition(ix) → x,y,z
+--                (Course.lua:495)
+-- Vanilla AI has neither: its path is computed while driving and never exists
+-- as a list, so helper jobs get no route line.
+--
+-- A route only changes when a vehicle is given a new job, so the simplified
+-- geometry is cached per vehicle. `routeMeta` is the cheap identity check that
+-- decides whether to rebuild — a fieldwork course can hold thousands of
+-- waypoints and reading them all every tick would cost more than the positions.
+-- ─────────────────────────────────────────────────────────────────────────────
+local ROUTE_TOL2 = 9   -- 3 m; finer than that is invisible at map scale
+
+local function simplifyPath(pts)
+    local n = #pts
+    local out = {}
+    if n <= 2 then
+        for i = 1, n do out[i] = { round0(pts[i][1]), round0(pts[i][2]) } end
+        return out
+    end
+    local keep = { [1] = true, [n] = true }
+    dpSimplify(pts, ROUTE_TOL2, 1, n, keep)
+    for i = 1, n do
+        if keep[i] then out[#out + 1] = { round0(pts[i][1]), round0(pts[i][2]) } end
+    end
+    return out
+end
+
+-- Returns src, count, currentIx, signature, handle — where `handle` is whatever
+-- the full read needs later (the waypoint table for AD, the Course for CP).
+function DashboardExport:routeMeta(v)
+    if v.ad and v.ad.drivePathModule and v.ad.drivePathModule.getWayPoints then
+        local ok, wps, idx = pcall(function() return v.ad.drivePathModule:getWayPoints() end)
+        if ok and type(wps) == "table" and #wps >= 2 and wps[1] and wps[1].x then
+            return "ad", #wps, idx or 1,
+                string.format("ad|%d|%d|%d", #wps, round0(wps[1].x), round0(wps[#wps].x or 0)), wps
+        end
+    end
+    if v.getFieldWorkCourse then
+        local course = safeCall(v.getFieldWorkCourse, v)
+        if course and course.getNumberOfWaypoints then
+            local n = safeCall(course.getNumberOfWaypoints, course) or 0
+            if n >= 2 then
+                local x1 = safeCall(course.getWaypointPosition, course, 1) or 0
+                local xn = safeCall(course.getWaypointPosition, course, n) or 0
+                local cur = (course.getCurrentWaypointIx
+                    and safeCall(course.getCurrentWaypointIx, course)) or 1
+                return "cp", n, cur, string.format("cp|%d|%d|%d", n, round0(x1), round0(xn)), course
+            end
+        end
+    end
+    return nil
+end
+
+function DashboardExport:routePoints(src, handle, n)
+    if src == "ad" then
+        local pts = {}
+        for i = 1, #handle do
+            local w = handle[i]
+            if w and w.x and w.z then pts[#pts + 1] = { w.x, w.z } end
+        end
+        return pts
+    end
+    return safeCall(function()
+        local pts = {}
+        for i = 1, n do
+            local x, _, z = handle:getWaypointPosition(i)
+            if x and z then pts[#pts + 1] = { x, z } end
+        end
+        return pts
+    end) or {}
+end
+
+function DashboardExport:collectRoutes()
+    if not (g_currentMission and g_currentMission.vehicleSystem) then return nil end
+    self.routeCache = self.routeCache or {}
+    local farmId = getFarmId()
+    local out = {}
+
+    for _, v in pairs(g_currentMission.vehicleSystem.vehicles or {}) do
+        if v and v.rootNode then
+            local ownerId = ownerFarmId(v)
+            if ownerId == farmId then
+                local src, n, cur, sig, handle = self:routeMeta(v)
+                if src ~= nil then
+                    local name = (v.getName and v:getName()) or ""
+                    local c = self.routeCache[name]
+                    if c == nil or c.sig ~= sig then
+                        c = { sig = sig, p = simplifyPath(self:routePoints(src, handle, n)) }
+                        self.routeCache[name] = c
+                    end
+                    if #c.p >= 2 then
+                        out[#out + 1] = {
+                            v = name,
+                            s = src,
+                            f = round2(math.max(0, math.min(1, cur / n))),   -- fraction driven
+                            p = c.p,
+                        }
+                    end
+                end
+            end
+        end
+    end
+    return #out > 0 and out or nil
+end
+
+function DashboardExport:writePositions()
+    if not (g_currentMission and g_currentMission.vehicleSystem) then return end
+
+    local out = { vehicles = {} }
+    local p = self:collectPlayer()
+    if p then out.player = { x = p.x, z = p.z, h = p.headingDeg } end
+
+    local farmId = getFarmId()
+    local list = out.vehicles
+    for _, v in pairs(g_currentMission.vehicleSystem.vehicles or {}) do
+        -- Same gate as collectVehicles, so the map never shows a marker the
+        -- vehicle table doesn't list.
+        local hasRealMotor = v and v.spec_motorized and v.spec_motorized.motor ~= nil
+        if hasRealMotor and v.spec_drivable ~= nil and v.rootNode then
+            local ownerId = ownerFarmId(v)
+            if ownerId == farmId then
+                local vx, _, vz = getWorldTranslation(v.rootNode)
+                local _, yaw, _ = getWorldRotation(v.rootNode)
+                list[#list + 1] = {
+                    n = (v.getName and v:getName()) or "",
+                    x = round2(vx), z = round2(vz), h = headingFromYaw(yaw),
+                }
+            end
+        end
+    end
+    if #list == 0 then out.vehicles = emptyArray() end
+
+    -- Routes ride along every 8th frame (~2 s). They change only on a new job,
+    -- so sending them at the full 4 Hz would be hundreds of points of pure
+    -- repetition; always emitting the key on those frames (even empty) is what
+    -- lets the client clear a route once a job ends.
+    self.posFrame = (self.posFrame or 0) + 1
+    if self.posFrame % 8 == 0 then
+        out.routes = self:collectRoutes() or emptyArray()
+    end
+
+    -- FS25 has no socket/HTTP API for mods — a file the server watches is the
+    -- only channel out. `io.open`/write/close is a synchronous call on the game
+    -- thread though, so skip it entirely when nothing actually moved (parked
+    -- vehicle, player AFK at a menu): most of a play session is exactly that,
+    -- and this is the one part of the channel we CAN cut. Building `out` still
+    -- costs the same; only the disk write (and the server's watcher wake-up)
+    -- is avoided.
+    local json = encodeJson(out)
+    if json == self.lastPosJson then return end
+
+    local t0 = getTimeSec()
+    local f = io.open(self.POSITIONS_FILE, "w")
+    if f == nil then return end
+    f:write(json)
+    f:close()
+    self.lastPosJson = json
+
+    if not self.posLogged then
+        self.posLogged = true
+        Logging.info(string.format("[%s] position channel live — %d vehicles, %.1f ms per write, every %d ms",
+            self.MOD_NAME, #list, (getTimeSec() - t0) * 1000, self.POSITION_PERIOD))
+    end
+end
+
 function DashboardExport:collectVehicles()
     local out = {}
     if not (g_currentMission and g_currentMission.vehicleSystem) then return out end
     local farmId = getFarmId()
 
     for _, v in pairs(g_currentMission.vehicleSystem.vehicles or {}) do
-        local ownerId = (v.getOwnerFarmId and safeCall(function() return v:getOwnerFarmId() end))
-                        or v.ownerFarmId or 0
+        -- Cheap spec checks BEFORE the owner lookup: ownerFarmId() may pcall
+        -- into the engine, and it used to run for every vehicle on the map only
+        -- for most of them to fail these two plain field tests. writePositions
+        -- already gates in this order.
+        --
         -- Require a real driveable vehicle (excludes rest-station placeables that have
         -- vestigial spec_motorized but no driving cockpit). Wheelbarrows etc. ARE drivable
         -- and stay in the list (with fuelCapacity=0) — that's fine, user can hide them in UI.
-        local hasRealMotor = v.spec_motorized and v.spec_motorized.motor ~= nil
-        local isDrivable   = v.spec_drivable ~= nil
-        if v and hasRealMotor and isDrivable and ownerId == farmId then
+        local hasRealMotor = v and v.spec_motorized and v.spec_motorized.motor ~= nil
+        local isDrivable   = v and v.spec_drivable ~= nil
+        if hasRealMotor and isDrivable and ownerFarmId(v) == farmId then
             local rec = {
                 name        = v.getName and v:getName() or "",
                 typeName    = vehicleStoreTitle(v) or (v.typeName and tostring(v.typeName)) or "",
@@ -1633,7 +2426,7 @@ function DashboardExport:collectVehicles()
             -- See knowledge/vehicle-damage-speed-api.md.
             local speedKmh = 0
             if v.getLastSpeed then
-                speedKmh = math.floor((safeCall(function() return v:getLastSpeed() end) or 0) + 0.5)
+                speedKmh = math.floor((safeCall(v.getLastSpeed, v) or 0) + 0.5)
             end
             rec.speedKmh = speedKmh
 
@@ -1641,7 +2434,7 @@ function DashboardExport:collectVehicles()
             -- the menu shows condition, which is the inverse. Guard for vehicles
             -- without the wearable spec.
             if v.spec_wearable and v.getDamageAmount then
-                local dmg = safeCall(function() return v:getDamageAmount() end)
+                local dmg = safeCall(v.getDamageAmount, v)
                 if type(dmg) == "number" then
                     rec.conditionPercent = math.floor((1 - dmg) * 100 + 0.5)
                 end
@@ -1654,7 +2447,18 @@ function DashboardExport:collectVehicles()
                        or (speedKmh > 0)
                        or false
 
-            table.insert(out, rec)
+            -- World position + heading for the Live Map. Always via rootNode —
+            -- vehicles have no getWorldTranslation() method of their own.
+            -- See knowledge/fs25-player-vehicle-position-api.md.
+            if v.rootNode then
+                local vx, _, vz = getWorldTranslation(v.rootNode)
+                local _, headingRad, _ = getWorldRotation(v.rootNode)
+                rec.x = round2(vx)
+                rec.z = round2(vz)
+                rec.headingDeg = headingFromYaw(headingRad)
+            end
+
+            out[#out + 1] = rec
         end
     end
 
@@ -1693,249 +2497,288 @@ local function fillReading(placeable, fillType)
     return math.floor(lvl), math.floor(cap), pctOf(lvl, cap)
 end
 
-function DashboardExport:collectAnimals()
-    local out = {}
-    if not (g_currentMission and g_currentMission.placeableSystem) then return out end
+-- One pass over the placeable list per export, bucketed by the spec each
+-- consumer cares about. The list used to be walked three times (animals,
+-- storages, prices), and each walk resolved the owner farm id through a pcall
+-- for every placeable on the map — several hundred redundant pcalls per export.
+--
+-- The ownership tests are deliberately NOT unified: collectAnimals matched
+-- `ownerId == farmId` while isOwnedBy() also required `ownerId > 0`. getFarmId()
+-- can return 0 (`x or 1` keeps a literal 0, since 0 is truthy in Lua), and in
+-- that case the two rules genuinely disagree. Selling stations are unfiltered —
+-- prices are public.
+function DashboardExport:collectPlaceableBuckets()
+    local buckets = { husbandry = {}, storage = {}, selling = {}, production = {} }
+    local ps = g_currentMission and g_currentMission.placeableSystem
+    if not (ps and ps.placeables) then return buckets end
     local farmId = getFarmId()
 
-    for _, placeable in pairs(g_currentMission.placeableSystem.placeables or {}) do
-        local ownerId = (placeable.getOwnerFarmId and safeCall(function() return placeable:getOwnerFarmId() end))
-                        or placeable.ownerFarmId or 0
-        if placeable and placeable.spec_husbandryAnimals and ownerId == farmId then
-            local spec = placeable.spec_husbandryAnimals
-            -- waterPercent etc. intentionally omitted from defaults — only present when
-            -- the corresponding spec exists. Pigs/sheep don't have water; frontend hides
-            -- the badge when the property is missing.
-            local rec = {
-                husbandryName       = placeable.getName and placeable:getName() or "",
-                type                = nil,
-                typeTitle           = nil,
-                count               = 0,
-                maxCount            = 0,
-                productivity        = 0,
-                foodPercent         = 0,
-                clusters            = emptyArray(),
-            }
-
-            -- Animal type: enum name (COW, PIG, ...) + localized title (Kráva, Prase, ...)
-            if spec.animalTypeIndex and g_currentMission.animalSystem then
-                local at = safeCall(function() return g_currentMission.animalSystem:getTypeByIndex(spec.animalTypeIndex) end)
-                if at then
-                    rec.type = at.name
-                    rec.typeTitle = localizeAnimalName(at)
+    for _, p in pairs(ps.placeables) do
+        if p then
+            if p.spec_sellingStation then
+                buckets.selling[#buckets.selling + 1] = p
+            end
+            local ownerId = ownerFarmId(p)
+            if ownerId == farmId then
+                if p.spec_husbandryAnimals then
+                    buckets.husbandry[#buckets.husbandry + 1] = p
                 end
-            end
-
-            -- Capacity
-            if spec.getMaxNumOfAnimals then
-                rec.maxCount = safeCall(function() return spec:getMaxNumOfAnimals() end) or 0
-            end
-
-            -- Cluster details — per-subtype breakdown for the detail view
-            if spec.clusterSystem then
-                local clusters = safeCall(function() return spec.clusterSystem:getClusters() end) or {}
-                local total, healthSum, n = 0, 0, 0
-                local clusterList = {}
-                for _, c in ipairs(clusters) do
-                    local subTypeName, subTypeTitle = "", ""
-                    local subType = nil
-                    if c.subTypeIndex and g_currentMission.animalSystem then
-                        subType = safeCall(function() return g_currentMission.animalSystem:getSubTypeByIndex(c.subTypeIndex) end)
-                        if subType then
-                            subTypeName  = subType.name or ""
-                            subTypeTitle = localizeAnimalName(subType)
-                        end
+                if ownerId > 0 then
+                    -- A placeable carries exactly one storage spec in practice.
+                    if p.spec_silo then
+                        buckets.storage[#buckets.storage + 1] = { p = p, kind = "silo" }
+                    elseif p.spec_bunkerSilo then
+                        buckets.storage[#buckets.storage + 1] = { p = p, kind = "bunker" }
+                    elseif p.spec_objectStorage then
+                        buckets.storage[#buckets.storage + 1] = { p = p, kind = "object" }
                     end
-
-                    -- Reproduction state — we want to tell the user *why* the
-                    -- reproduction counter is or isn't moving. Engine values:
-                    --   subType.supportsReproduction  → bool (some species can't breed at all)
-                    --   subType.reproductionMinAgeMonth, reproductionMinHealth
-                    --   cluster:getCanReproduce()      → bool, all gates passed right now
-                    --   cluster:getReproductionFactor()→ float, 0 = paused, >0 = active rate
-                    --   cluster.reproduction           → 0-100 progress counter
-                    local supportsRepro = subType and (subType.supportsReproduction ~= false) or false
-                    local minAge        = (subType and subType.reproductionMinAgeMonth) or 0
-                    local minHealth     = (subType and subType.reproductionMinHealth)   or 0
-                    local canRepro      = (c.getCanReproduce       and safeCall(function() return c:getCanReproduce()       end)) or false
-                    local repFactor     = (c.getReproductionFactor and safeCall(function() return c:getReproductionFactor() end)) or 0
-                    local reproPct      = math.floor((c.reproduction or 0) + 0.5)
-                    local age           = c.age or 0
-
-                    -- Derive a single status enum the frontend can render directly.
-                    --   unsupported — species/subtype doesn't reproduce at all
-                    --   young       — not old enough yet (waiting to mature)
-                    --   blocked     — old enough but engine says can't reproduce
-                    --                 (health too low, missing partner, manual-hold mod, …)
-                    --   ready       — at 100 %, birth imminent next tick
-                    --   cycling     — actively progressing toward 100 %
-                    --   paused      — gated by factor=0 (e.g. manual-reproduction mod)
-                    local status
-                    if not supportsRepro then
-                        status = 'unsupported'
-                    elseif age < minAge then
-                        status = 'young'
-                    elseif reproPct >= 100 then
-                        status = 'ready'
-                    elseif not canRepro then
-                        status = 'blocked'
-                    elseif repFactor <= 0 then
-                        status = 'paused'
-                    else
-                        status = 'cycling'
-                    end
-
-                    total = total + (c.numAnimals or 0)
-                    healthSum = healthSum + (c.health or 0)
-                    n = n + 1
-                    table.insert(clusterList, {
-                        subType         = subTypeName,
-                        subTypeTitle    = subTypeTitle,
-                        count           = c.numAnimals or 0,
-                        health          = math.floor((c.health or 0) + 0.5),
-                        age             = age,
-                        reproduction    = reproPct,
-                        reproStatus     = status,
-                        canReproduce    = canRepro,
-                        reproFactor     = repFactor,
-                        minAgeMonth     = minAge,
-                        minHealth       = minHealth,
-                        supportsRepro   = supportsRepro,
-                        sellPrice       = (c.getSellPrice and math.floor(safeCall(function() return c:getSellPrice() end) or 0)) or 0,
-                    })
-                end
-                rec.count = total
-                if n > 0 then rec.productivity = math.floor(healthSum / n + 0.5) end
-                if #clusterList > 0 then rec.clusters = clusterList end
-
-                -- Husbandry-level summary for the compact row:
-                --   reproductionPercent — highest cluster %
-                --   reproductionStatus  — "best" status across clusters, in priority
-                --   ready > cycling > paused > blocked > young > unsupported
-                -- so the badge reflects "the most promising cluster" rather than
-                -- being dragged down by a single young/blocked one.
-                local STATUS_RANK = { ready=5, cycling=4, paused=3, blocked=2, young=1, unsupported=0 }
-                local maxRepro, bestStatus, bestRank = 0, 'unsupported', -1
-                for _, c in ipairs(clusterList) do
-                    if c.reproduction and c.reproduction > maxRepro then maxRepro = c.reproduction end
-                    local r = STATUS_RANK[c.reproStatus] or -1
-                    if r > bestRank then bestRank = r; bestStatus = c.reproStatus end
-                end
-                rec.reproductionPercent = maxRepro
-                rec.reproductionStatus  = bestStatus
-            end
-
-            -- Food (overall)
-            if placeable.spec_husbandryFood and placeable.getTotalFood and placeable.getFoodCapacity then
-                local f, c = safeCall(function() return placeable:getTotalFood() end) or 0,
-                             safeCall(function() return placeable:getFoodCapacity() end) or 0
-                rec.foodLiters   = math.floor(f)
-                rec.foodCapacity = math.floor(c)
-                rec.foodPercent  = pctOf(f, c)
-            end
-
-            -- Water — only when manually supplied (auto-water troughs hide the row).
-            -- Some chow types (pigs, sheep, rabbits, chickens on this map) don't have
-            -- spec_husbandryWater at all → no water badge in dashboard.
-            local wSpec = placeable.spec_husbandryWater
-            if wSpec and wSpec.fillType and not wSpec.automaticWaterSupply then
-                local l, c, p = fillReading(placeable, wSpec.fillType)
-                if l ~= nil and c and c > 0 then
-                    rec.waterLiters   = l
-                    rec.waterCapacity = c
-                    rec.waterPercent  = p
-                end
-            end
-
-            -- Straw
-            local sSpec = placeable.spec_husbandryStraw
-            if sSpec and sSpec.inputFillType then
-                local l, c, p = fillReading(placeable, sSpec.inputFillType)
-                if l ~= nil then
-                    rec.strawLiters   = l
-                    rec.strawCapacity = c
-                    rec.strawPercent  = p
-                end
-            end
-
-            -- Milk (max % across active fill types; report dominant fill type)
-            local mSpec = placeable.spec_husbandryMilk
-            if mSpec and mSpec.activeFillTypes then
-                -- Sentinel -1 so the FIRST read always wins, even when the
-                -- silo is empty (p == 0). The old `p > maxPct` started at 0
-                -- and rejected empties, so milkCapacity stayed 0 and the
-                -- detail modal hid the milk row entirely.
-                local maxPct, maxLvl, maxCap, maxName = -1, 0, 0, ""
-                for _, ft in pairs(mSpec.activeFillTypes) do
-                    local l, c, p = fillReading(placeable, ft)
-                    if p ~= nil and p >= maxPct then
-                        maxPct, maxLvl, maxCap = p, l, c
-                        local ftDesc = g_fillTypeManager and g_fillTypeManager:getFillTypeByIndex(ft)
-                        maxName = (ftDesc and (ftDesc.title or ftDesc.name)) or ""
+                    if p.spec_productionPoint then
+                        buckets.production[#buckets.production + 1] = p
                     end
                 end
-                if maxPct < 0 then maxPct = 0 end
-                rec.milkPercent  = maxPct
-                rec.milkLiters   = maxLvl
-                rec.milkCapacity = maxCap
-                rec.milkType     = maxName
             end
-
-            -- Solid manure (heap)
-            if placeable.spec_manureHeap and placeable.spec_manureHeap.manureHeap then
-                local mh = placeable.spec_manureHeap.manureHeap
-                local lvl = safeCall(function() return mh:getFillLevel(mh.fillTypeIndex) end) or 0
-                local cap = safeCall(function() return mh:getCapacity(mh.fillTypeIndex) end) or 0
-                rec.manureLiters   = math.floor(lvl)
-                rec.manureCapacity = math.floor(cap)
-                rec.manurePercent  = pctOf(lvl, cap)
-            end
-
-            -- Liquid manure
-            local lmSpec = placeable.spec_husbandryLiquidManure
-            if lmSpec and lmSpec.fillType then
-                local l, c, p = fillReading(placeable, lmSpec.fillType)
-                if l ~= nil then
-                    rec.liquidManureLiters   = l
-                    rec.liquidManureCapacity = c
-                    rec.liquidManurePercent  = p
-                end
-            end
-
-            -- Pallet outputs (wool from sheep, eggs from poultry, goat milk from
-            -- goats). Unlike milk, these are NOT a husbandry fill level — they
-            -- spawn as physical pallets. spec_husbandryPallets has no getter; we
-            -- read its tables directly: fillLevels = liters across pallets in the
-            -- spawn trigger, pendingLiters = output not yet materialized into a
-            -- pallet, capacities = maxNumPallets × palletCap. activeFillTypes is
-            -- only populated while producing animals are present.
-            --
-            -- A combined sheep+goat barn has TWO active fill types at once (wool
-            -- AND goat milk), so we emit ALL of them as an array — the old code
-            -- kept only the highest-level one, which let goat milk (4 l) hide the
-            -- wool (0 l) entirely.
-            local pSpec = placeable.spec_husbandryPallets
-            if pSpec and pSpec.activeFillTypes and #pSpec.activeFillTypes > 0 then
-                local pallets = {}
-                for _, ft in ipairs(pSpec.activeFillTypes) do
-                    local lvl = (pSpec.fillLevels and pSpec.fillLevels[ft] or 0)
-                              + (pSpec.pendingLiters and pSpec.pendingLiters[ft] or 0)
-                    local cap = (pSpec.capacities and pSpec.capacities[ft]) or 0
-                    local ftDesc = g_fillTypeManager and g_fillTypeManager:getFillTypeByIndex(ft)
-                    table.insert(pallets, {
-                        type     = (ftDesc and (ftDesc.title or ftDesc.name)) or "",
-                        liters   = math.floor(lvl),
-                        capacity = math.floor(cap),
-                        percent  = pctOf(lvl, cap),
-                    })
-                end
-                if #pallets > 0 then
-                    rec.pallets = pallets
-                end
-            end
-
-            table.insert(out, rec)
         end
+    end
+    return buckets
+end
+
+function DashboardExport:collectAnimals(buckets)
+    local out = {}
+
+    for _, placeable in ipairs(buckets.husbandry) do
+        local spec = placeable.spec_husbandryAnimals
+        -- waterPercent etc. intentionally omitted from defaults — only present when
+        -- the corresponding spec exists. Pigs/sheep don't have water; frontend hides
+        -- the badge when the property is missing.
+        local rec = {
+            husbandryName       = placeable.getName and placeable:getName() or "",
+            type                = nil,
+            typeTitle           = nil,
+            count               = 0,
+            maxCount            = 0,
+            productivity        = 0,
+            foodPercent         = 0,
+            clusters            = emptyArray(),
+        }
+
+        -- Animal type: enum name (COW, PIG, ...) + localized title (Kráva, Prase, ...)
+        if spec.animalTypeIndex and g_currentMission.animalSystem then
+            local at = safeCall(function() return g_currentMission.animalSystem:getTypeByIndex(spec.animalTypeIndex) end)
+            if at then
+                rec.type = at.name
+                rec.typeTitle = localizeAnimalName(at)
+            end
+        end
+
+        -- Capacity
+        if spec.getMaxNumOfAnimals then
+            rec.maxCount = safeCall(function() return spec:getMaxNumOfAnimals() end) or 0
+        end
+
+        -- Cluster details — per-subtype breakdown for the detail view
+        if spec.clusterSystem then
+            local clusters = safeCall(function() return spec.clusterSystem:getClusters() end) or {}
+            local total, healthSum, n = 0, 0, 0
+            local clusterList = {}
+            for _, c in ipairs(clusters) do
+                local subTypeName, subTypeTitle = "", ""
+                local subType = nil
+                if c.subTypeIndex and g_currentMission.animalSystem then
+                    subType = safeCall(function() return g_currentMission.animalSystem:getSubTypeByIndex(c.subTypeIndex) end)
+                    if subType then
+                        subTypeName  = subType.name or ""
+                        subTypeTitle = localizeAnimalName(subType)
+                    end
+                end
+
+                -- Reproduction state — we want to tell the user *why* the
+                -- reproduction counter is or isn't moving. Engine values:
+                --   subType.supportsReproduction  → bool (some species can't breed at all)
+                --   subType.reproductionMinAgeMonth, reproductionMinHealth
+                --   cluster:getCanReproduce()      → bool, all gates passed right now
+                --   cluster:getReproductionFactor()→ float, 0 = paused, >0 = active rate
+                --   cluster.reproduction           → 0-100 progress counter
+                local supportsRepro = subType and (subType.supportsReproduction ~= false) or false
+                local minAge        = (subType and subType.reproductionMinAgeMonth) or 0
+                local minHealth     = (subType and subType.reproductionMinHealth)   or 0
+                local canRepro      = (c.getCanReproduce       and safeCall(function() return c:getCanReproduce()       end)) or false
+                local repFactor     = (c.getReproductionFactor and safeCall(function() return c:getReproductionFactor() end)) or 0
+                local reproPct      = math.floor((c.reproduction or 0) + 0.5)
+                local age           = c.age or 0
+
+                -- Derive a single status enum the frontend can render directly.
+                --   unsupported — species/subtype doesn't reproduce at all
+                --   young       — not old enough yet (waiting to mature)
+                --   blocked     — old enough but engine says can't reproduce
+                --                 (health too low, missing partner, manual-hold mod, …)
+                --   ready       — at 100 %, birth imminent next tick
+                --   cycling     — actively progressing toward 100 %
+                --   paused      — gated by factor=0 (e.g. manual-reproduction mod)
+                local status
+                if not supportsRepro then
+                    status = 'unsupported'
+                elseif age < minAge then
+                    status = 'young'
+                elseif reproPct >= 100 then
+                    status = 'ready'
+                elseif not canRepro then
+                    status = 'blocked'
+                elseif repFactor <= 0 then
+                    status = 'paused'
+                else
+                    status = 'cycling'
+                end
+
+                total = total + (c.numAnimals or 0)
+                healthSum = healthSum + (c.health or 0)
+                n = n + 1
+                table.insert(clusterList, {
+                    subType         = subTypeName,
+                    subTypeTitle    = subTypeTitle,
+                    count           = c.numAnimals or 0,
+                    health          = math.floor((c.health or 0) + 0.5),
+                    age             = age,
+                    reproduction    = reproPct,
+                    reproStatus     = status,
+                    canReproduce    = canRepro,
+                    reproFactor     = repFactor,
+                    minAgeMonth     = minAge,
+                    minHealth       = minHealth,
+                    supportsRepro   = supportsRepro,
+                    sellPrice       = (c.getSellPrice and math.floor(safeCall(function() return c:getSellPrice() end) or 0)) or 0,
+                })
+            end
+            rec.count = total
+            if n > 0 then rec.productivity = math.floor(healthSum / n + 0.5) end
+            if #clusterList > 0 then rec.clusters = clusterList end
+
+            -- Husbandry-level summary for the compact row:
+            --   reproductionPercent — highest cluster %
+            --   reproductionStatus  — "best" status across clusters, in priority
+            --   ready > cycling > paused > blocked > young > unsupported
+            -- so the badge reflects "the most promising cluster" rather than
+            -- being dragged down by a single young/blocked one.
+            local STATUS_RANK = { ready=5, cycling=4, paused=3, blocked=2, young=1, unsupported=0 }
+            local maxRepro, bestStatus, bestRank = 0, 'unsupported', -1
+            for _, c in ipairs(clusterList) do
+                if c.reproduction and c.reproduction > maxRepro then maxRepro = c.reproduction end
+                local r = STATUS_RANK[c.reproStatus] or -1
+                if r > bestRank then bestRank = r; bestStatus = c.reproStatus end
+            end
+            rec.reproductionPercent = maxRepro
+            rec.reproductionStatus  = bestStatus
+        end
+
+        -- Food (overall)
+        if placeable.spec_husbandryFood and placeable.getTotalFood and placeable.getFoodCapacity then
+            local f, c = safeCall(function() return placeable:getTotalFood() end) or 0,
+                         safeCall(function() return placeable:getFoodCapacity() end) or 0
+            rec.foodLiters   = math.floor(f)
+            rec.foodCapacity = math.floor(c)
+            rec.foodPercent  = pctOf(f, c)
+        end
+
+        -- Water — only when manually supplied (auto-water troughs hide the row).
+        -- Some chow types (pigs, sheep, rabbits, chickens on this map) don't have
+        -- spec_husbandryWater at all → no water badge in dashboard.
+        local wSpec = placeable.spec_husbandryWater
+        if wSpec and wSpec.fillType and not wSpec.automaticWaterSupply then
+            local l, c, p = fillReading(placeable, wSpec.fillType)
+            if l ~= nil and c and c > 0 then
+                rec.waterLiters   = l
+                rec.waterCapacity = c
+                rec.waterPercent  = p
+            end
+        end
+
+        -- Straw
+        local sSpec = placeable.spec_husbandryStraw
+        if sSpec and sSpec.inputFillType then
+            local l, c, p = fillReading(placeable, sSpec.inputFillType)
+            if l ~= nil then
+                rec.strawLiters   = l
+                rec.strawCapacity = c
+                rec.strawPercent  = p
+            end
+        end
+
+        -- Milk (max % across active fill types; report dominant fill type)
+        local mSpec = placeable.spec_husbandryMilk
+        if mSpec and mSpec.activeFillTypes then
+            -- Sentinel -1 so the FIRST read always wins, even when the
+            -- silo is empty (p == 0). The old `p > maxPct` started at 0
+            -- and rejected empties, so milkCapacity stayed 0 and the
+            -- detail modal hid the milk row entirely.
+            local maxPct, maxLvl, maxCap, maxName = -1, 0, 0, ""
+            for _, ft in pairs(mSpec.activeFillTypes) do
+                local l, c, p = fillReading(placeable, ft)
+                if p ~= nil and p >= maxPct then
+                    maxPct, maxLvl, maxCap = p, l, c
+                    local ftDesc = fillTypeDesc(ft)
+                    maxName = (ftDesc and (ftDesc.title or ftDesc.name)) or ""
+                end
+            end
+            if maxPct < 0 then maxPct = 0 end
+            rec.milkPercent  = maxPct
+            rec.milkLiters   = maxLvl
+            rec.milkCapacity = maxCap
+            rec.milkType     = maxName
+        end
+
+        -- Solid manure (heap)
+        if placeable.spec_manureHeap and placeable.spec_manureHeap.manureHeap then
+            local mh = placeable.spec_manureHeap.manureHeap
+            local lvl = safeCall(function() return mh:getFillLevel(mh.fillTypeIndex) end) or 0
+            local cap = safeCall(function() return mh:getCapacity(mh.fillTypeIndex) end) or 0
+            rec.manureLiters   = math.floor(lvl)
+            rec.manureCapacity = math.floor(cap)
+            rec.manurePercent  = pctOf(lvl, cap)
+        end
+
+        -- Liquid manure
+        local lmSpec = placeable.spec_husbandryLiquidManure
+        if lmSpec and lmSpec.fillType then
+            local l, c, p = fillReading(placeable, lmSpec.fillType)
+            if l ~= nil then
+                rec.liquidManureLiters   = l
+                rec.liquidManureCapacity = c
+                rec.liquidManurePercent  = p
+            end
+        end
+
+        -- Pallet outputs (wool from sheep, eggs from poultry, goat milk from
+        -- goats). Unlike milk, these are NOT a husbandry fill level — they
+        -- spawn as physical pallets. spec_husbandryPallets has no getter; we
+        -- read its tables directly: fillLevels = liters across pallets in the
+        -- spawn trigger, pendingLiters = output not yet materialized into a
+        -- pallet, capacities = maxNumPallets × palletCap. activeFillTypes is
+        -- only populated while producing animals are present.
+        --
+        -- A combined sheep+goat barn has TWO active fill types at once (wool
+        -- AND goat milk), so we emit ALL of them as an array — the old code
+        -- kept only the highest-level one, which let goat milk (4 l) hide the
+        -- wool (0 l) entirely.
+        local pSpec = placeable.spec_husbandryPallets
+        if pSpec and pSpec.activeFillTypes and #pSpec.activeFillTypes > 0 then
+            local pallets = {}
+            for _, ft in ipairs(pSpec.activeFillTypes) do
+                local lvl = (pSpec.fillLevels and pSpec.fillLevels[ft] or 0)
+                          + (pSpec.pendingLiters and pSpec.pendingLiters[ft] or 0)
+                local cap = (pSpec.capacities and pSpec.capacities[ft]) or 0
+                local ftDesc = fillTypeDesc(ft)
+                table.insert(pallets, {
+                    type     = (ftDesc and (ftDesc.title or ftDesc.name)) or "",
+                    liters   = math.floor(lvl),
+                    capacity = math.floor(cap),
+                    percent  = pctOf(lvl, cap),
+                })
+            end
+            if #pallets > 0 then
+                rec.pallets = pallets
+            end
+        end
+
+        out[#out + 1] = rec
     end
 
     return out
@@ -1953,15 +2796,8 @@ end
 -- ODLIŠNÉ od fillTypeName (ř. 1374), která vrací canonical name ("WHEAT") pro
 -- fuel matching. Dřív obě sdílely jméno a druhá stínila první, což bylo matoucí.
 local function fillTypeTitle(fillType)
-    local ftDesc = g_fillTypeManager and g_fillTypeManager:getFillTypeByIndex(fillType)
+    local ftDesc = fillTypeDesc(fillType)
     return (ftDesc and (ftDesc.title or ftDesc.name)) or tostring(fillType)
-end
-
-local function isOwnedBy(placeable, farmId)
-    if not placeable then return false end
-    local ownerId = (placeable.getOwnerFarmId and safeCall(function() return placeable:getOwnerFarmId() end))
-                    or placeable.ownerFarmId or 0
-    return ownerId == farmId and ownerId > 0
 end
 
 local function collectSiloRec(placeable, farmId)
@@ -2057,31 +2893,29 @@ local function collectObjectStorageRec(placeable)
     return rec
 end
 
-function DashboardExport:collectStorages()
+local function byItemName(a, b) return a.name < b.name end
+
+function DashboardExport:collectStorages(buckets)
     local out = {}
-    if not (g_currentMission and g_currentMission.placeableSystem) then return out end
     local farmId = getFarmId()
 
-    -- Dispatch přímo podle přítomnosti specu — dřív se pro KAŽDÝ vlastněný
-    -- placeable (i domy/ploty) vytvořily a pcall-ovaly 3 closury, i když neměl
-    -- žádný storage spec. Teď se volá jen ta jedna collect*Rec funkce, která
-    -- odpovídá specu (pcall uvnitř ní chrání skutečné native volání).
-    -- Placeable nese v praxi právě jeden z těchto specs.
-    for _, placeable in pairs(g_currentMission.placeableSystem.placeables or {}) do
-        if isOwnedBy(placeable, farmId) then
-            local rec
-            if placeable.spec_silo then
-                rec = safeCall(function() return collectSiloRec(placeable, farmId) end)
-            elseif placeable.spec_bunkerSilo then
-                rec = safeCall(function() return collectBunkerRec(placeable) end)
-            elseif placeable.spec_objectStorage then
-                rec = safeCall(function() return collectObjectStorageRec(placeable) end)
-            end
-            if rec then
-                table.sort(rec.items, function(a, b) return a.name < b.name end)
-                if #rec.items == 0 then rec.items = emptyArray() end
-                table.insert(out, rec)
-            end
+    -- The bucket pass already resolved ownership and which storage spec each
+    -- placeable carries, so this only dispatches. safeCall takes varargs, so the
+    -- collect*Rec calls need no wrapper closure either.
+    for _, entry in ipairs(buckets.storage) do
+        local placeable, kind = entry.p, entry.kind
+        local rec
+        if kind == "silo" then
+            rec = safeCall(collectSiloRec, placeable, farmId)
+        elseif kind == "bunker" then
+            rec = safeCall(collectBunkerRec, placeable)
+        else
+            rec = safeCall(collectObjectStorageRec, placeable)
+        end
+        if rec then
+            table.sort(rec.items, byItemName)
+            if #rec.items == 0 then rec.items = emptyArray() end
+            out[#out + 1] = rec
         end
     end
     return out
@@ -2174,18 +3008,18 @@ end
 -- so the old isOwnedBy() placeable scan dropped it). See
 -- knowledge/fs25-production-points.md. Falls back to the placeable scan when
 -- the chain manager isn't available.
-function DashboardExport:collectProductions()
+function DashboardExport:collectProductions(buckets)
     local out = {}
     local farmId = getFarmId()
     local pcm = g_currentMission and g_currentMission.productionChainManager
 
     if pcm and pcm.getProductionPointsForFarmId then
-        local pps = safeCall(function() return pcm:getProductionPointsForFarmId(farmId) end) or {}
+        local pps = safeCall(pcm.getProductionPointsForFarmId, pcm, farmId) or {}
         for _, pp in ipairs(pps) do
             local placeable = pp.owningPlaceable
             local nameHint  = placeable and placeable.getName and placeable:getName() or nil
             local rec = buildProductionRecord(pp, nameHint)
-            if rec then table.insert(out, rec) end
+            if rec then out[#out + 1] = rec end
         end
         if self.DEBUG then
             Logging.info(string.format("[FS25_Dashboard][DIAG] productions via chainManager: %d", #out))
@@ -2193,18 +3027,15 @@ function DashboardExport:collectProductions()
         return out
     end
 
-    -- Fallback: scan owned placeables (older engine / chain manager missing)
-    if g_currentMission and g_currentMission.placeableSystem then
-        for _, placeable in pairs(g_currentMission.placeableSystem.placeables or {}) do
-            if isOwnedBy(placeable, farmId) then
-                local spec = placeable.spec_productionPoint
-                local pp   = spec and spec.productionPoint
-                if pp then
-                    local nameHint = placeable.getName and placeable:getName() or nil
-                    local rec = buildProductionRecord(pp, nameHint)
-                    if rec then table.insert(out, rec) end
-                end
-            end
+    -- Fallback: owned production placeables (older engine / chain manager
+    -- missing), already filtered by the bucket pass.
+    for _, placeable in ipairs(buckets.production) do
+        local spec = placeable.spec_productionPoint
+        local pp   = spec and spec.productionPoint
+        if pp then
+            local nameHint = placeable.getName and placeable:getName() or nil
+            local rec = buildProductionRecord(pp, nameHint)
+            if rec then out[#out + 1] = rec end
         end
     end
     return out
@@ -2215,7 +3046,7 @@ end
 -- We walk selling stations on the map and report their current price per fillType
 -- ─────────────────────────────────────────────────────────────────────────────
 
-function DashboardExport:collectPrices()
+function DashboardExport:collectPrices(buckets)
     -- TTL cache: computePrices iteruje všechny sell-pointy × accepted fill types
     -- s native cenovými voláními. Ceny se v FS25 hýbou v řádu herních dnů, tak
     -- 2s refresh je zbytečně agresivní — stačí PRICES_TTL.
@@ -2223,17 +3054,16 @@ function DashboardExport:collectPrices()
     if self.pricesCache and self.pricesCache.expiresAt > now then
         return self.pricesCache.data
     end
-    local out = self:computePrices()
+    local out = self:computePrices(buckets)
     self.pricesCache = { data = out, expiresAt = now + self.PRICES_TTL }
     return out
 end
 
-function DashboardExport:computePrices()
+function DashboardExport:computePrices(buckets)
     local out = {}
-    if not (g_currentMission and g_currentMission.placeableSystem) then return out end
 
-    for _, placeable in pairs(g_currentMission.placeableSystem.placeables or {}) do
-        local spec = placeable and placeable.spec_sellingStation
+    for _, placeable in ipairs(buckets.selling) do
+        local spec = placeable.spec_sellingStation
         local ss = spec and spec.sellingStation
         if ss then
             local rec = {
@@ -2248,20 +3078,24 @@ function DashboardExport:computePrices()
                         local price = safeCall(function() return ss:getEffectiveFillTypePrice(ftIdx) end)
                               or safeCall(function() return ss:getPriceMultiplier(ftIdx) and ss:getPriceMultiplier(ftIdx) * (g_fillTypeManager:getFillTypeByIndex(ftIdx).pricePerLiter or 0) end)
                         if price and price > 0 then
-                            local ft = g_fillTypeManager and g_fillTypeManager:getFillTypeByIndex(ftIdx)
-                            local massPerLiter = (ft and ft.massPerLiter) or 0.001
+                            local ft = fillTypeDesc(ftIdx)
+                            -- `or` only catches nil — 0 is truthy in Lua, and some
+                            -- fill types really do carry massPerLiter = 0, which
+                            -- divided by zero on every tick.
+                            local massPerLiter = (ft and ft.massPerLiter) or 0
+                            if massPerLiter <= 0 then massPerLiter = 0.001 end
                             local pricePerTon = price / massPerLiter
-                            table.insert(rec.items, {
+                            rec.items[#rec.items + 1] = {
                                 name        = (ft and (ft.title or ft.name)) or tostring(ftIdx),
                                 pricePerTon = math.floor(pricePerTon + 0.5),
-                            })
+                            }
                         end
                     end
                 end
             end
-            table.sort(rec.items, function(a, b) return a.name < b.name end)
+            table.sort(rec.items, byItemName)
             if #rec.items > 0 then
-                table.insert(out, rec)
+                out[#out + 1] = rec
             end
         end
     end
@@ -2319,13 +3153,132 @@ function DashboardExport:detectFieldEvents(currentFields)
 end
 
 -- ─────────────────────────────────────────────────────────────────────────────
+-- Map hotspots — stations/buildings the in-game map shows (selling points,
+-- silos, shops, productions, animal pens, fuel). Positions come from each
+-- placeable's own map hotspots (spec_hotspots.mapHotspots → worldX/worldZ), the
+-- same source the LiveMap Companion mod uses. Near-static, so cache once.
+-- ─────────────────────────────────────────────────────────────────────────────
+function DashboardExport:placeableHotspotCategory(typeIndex)
+    local T = PlaceableHotspot and PlaceableHotspot.TYPE
+    if not T then return "other" end
+    if typeIndex == T.PRODUCTION_POINT then return "production"
+    elseif typeIndex == T.SHOP or typeIndex == T.SHOP_ANIMAL then return "shop"
+    elseif typeIndex == T.FUEL then return "fuel"
+    elseif typeIndex == T.UNLOADING or typeIndex == T.UNLOADING_TRAIN then return "sell"
+    elseif typeIndex == T.LOADING then return "silo"
+    elseif typeIndex == T.CHICKEN or typeIndex == T.PIG or typeIndex == T.SHEEP
+        or typeIndex == T.COW or typeIndex == T.HORSE or typeIndex == T.BEE then return "animal"
+    elseif typeIndex == T.FARM then return "farm"
+    end
+    return "other"
+end
+
+function DashboardExport:collectMapHotspots()
+    if self.mapHotspotsCache ~= nil then return self.mapHotspotsCache end
+
+    local out = {}
+    local ps = g_currentMission and g_currentMission.placeableSystem
+    if not (ps and ps.placeables) then return out end   -- not ready yet: don't cache
+
+    for _, p in pairs(ps.placeables) do
+        local spec = p.spec_hotspots
+        local hotspots = spec and spec.mapHotspots
+        if type(hotspots) == "table" then
+            local name = (p.getName and safeCall(function() return p:getName() end)) or p.typeName or ""
+            for _, h in pairs(hotspots) do
+                local x, z = h.worldX, h.worldZ
+                if type(x) == "number" and type(z) == "number" then
+                    local cat = self:placeableHotspotCategory(h.placeableType)
+                    if cat ~= "other" and cat ~= "farm" then   -- farm/other add clutter, skip
+                        out[#out + 1] = { t = cat, x = round0(x), z = round0(z), name = tostring(name) }
+                    end
+                end
+            end
+        end
+    end
+
+    if #out > 0 then self.mapHotspotsCache = out end
+    return out
+end
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Contracts (missions)
+--
+-- `g_missionManager.missions` holds every mission on the map — the ones offered
+-- on the board as well as the ones a farm has taken on. A mission that has been
+-- accepted carries the accepting `farmId`, which is the only filter needed to
+-- get "my contracts". Field-work missions additionally hold a direct reference
+-- to their field (AbstractFieldMission.field), resolved to a dashboard id via
+-- fieldIdByRef built during collectFields.
+-- See giantsDocu AbstractMission (58/566) + MissionManager (58/567).
+-- ─────────────────────────────────────────────────────────────────────────────
+function DashboardExport:collectContracts()
+    local mm = g_missionManager
+    if mm == nil then return nil end
+    local missions = (mm.getMissions and safeCall(mm.getMissions, mm)) or mm.missions
+    if type(missions) ~= "table" then return nil end
+
+    local farmId = getFarmId()
+    local out = {}
+
+    for _, m in ipairs(missions) do
+        if m ~= nil and m.farmId == farmId then
+            local completion = safeCall(m.getCompletion, m)
+            local minutes    = safeCall(m.getMinutesLeft, m)
+            local reward     = safeCall(m.getTotalReward, m)
+                            or safeCall(m.getReward, m)
+
+            -- Field is only present on field-work contracts; transport and
+            -- similar types legitimately have none.
+            local fieldId
+            if m.field ~= nil then
+                fieldId = self.fieldIdByRef and self.fieldIdByRef[m.field]
+                    or m.field.fieldId or m.field.farmlandId
+            end
+
+            out[#out + 1] = {
+                title       = safeCall(m.getTitle, m) or "",
+                type        = safeCall(m.getMissionTypeName, m)
+                              or (m.type and m.type.name) or "",
+                fieldId     = fieldId,
+                reward      = round2(reward or 0),
+                completion  = round2((completion or 0) * 100),
+                minutesLeft = minutes and round0(minutes) or nil,
+                isRunning   = safeCall(m.getIsRunning, m) or false,
+                isFinished  = safeCall(m.getIsFinished, m) or false,
+            }
+        end
+    end
+
+    table.sort(out, function(a, b) return (a.fieldId or 9e9) < (b.fieldId or 9e9) end)
+    return out
+end
+
+-- ─────────────────────────────────────────────────────────────────────────────
 -- Output assembly + write
 -- ─────────────────────────────────────────────────────────────────────────────
+
+local PAYLOAD_ARRAY_KEYS = {
+    "vehicles", "animals", "storage", "productions", "mapHotspots",
+    "contracts", "prices", "availableFruits",
+}
 
 function DashboardExport:buildPayload()
     local time = self:collectGameTime()
     local fields = self:collectFields()
     self:detectFieldEvents(fields)
+
+    -- Strip AFTER event detection, never before: detectFieldEvents compares
+    -- `f.fruitTypeId ~= ""` to spot sowing, and a stripped (nil) value is not
+    -- equal to "" — every empty field would fire a phantom sowing event.
+    for i = 1, #fields do stripFieldDefaults(fields[i]) end
+
+    -- priceForecast keeps its live period fields; the 12-month factor curve
+    -- (the bulk of it) rides the static file once written.
+    local forecast = self:collectPriceForecast()
+
+    -- One walk over the placeables, shared by animals/storage/productions/prices.
+    local buckets = self:collectPlaceableBuckets()
 
     local payload = {
         schemaVersion   = DashboardExport.SCHEMA_VERSION,
@@ -2338,29 +3291,75 @@ function DashboardExport:buildPayload()
         gameTime        = time.gameTime,
         farmBalance     = self:collectFarmBalance(),
         currency        = self:collectCurrency(),
-        availableFruits = self:collectAvailableFruits(),
         saveMeta        = self:collectSaveMeta(),
         gameSettings    = self:collectGameSettings(),
-        priceForecast   = self:collectPriceForecast(),
+        priceForecast   = {
+            currentPeriod = forecast.currentPeriod,
+            daysPerPeriod = forecast.daysPerPeriod,
+        },
         weather         = self:collectWeather(),
         pf              = self:collectPFMeta(),
+        mapSize         = g_currentMission and g_currentMission.terrainSize or nil,
+        player          = self:collectPlayer(),
         fields          = #fields > 0 and fields or emptyArray(),
         vehicles        = self:collectVehicles(),
-        animals         = self:collectAnimals(),
-        storage         = self:collectStorages(),
-        productions     = self:collectProductions(),
-        prices          = self:collectPrices(),
+        animals         = self:collectAnimals(buckets),
+        storage         = self:collectStorages(buckets),
+        productions     = self:collectProductions(buckets),
+        mapHotspots     = (self.settings == nil or self.settings:getLiveMapEnabled())
+                              and self:collectMapHotspots() or emptyArray(),
+        contracts       = self:collectContracts(),
+        prices          = self:collectPrices(buckets),
         events          = #self.pendingEvents > 0 and self.pendingEvents or emptyArray(),
     }
 
+    -- Until the static file is on disk, keep carrying the full sections so the
+    -- server (and a freshly opened page) is never left without a fruit catalog
+    -- or a forecast curve. Costs one or two fat exports at session start.
+    if not self.staticWritten then
+        payload.availableFruits          = self:collectAvailableFruits()
+        payload.priceForecast.fillTypes  = forecast.fillTypes
+    end
+
     -- Ensure arrays stay arrays in JSON (even when empty)
-    for _, key in ipairs({"vehicles", "animals", "storage", "productions", "prices", "availableFruits"}) do
+    for _, key in ipairs(PAYLOAD_ARRAY_KEYS) do
         if type(payload[key]) == "table" and #payload[key] == 0 then
             payload[key] = emptyArray()
         end
     end
 
     return payload
+end
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Session-static sections get their own file, same pattern and same reason as
+-- GEOMETRY_FILE: encoding them into every 2 s export spends game frame time on
+-- data that cannot change while a save is loaded. Measured on a live payload:
+-- availableFruits 13.6 KB (9.4 %) + priceForecast.fillTypes 25.9 KB (18.0 %) —
+-- 27.4 % of 146 KB, re-encoded ~1800×/hour. The server merges them back in
+-- enrich(), so the shape the frontend sees does not change.
+function DashboardExport:maybeWriteStatic()
+    if self.staticWritten then return end
+
+    local fruits   = self:collectAvailableFruits()
+    local forecast = self:collectPriceForecast()
+    -- Both sources cache themselves only once non-empty; writing an early read
+    -- would freeze an empty catalog into the file for the whole session.
+    if #fruits == 0 or #forecast.fillTypes == 0 then return end
+
+    local t0 = getTimeSec()
+    local json = encodeJson({
+        modVersion             = self.MOD_VERSION,
+        availableFruits        = fruits,
+        priceForecastFillTypes = forecast.fillTypes,
+    })
+    local f = io.open(self.STATIC_FILE, "w")
+    if f == nil then return end   -- retry on the next export
+    f:write(json)
+    f:close()
+    self.staticWritten = true
+    Logging.info(string.format("[%s] static sections written — %d crops, %d fillTypes, %.0f ms (one-off, off the 2 s payload)",
+        self.MOD_NAME, #fruits, #forecast.fillTypes, (getTimeSec() - t0) * 1000))
 end
 
 function DashboardExport:writeOutput(payload)
@@ -2416,8 +3415,44 @@ end
 -- ─────────────────────────────────────────────────────────────────────────────
 
 function DashboardExport:loadMap(name)
+    -- Blank last session's outlines. The file is not keyed by map, so switching
+    -- maps would otherwise let the server serve the previous map's shapes for
+    -- the few seconds until this one finishes tracing.
+    local f = io.open(self.GEOMETRY_FILE, "w")
+    if f then f:write('{"count":0,"polys":{}}'); f:close() end
+
+    -- Same reasoning for the static sections: a different map has a different
+    -- crop catalog. Blank it and let this session rewrite it; until then the
+    -- payload carries both sections inline (see buildPayload).
+    self.staticWritten = false
+    local s = io.open(self.STATIC_FILE, "w")
+    if s then s:write('{}'); s:close() end
+
+    self.settings = DashboardSettings.new()
+    self.settings:load()
+    if not self.settings:getLiveMapEnabled() then
+        self:clearLiveMapOutputs()
+    end
+    DashboardSettingsFrame.installHook()
+
     Logging.info(string.format("[%s] loaded — will export every %d ms",
         self.MOD_NAME, self.EXPORT_PERIOD))
+end
+
+-- Živá mapa vypnutá — nechceme na disku ležet stará data z předchozí session
+-- (pozice, obrysy polí), která by se v dashboardu jevila jako aktuální.
+function DashboardExport:clearLiveMapOutputs()
+    local p = io.open(self.POSITIONS_FILE, "w")
+    if p then p:write('{"vehicles":[]}'); p:close() end
+
+    local g = io.open(self.GEOMETRY_FILE, "w")
+    if g then g:write('{"count":0,"polys":{}}'); g:close() end
+
+    self.flTraceQueue, self.flTraceQueued = nil, nil
+    self.mapHotspotsCache = nil
+    -- Force the next writePositions() (once re-enabled) to write for real
+    -- instead of comparing against a stale pre-pause signature and skipping.
+    self.lastPosJson = nil
 end
 
 function DashboardExport:update(dt)
@@ -2426,6 +3461,23 @@ function DashboardExport:update(dt)
     farmIdCache = nil  -- fresh farmId jednou za frame; sdílí ho scan i export
 
     self:dumpDiagnostics()
+
+    -- Živá mapa (viz DashboardSettings) — pokud je vypnutá, přeskočit obrysy
+    -- polí/parcel i 4Hz kanál s pozicemi. Zbytek exportu (pole, vozidla,
+    -- zvířata, sklady, ceny...) běží dál beze změny.
+    local liveMap = self.settings == nil or self.settings:getLiveMapEnabled()
+
+    if liveMap then
+        -- Live-map geometry: a thin slice every frame until it is built, then free.
+        self:tickMapGeometry(self.GEOM_BUDGET_MS)
+
+        -- Positions on their own short period, independent of the 2 s export.
+        self.posAccumMs = (self.posAccumMs or 0) + dt
+        if self.posAccumMs >= self.POSITION_PERIOD then
+            self.posAccumMs = 0
+            self:writePositions()
+        end
+    end
 
     -- Throttle density-map scans to one chunk every SCAN_PERIOD ms.
     self.scanAccumMs = self.scanAccumMs + dt
@@ -2439,7 +3491,9 @@ function DashboardExport:update(dt)
         self:tickPFScan()
         local pfMs = (getTimeSec() - pf0) * 1000
 
-        if scanMs > 1 or pfMs > 1 then
+        -- Threshold, not `> 1 ms`: a normal chunk takes 1-6 ms, so the old
+        -- condition logged ~2 lines a second. See PERF_LOG_MS.
+        if self.DEBUG or scanMs > self.PERF_LOG_MS or pfMs > self.PERF_LOG_MS then
             Logging.info(string.format("[%s] PERF scan=%.1fms pf=%.1fms", self.MOD_NAME, scanMs, pfMs))
         end
     end
@@ -2456,12 +3510,72 @@ function DashboardExport:update(dt)
     self:writeOutput(payload)
     local totalMs = (getTimeSec() - t0) * 1000
     local encodeMs = self.lastEncodeMs or 0
-    Logging.info(string.format("[%s] PERF export total=%.1fms build=%.1fms encode=%.1fms write=%.1fms",
-        self.MOD_NAME, totalMs, buildMs, encodeMs, totalMs - buildMs - encodeMs))
+
+    -- The per-export snapshot is only valid for the export that just ran.
+    self.fsSnapshot = nil
+
+    -- Used to log every export (0.5 lines/s, ~9000 lines/hour). An oversized
+    -- log.txt is not free: tailing it is what broke save-dir detection once.
+    -- Keep the first few for a startup baseline, then only report outliers.
+    self.exportCount = (self.exportCount or 0) + 1
+    if self.DEBUG or self.exportCount <= self.PERF_LOG_FIRST or totalMs > self.PERF_LOG_MS then
+        Logging.info(string.format("[%s] PERF export #%d total=%.1fms build=%.1fms encode=%.1fms write=%.1fms",
+            self.MOD_NAME, self.exportCount, totalMs, buildMs, encodeMs, totalMs - buildMs - encodeMs))
+    end
+
+    -- After the export, never during it: these write their own files and must
+    -- not add to the tick the payload already paid for.
+    self:maybeWriteStatic()
+    self:maybeWriteGeometry()
 end
 
 function DashboardExport:deleteMap()
-    -- nothing to clean up; file stays on disk for the server to read post-exit
+    -- Output file stays on disk for the server to read post-exit. Live-map
+    -- geometry however is per-map: drop it, or loading a second savegame in the
+    -- same session reuses the previous map's outlines and cell masks.
+    self.fieldPolyCache    = nil
+    self.farmlandPolyCache = nil
+    self.farmlandMasks     = nil
+    self.flScan            = nil
+    self.farmlandScanDone  = false
+    self.flTraceQueue      = nil
+    self.flTraceQueued     = nil
+    self.mapHotspotsCache  = nil
+    self.geomLogged        = false
+    self.geomPolys         = nil
+    self.geometryWritten   = false
+    self.geomMsTotal, self.geomFrames, self.geomParcels = nil, nil, nil
+    self.hpPrev, self.hpSamples = nil, nil
+
+    -- Session-scoped caches. These are per-SAVE, not per-map-file: the crop
+    -- catalog and the price curve differ between maps, and the static file is
+    -- now written once from these caches — a stale one would be served for the
+    -- whole next session instead of just one tick.
+    self.staticWritten     = false
+    self.fruitCatalogCache = nil
+    self.priceForecastCache = nil
+    self.pfMetaCache       = nil
+    self.fruitCache        = {}
+    self.statusCache       = {}
+    self.pfCache           = {}
+    self.scanState         = nil
+    self.pfScanState       = nil
+    self.currencyCache     = nil
+    self.pricesCache       = nil
+    self.fsSnapshot        = nil
+    self.prevFields        = {}
+    self.fieldIdByRef      = nil
+    self.exportCount       = nil
+    self.diagDumped        = false
+    self.lastPosJson       = nil
+    self.posLogged         = false
+
+    -- Module-scope caches keyed by engine indices / config paths. A different
+    -- save can load a different mod set, so a stale entry would name the wrong
+    -- fill type or store item for the rest of the session.
+    fillTypeDescCache = {}
+    storeTitleCache   = {}
+    pfHandleCache     = nil
 end
 
 addModEventListener(DashboardExport)

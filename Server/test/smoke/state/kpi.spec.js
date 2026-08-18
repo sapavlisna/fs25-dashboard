@@ -177,7 +177,7 @@ test.describe('KPI — Zůstatek flash states', () => {
 
     test.fixme('st-kpi-balance-flash-up-boundary-ok', async ({ page, request }) => {
         // BLOCKED: reliable flash-up assertion requires two consecutive WS ticks with
-        // different balance values. The standard smoke test server (port 3099) sends
+        // different balance values. The standard smoke test server (sandbox-env port) sends
         // ticks every 5 s via mock-data.js; there is no deterministic way to synchronise
         // the Playwright step with the exact tick boundary. Use the flash infrastructure
         // (playwright.flash.config.js + direct file writes, port 3098) to test this

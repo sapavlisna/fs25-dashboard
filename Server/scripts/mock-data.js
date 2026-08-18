@@ -85,6 +85,9 @@ function computeNTarget(fruitIdx) {
 
 const SELL_POINTS = ['Getreidelager Bergmann', 'BGA Bergmann', 'Sägewerk', 'Mühle Bergmann'];
 
+// World size in meters (matches g_currentMission.terrainSize), world origin at map center.
+const MAP_SIZE = 2048;
+
 // Stable vehicle list (doesn't change per tick)
 const VEHICLES = [
     { name: 'Fendt 942 Vario',     typeName: 'Traktor',    fuelCap: 400,  adblueCap: 55  },
@@ -95,13 +98,32 @@ const VEHICLES = [
     { name: 'Deutz-Fahr 5125',     typeName: 'Traktor',    fuelCap: 160,  adblueCap: null },
 ];
 
-// Stable field list
+// Stable field list — scattered in a rough grid across the map for Live Map.
+const FIELD_GRID_COLS = 5;
+const FIELD_GRID_SPACING = 160;
+
 const FIELDS = Array.from({ length: 22 }, (_, i) => {
     const fruitIdx = ri(0, FRUITS.length - 1);
     const hasCrop  = Math.random() > 0.15;
+    const gridX = (i % FIELD_GRID_COLS) - (FIELD_GRID_COLS - 1) / 2;
+    const gridZ = Math.floor(i / FIELD_GRID_COLS) - 2;
+    const cx = gridX * FIELD_GRID_SPACING + rf(-20, 20);
+    const cz = gridZ * FIELD_GRID_SPACING + rf(-20, 20);
+    const area = pct(rf(0.5, 9.0));
+    // Irregular quad around the centroid, sized from area — stands in for the
+    // real boundary polygon the mod exports (field.polygonPoints).
+    const side = Math.min(300, Math.max(40, Math.sqrt(area * 10000)));
+    const h = side / 2, jit = () => rf(-side * 0.12, side * 0.12);
+    const poly = [
+        [cx - h + jit(), cz - h + jit()], [cx + h + jit(), cz - h + jit()],
+        [cx + h + jit(), cz + h + jit()], [cx - h + jit(), cz + h + jit()],
+    ].map(p => [Math.round(p[0]), Math.round(p[1])]);
     return {
         id:          i + 1,
-        area:        pct(rf(0.5, 9.0)),
+        posX:        pct(cx),
+        posZ:        pct(cz),
+        poly,
+        area:        area,
         owned:       Math.random() > 0.25,
         fruitIdx:    hasCrop ? fruitIdx : -1,
         maxGrowth:   6,
@@ -163,6 +185,8 @@ function buildFieldData(f) {
 
     return {
         id:               f.id,
+        posX:             f.posX,
+        posZ:             f.posZ,
         area:             f.area,
         owned:            f.owned,
         fruitTypeId:      hasCrop ? FRUITS[f.fruitIdx].id : '',
@@ -192,6 +216,16 @@ let vehicleFuel = VEHICLES.map(v => ({
     hours:  rf(10, 800),
     inUse:  false,
 }));
+// Live Map: per-vehicle world position + heading. Idle vehicles sit at a fixed
+// "yard" spot; in-use ones bounce back and forth along X within map bounds.
+let vehiclePos = VEHICLES.map((v, i) => ({
+    x:         (i - (VEHICLES.length - 1) / 2) * 220,
+    z:         -300,
+    headingDeg: 90,
+    dir:        1,
+}));
+// Live Map: local player world position, orbiting the farm yard.
+let playerAngle = 0;
 let animalFood = {
     cow: rf(0.3, 1.0), pig: rf(0.2, 1.0),
     sheep: rf(0.4, 1.0), chicken: rf(0.3, 1.0),
@@ -271,7 +305,17 @@ function generateData() {
         v.fuel    = Math.max(0, v.fuel    - rf(0.001, 0.008));
         if (v.adblue != null) v.adblue = Math.max(0, v.adblue - rf(0.0005, 0.003));
         v.inUse   = Math.random() < 0.15;
+
+        // Live Map: move in-use vehicles, bounce off map bounds, idle ones stay put.
+        const p = vehiclePos[i];
+        if (v.inUse) {
+            p.x += p.dir * rf(15, 40);
+            if (Math.abs(p.x) > MAP_SIZE / 2 - 100) p.dir *= -1;
+            p.headingDeg = p.dir > 0 ? 90 : 270;
+        }
     });
+    // Live Map: slow orbit around the farm yard.
+    playerAngle += 0.1;
     Object.keys(animalFood).forEach(k => {
         animalFood[k] = Math.max(0, animalFood[k] - rf(0.005, 0.02));
     });
@@ -308,6 +352,12 @@ function generateData() {
             ],
         },
         farmBalance: Math.max(0, balance),
+        mapSize: MAP_SIZE,
+        player: {
+            x:          pct(Math.cos(playerAngle) * 300),
+            z:          pct(Math.sin(playerAngle) * 300),
+            headingDeg: pct(((playerAngle * 180 / Math.PI) + 90 + 360) % 360),
+        },
         pf: {
             active: true,
             soilTypes: PF_SOIL_TYPES.map(s => ({ index: s.index, name: s.name, yieldPotential: s.yieldPotential })),
@@ -364,6 +414,13 @@ function generateData() {
             ] },
             { husbandryName: 'Kurník',  type: 'CHICKEN', count: animalCounts.chicken, foodPercent: Math.round(animalFood.chicken * 100), waterPercent: ri(60, 100), productivity: ri(65, 100) },
         ],
+        // Accepted contracts — a few types with and without a field/deadline so
+        // the section's empty-cell handling gets exercised too.
+        contracts: [
+            { title: 'Sklizeň pšenice', type: 'harvest',   fieldId: 3,  reward: 12400, completion: pct(rf(0, 100)), minutesLeft: ri(20, 300), isRunning: true,  isFinished: false },
+            { title: 'Orba',            type: 'plow',      fieldId: 11, reward: 6800,  completion: pct(rf(0, 100)), minutesLeft: ri(20, 300), isRunning: false, isFinished: false },
+            { title: 'Přeprava zboží',  type: 'transport', fieldId: null, reward: 9250, completion: pct(rf(0, 100)), minutesLeft: null,        isRunning: true,  isFinished: false },
+        ],
         productions: productionState.map(p => ({
             name:  p.name,
             items: Object.entries(p.items).map(([name, amount]) => ({ name, amount, capacity: p.cap })),
@@ -396,6 +453,9 @@ function generateData() {
                 // (only the in-use ones are moving). Surfaces the condition/speed UI.
                 conditionPercent: [100, 95, 88, 72, 46, 99][i % 6],
                 speedKmh:         s.inUse ? ri(6, 22) : 0,
+                x:                pct(vehiclePos[i].x),
+                z:                pct(vehiclePos[i].z),
+                headingDeg:       vehiclePos[i].headingDeg,
             };
             if (v.adblueCap != null) {
                 entry.adBluePercent  = Math.round(s.adblue * 100);
@@ -439,7 +499,18 @@ function readScenarioFile() {
             // waiting up to 5 s for the next scheduled tick.
             tick();
         }
-    } catch (_) { /* file may not exist yet */ }
+    } catch (_) {
+        // No pin file: either it was never written, or the sandbox was wiped
+        // under us (Playwright's globalSetup runs AFTER the webServers start).
+        // Fall back to 'default' — keeping the last scenario in memory made a
+        // fresh run inherit whatever the previous one had pinned.
+        if (activeScenario !== 'default') {
+            activeScenario = 'default';
+            scenarioTick   = 0;
+            lastScenarioMod = 0;
+            console.log('[mock] Scenario pin gone — back to: default');
+        }
+    }
 }
 
 // Write immediately, then every 5s
@@ -469,6 +540,18 @@ const outDir = path.dirname(OUTPUT);
 if (!fs.existsSync(outDir)) {
     fs.mkdirSync(outDir, { recursive: true });
 }
+
+// Outlines are static, so they go to their own file exactly like the mod does —
+// the server reads them from there, not from the payload.
+function writeMockGeometry() {
+    const polys = {};
+    for (const f of FIELDS) polys[String(f.id)] = f.poly;
+    fs.writeFileSync(
+        path.join(outDir, 'dashboard_map_geometry.json'),
+        JSON.stringify({ count: Object.keys(polys).length, polys }),
+    );
+}
+writeMockGeometry();
 
 tick();
 const interval = setInterval(tick, 5000);

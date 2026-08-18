@@ -13,6 +13,68 @@ All notable changes to this project will be documented here.
 
 Mod and server share **one release version**. Each release ships both ZIPs even when only one component functionally changed — the release notes call out which one is the meaningful update so users can selectively download. `schemaVersion` in the JSON payload is independent and only bumps on incompatible payload shape changes.
 
+## [1.10.0.0] — 2026-08-18
+
+_Živá mapa: nová stránka `map.html` s pozicí hráče a vozidel v reálném čase, skutečnými
+obrysy polí, stanicemi a trasami AutoDrive / Courseplay. Vypínatelná přímo v herním menu._
+
+### Added
+- **Živá mapa (`public/map.html`)** — top-down mapa farmy nad snímkem herní mapy: pozice
+  hráče a vozidel obnovované **4× za sekundu** vlastním kanálem (hlavní payload zůstává na
+  2 s), skutečné obrysy polí (`densityMapPolygon`, fallback `field.polygonPoints`), čísla
+  polí, značky stanic (prodej, sklady, obchody, výrobny, chovy, palivo) a **trasy
+  AutoDrive / Courseplay** s odlišením ujeté a zbývající části. Vrstvy se vypínají
+  tlačítkem ☰, volba se pamatuje v prohlížeči; zoom kolečkem/gesty, posun tažením.
+  Vanilla pomocník trasu nemá — hra ji nikde nedrží jako seznam bodů.
+- **Podklad mapy z módu mapy** (`mapOverview.js`, `zipread.js`) — vytáhne `overview.dds`
+  ze ZIPu nahrané mapy a převede na PNG (rozbalování přes PowerShell, DDS přes `ffmpeg`,
+  obojí best-effort). Cachuje se v `data/map-overview/` jednou za mapu. Bez `ffmpeg`
+  mapa funguje dál, jen bez podkladu. Nová volba `DASHBOARD_MODS_DIR` / `modsDir`, mods
+  složka se jinak hledá z `log.txt` (`Mod Directory:`).
+- **Nastavení módu v herním menu** (`FS25/DashboardSettings.lua`,
+  `DashboardSettingsFrame.lua`) — sekce **Dashboard** v Esc → Nastavení → Obecné
+  s přepínačem **Živá mapa**. Vypnutí zháší kanál pozic, trasování obrysů i mapové
+  hotspoty; zbytek exportu (pole, vozidla, zvířata, sklady, ceny, počasí) běží beze změny.
+  Ukládá se **per savegame** do `<savegame>/dashboardSettings.xml`, výchozí stav zapnuto.
+- **Zástupce na plochu** (`Server/create-shortcut.ps1`, `dashboard.ico`) — vyrobí ikonu
+  z `FS25/icon_dashboard.png` a zástupce, který spustí `start.bat` se správným pracovním
+  adresářem. `start.bat` teď po ukončení serveru drží okno otevřené, aby chyba při startu
+  (obsazený port, chybějící Node) nezmizela z obrazovky.
+- **Nápověda** — nová sekce *Mapa (živá)* (vrstvy, trasy, ovládání, vypnutí v hře),
+  přegenerované screenshoty dashboardu, kalendáře, historie a mobilního zobrazení.
+- **Sdílený tvar payloadu** (`payloadShape.js`) — jedno místo, které vrací zpět to, co mód
+  z payloadu vynechává (defaultní klíče polí, session-statické sekce v
+  `dashboard_static.json`). Používá ho server i `scripts/validate-json.js`, takže validace
+  kontroluje stejný tvar, jaký vidí frontend.
+- **Shardovaný běh smoke suity** (`scripts/run-sharded.js`, `test/smoke/sandbox-env.js`) —
+  každý shard má vlastní port i sandbox (`SMOKE_PORT` / `SMOKE_SANDBOX` / `SMOKE_SCOPE`).
+  Layout-citlivé specy (`scenarios`, `section-cfg`) jsou vyčleněné do scope `visual`
+  a běží vždy sekvenčně.
+
+### Fixed
+- **Server zpracuje payload i při vzniku souboru** (`index.js`) — `dashboard_data.json`,
+  který se objeví teprve za běhu serveru (první instalace, smazaná data složka,
+  reinstalace módu), se dřív jen zalogoval a stránka zůstala na `—` až do dalšího zápisu.
+  Nově se `add` ingestuje stejně jako `change`, jen bez zápisu do historie (soubor po
+  startu může držet export z předchozí session).
+- **Smoke sandbox** — `globalSetup` mazal celou sandbox složku, ale Playwright startuje
+  webServery **před** ním, takže watcher serveru zůstal viset na neexistujícím inode
+  a do prohlížeče nikdy nedorazila data (KPI stály na `—`). Nyní se maže obsah, ne složka.
+- **Hledání aktivního savegame** (`savegame.js`) — reference na `savegameN` se v `log.txt`
+  po dlouhé session vysune z čteného konce souboru; přidán průchod celým logem jako záložní
+  cesta.
+
+### Changed
+- Verze serveru srovnána s módem na **1.10.0** (`package.json`, `package-lock.json`) —
+  navbar a `/api/version` hlásily pořád 1.5.0.
+- README (cz i en) — popis Živé mapy odpovídá skutečnosti (opravdové obrysy polí, ne
+  odhadované čtverce), doplněn `ffmpeg` jako volitelná závislost a postup na zástupce.
+
+### Removed
+- **AI advisor** — celý `/advise` flow (destilace kontextu, hledání v knihovně módů,
+  `advisor.html`, npm skripty, WS kanál reportů) i Lua export výbavy a katalogu obchodu,
+  který sloužil jen jemu.
+
 ## [1.5.0.0] — 2026-07-06
 
 _Precision Farming: data z módu FS25_precisionFarming (typ půdy, výnosový potenciál, dusík, pH)

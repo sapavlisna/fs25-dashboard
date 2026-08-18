@@ -60,6 +60,7 @@
         <a href="/"           class="active">Dashboard</a>
         <a href="/calendar.html">Kalendář polí</a>
         <a href="/history.html">Historie</a>
+        <a href="/map.html">Mapa</a>
         <a href="/help.html">❓ Nápověda</a>
     </div>
     <div class="nav-status">
@@ -179,6 +180,15 @@
             </div>
             <div id="vehicles-hidden-body" data-tt-container="vehicles" data-tt-hidden></div>
         </div>
+    </div>
+
+    <!-- Contracts (accepted missions) -->
+    <div class="section" id="sec-contracts" data-tt-dnd="sections" data-tt-key="contracts">
+        <div class="section-header">
+            <span class="drag-handle" title="Přetáhni pro přesun sekce" aria-label="Přesunout sekci">⠿</span>
+            📋 Zakázky <span class="count" id="cnt-contracts">0</span>
+        </div>
+        <div id="contracts-body"></div>
     </div>
 
     <!-- Animals -->
@@ -551,6 +561,7 @@ function render(d) {
 
     noteAllChanges(d);                       // diff per-section BEFORE rendering
     renderVehicles(d.vehicles || []);
+    renderContracts(d.contracts || []);
     renderAnimals(d.animals   || []);
     renderFields(d.fields     || []);
     renderStorage(d.storage   || []);
@@ -766,6 +777,7 @@ function scheduleFlashCleanup() {
         if (!window.__lastData) return;
         const d = window.__lastData;
         renderVehicles(d.vehicles || []);
+        renderContracts(d.contracts || []);
         renderAnimals(d.animals   || []);
         renderStorage(d.storage   || []);
         renderProductions(d.productions || []);
@@ -2056,6 +2068,64 @@ function productionRowsHTML(p, opts) {
 
 
 let _productionsMemo = null;
+// Accepted contracts. Icon per mission type — the mod passes FS25's own type
+// name (harvest, plow, …), and anything unrecognised falls back to a generic
+// clipboard rather than showing nothing.
+const CONTRACT_ICONS = {
+    harvest: '🌾', mow: '🌿', plow: '🚜', cultivate: '🚜', sow: '🌱',
+    fertilize: '💧', spray: '💦', weed: '🌿', lime: '🪨', stonePick: '🪨',
+    baleWrap: '🎁', transport: '🚚', deadwood: '🌲', treeTransport: '🪵',
+    destructibleRock: '🪨', supplyTransport: '📦',
+};
+let _contractsMemo = null;
+
+function renderContracts(contracts) {
+    const memoKey = JSON.stringify(contracts);
+    if (memoKey === _contractsMemo) return;
+    _contractsMemo = memoKey;
+
+    $('cnt-contracts').textContent = contracts.length;
+    const body = $('contracts-body');
+
+    if (!contracts.length) {
+        body.innerHTML = '<div class="empty">Žádné přijaté zakázky.</div>';
+        return;
+    }
+
+    const rows = contracts.map(c => {
+        const icon = CONTRACT_ICONS[c.type] || '📋';
+        const pct = Math.max(0, Math.min(100, Math.round(c.completion || 0)));
+        // Contracts without a field are transport-style jobs — leave the cell
+        // blank rather than printing a misleading zero.
+        const field = c.fieldId != null ? `#${c.fieldId}` : '<span class="muted">—</span>';
+        // getMinutesLeft() is absent on contracts with no deadline.
+        const left = c.minutesLeft != null
+            ? (c.minutesLeft >= 60
+                ? `${Math.floor(c.minutesLeft / 60)} h ${c.minutesLeft % 60} min`
+                : `${c.minutesLeft} min`)
+            : '<span class="muted">—</span>';
+        const title = (c.title || c.type || '').replace(/[<>&]/g, '');
+        return `<tr>
+            <td>${icon} ${title}</td>
+            <td>${field}</td>
+            <td>${bar(pct)}</td>
+            <td class="num">${fmtMoney(c.reward || 0)}</td>
+            <td class="num">${left}</td>
+        </tr>`;
+    }).join('');
+
+    body.innerHTML = `<table class="tbl">
+        <thead><tr>
+            <th data-sort-key="0">Zakázka</th>
+            <th data-sort-key="1">Pole</th>
+            <th data-sort-key="2" data-default-sort>Postup</th>
+            <th data-sort-key="3" class="num">Odměna</th>
+            <th data-sort-key="4" class="num">Zbývá</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+    </table>`;
+}
+
 function renderProductions(productions) {
     const pCfgKeys = ['productionsExpanded','productionsActiveOnly','productionsDefaultCollapsed',
         'productionsShowRecipes','productionsShowInputs','productionShowCycles'];

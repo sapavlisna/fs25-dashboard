@@ -8,7 +8,7 @@ const { test, expect } = require('@playwright/test');
 // Force the base 'default' scenario (mock-data.js generateData) — other specs
 // leave a named scenario in mock-scenario.txt, which would otherwise carry over.
 async function useDefaultScenario(request) {
-    const resp = await request.post('http://localhost:3099/mock/scenario', { data: { scenario: 'default' } });
+    const resp = await request.post('/mock/scenario', { data: { scenario: 'default' } });
     if (!resp.ok()) throw new Error(`scenario default: ${resp.status()}`);
     await new Promise(r => setTimeout(r, 3000));
 }

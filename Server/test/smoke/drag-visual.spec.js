@@ -30,7 +30,9 @@ test.beforeEach(async ({ page }) => {
 
 test('section dropped on the right stays on the right', async ({ page }) => {
     await page.goto('/');
-    await page.locator('#kpi-balance').waitFor();
+    // Wait for real data, not just the element: an empty dashboard has short
+    // sections, so the drag would aim at boxes that move once rows arrive.
+    await expect(page.locator('#kpi-balance')).not.toHaveText('—', { timeout: 15_000 });
     await page.waitForTimeout(800);
 
     // Capture DOM order before — anti-bounce check is "Sortable actually
@@ -60,8 +62,13 @@ test('section dropped on the right stays on the right', async ({ page }) => {
     const afterOrder = await page.evaluate(() => JSON.parse(
         localStorage.getItem('fs25.dash.v1.order:sections') || 'null'
     ));
+    // Count the masonry's own sections rather than hard-coding a number — the
+    // settings panel mirrors the same data-tt-dnd scope, and the dashboard has
+    // gained sections over time (this asserted 6 until 'contracts' arrived).
+    const sectionCount = await page.locator('#masonry > [data-tt-key]').count();
     expect(afterOrder, 'order saved after drop').toBeTruthy();
-    expect(afterOrder, 'order should contain all 6 sections').toHaveLength(6);
+    expect(afterOrder, 'order should contain every masonry section')
+        .toHaveLength(sectionCount);
 
     // sec-vehicles should now sit further along the order than it did before
     // (or it had no saved order before — either means the drop registered).

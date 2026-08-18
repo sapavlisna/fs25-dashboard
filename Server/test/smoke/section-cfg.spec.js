@@ -5,7 +5,7 @@
 const { test, expect } = require('@playwright/test');
 
 async function setMockScenario(request, name) {
-    const resp = await request.post('http://localhost:3099/mock/scenario', { data: { scenario: name } });
+    const resp = await request.post('/mock/scenario', { data: { scenario: name } });
     if (!resp.ok()) throw new Error(`scenario ${name}: ${resp.status()}`);
     await new Promise(r => setTimeout(r, 3000));
 }
@@ -141,8 +141,12 @@ test.describe('Per-section settings — toggles persist + apply', () => {
         await expect(adv).toBeHidden();
         await page.locator('#sec-cfg-panel .sec-cfg-adv-toggle').click();
         await expect(adv).toBeVisible();
-        // Vehicles advanced has 2 groups (Vozidlo + Nářadí)
-        await expect(adv.locator('.sec-cfg-group')).toHaveCount(2);
+        // Assert the groups by label, not by count — the vehicles section has
+        // gained groups over time (this said 2 when only Vozidlo + Nářadí existed)
+        // and a count is the one thing that breaks on every addition.
+        const labels = await adv.locator('.sec-cfg-group-label').allTextContents();
+        expect(labels).toContain('Nářadí – skrýt skupiny');
+        expect(labels).toContain('Pracovník');
     });
 
     test('hiding a fillType group filters vehicle implement rows', async ({ page, request }) => {
@@ -242,8 +246,11 @@ test.describe('Per-section settings — reset (V-1) + dirty indicator (V-2) + no
         await gotoDashboard(page, request);
         await page.locator('.sec-cfg-btn[data-sec-cfg="vehicles"]').click();
         await page.locator('#sec-cfg-panel .sec-cfg-adv-toggle').click();
-        await expect(page.locator('#sec-cfg-panel .sec-cfg-group-note'))
-            .toContainText('Ostatní');
+        // Scope to the fillType group — other groups carry notes of their own,
+        // so an unscoped locator resolves to several elements.
+        const fillGroup = page.locator('#sec-cfg-panel .sec-cfg-group')
+            .filter({ has: page.getByText('Nářadí – skrýt skupiny') });
+        await expect(fillGroup.locator('.sec-cfg-group-note')).toContainText('Ostatní');
     });
 });
 
@@ -358,13 +365,17 @@ test.describe('Expanded layout redesign — rich 2-column rendering', () => {
         expect(await page.locator('#animals-body .ac-bar-liters').count()).toBeGreaterThan(0);
     });
 
-    test('vehicles expanded shows implement chips (vehicles-rich)', async ({ page, request }) => {
+    test('vehicles expanded shows implement sub-rows (vehicles-rich)', async ({ page, request }) => {
         await gotoDashboard(page, request, 'vehicles-rich');
         await enableExpanded(page, 'vehicles', 'vehiclesExpanded');
         await expect(page.locator('.section[data-tt-key="vehicles"]')).toHaveClass(/expanded-vehicles/);
-        // At least one vehicle in this scenario carries an implement → chips render.
-        expect(await page.locator('#vehicles-body .vc-impl-chips').count()).toBeGreaterThan(0);
-        await expect(page.locator('#vehicles-body .vc-chip').first()).toBeVisible();
+        // Implements used to render as chips; they are sub-rows under the vehicle
+        // line now (.v-implements), and the one-line .vc-impl-summary is what the
+        // basic view keeps. The scenario attaches a filling trailer, so both the
+        // block and at least one row must be there.
+        await expect(page.locator('#vehicles-body .v-implements').first()).toBeVisible();
+        expect(await page.locator('#vehicles-body .v-implements .vi-impl').count())
+            .toBeGreaterThan(0);
     });
 
     test('storage expanded renders the 2-column item body', async ({ page, request }) => {

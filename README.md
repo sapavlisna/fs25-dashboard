@@ -32,6 +32,7 @@ Pokud ti něco nefunguje, klidně otevři issue, ale ber to s rezervou. Pokud ch
 - 💰 **Výkupní ceny** — aktuální ceny za tunu, sortovatelné, filtr na to, co máš na skladě.
 - 📅 **Kalendář polí** — Gantt timeline s rotací plodin per pole; každá plodina má vlastní řadu (nepřekrývají se). Naplánuje práce: orba (jen když ji hra vyžaduje), vápnění, setba, **dvě fáze hnojení**, válcování, **okno plevele**, sklizeň. Vlastní pořadí plodin v menu přes drag-and-drop. Roky se přepínají na 1. března (FS25 herní rok), pozadí střídá liché/sudé kalendářní roky pro orientaci.
 - 📈 **Historie** — vývoj zůstatku a cen komodit za 7 / 30 / 90 dní + sezónní křivka cen na 12 měsíců dopředu. **Klikni na sloupec měsíce a hlídej cenu notifikací** (🔔 vyskočí, až herní kalendář dorazí do nejdražšího měsíce). Záznamy tagované savegame ID — přepnutí slotu nesmíchá data.
+- 🗺️ **Živá mapa** — poloha hráče a vozidel v reálném čase (4× za sekundu) nad snímkem herní mapy, se skutečnými obrysy polí, značkami stanic a trasami AutoDrive / Courseplay. Vypínatelná v herním menu (Esc → Nastavení → Obecné → Dashboard), když nemá stát výkon.
 - 📱 **Mobilní zobrazení** — funguje na telefonu (375 px+): hamburger menu, kompaktní Gantt, single-column layout.
 - 🔔 **Browser notifikace** — málo paliva, málo krmiva, pole připravené ke sklizni, dlouho prázdné pole, sezónní cenový vrchol.
 
@@ -56,6 +57,7 @@ Dashboard a kalendář na šířce telefonu (375 px) — hamburger menu, sekce p
 - Windows (server je Windows .exe)
 - Moderní prohlížeč (Chrome / Edge / Firefox)
 - ~60 MB volného místa
+- *Volitelně*: [`ffmpeg`](https://ffmpeg.org/) v PATH — bez něj Živá mapa funguje, jen bez podkladového obrázku mapy (viz sekci Živá mapa výše).
 
 Node.js **není potřeba** — server je single-file binárka se zabaleným runtimem. Pokud chceš spouštět ze zdrojáku nebo si exe sestavit sám, viz *Development* níže.
 
@@ -174,6 +176,17 @@ npm install
 npm run mock    # generuje fake dashboard_data.json — UI dev bez FS25
 npm start       # v druhém terminálu, servíruje dashboard
 ```
+
+Zástupce na plochu (Windows), ať se server nemusí spouštět ze složky:
+
+```powershell
+cd Server
+powershell -ExecutionPolicy Bypass -File create-shortcut.ps1
+```
+
+Vyrobí ikonu z `FS25/icon_dashboard.png` a položí na plochu zástupce **FS25 Dashboard**,
+který spustí `start.bat` se správným pracovním adresářem. Volby: `-Name` (jiný název),
+`-Path` (jiné umístění, třeba Start menu), `-NoIcon`.
 
 Sestavení Windows .exe lokálně:
 

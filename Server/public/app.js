@@ -20,6 +20,7 @@
     const DASHBOARD_SECTIONS = [
         { id: 'sec-fields',      label: '🌱 Pole – přehled' },
         { id: 'sec-vehicles',    label: '🚜 Vozidla' },
+        { id: 'sec-contracts',   label: '📋 Zakázky' },
         { id: 'sec-animals',     label: '🐄 Zvířata' },
         { id: 'sec-storage',     label: '📦 Sklady' },
         { id: 'sec-productions', label: '🏭 Výrobny' },
@@ -1065,6 +1066,13 @@
                     if (data.__replayStatus) { updateReplayBanner(data.__replayStatus); return; }
                     // Recording state envelope — pushed, drives the record button.
                     if (data.__recordStatus) { diagApplyRecordStatus(data.__recordStatus); return; }
+                    // Fast position frame (~4 Hz) — markers only, no payload
+                    // semantics. Dispatched as an event so only the Live Map
+                    // pays attention; every other page ignores it entirely.
+                    if (data.__positions) {
+                        window.dispatchEvent(new CustomEvent('fs25:positions', { detail: data.__positions }));
+                        return;
+                    }
                     // Source (publisher) liveness from the relay — drives the viewer overlay.
                     if (data.__sourceStatus) {
                         if (data.__sourceStatus.online) hideSourceOverlay();

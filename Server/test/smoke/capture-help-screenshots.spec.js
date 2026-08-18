@@ -16,6 +16,12 @@ test.describe('help screenshots', () => {
     // Skip when running headless smoke under CI — only meant for local refresh.
     test.skip(({}, testInfo) => !!process.env.CI, 'Manual capture only');
 
+    // These images ship with the help page, so they must not depend on whichever
+    // scenario a previous run left pinned — 'default' is the full farm.
+    test.beforeEach(async ({ request }) => {
+        await request.post('/mock/scenario', { data: { scenario: 'default' } });
+    });
+
     test.beforeEach(async ({ page }) => {
         // Force dark-green theme + a wide viewport so screenshots look like
         // the README hero image.

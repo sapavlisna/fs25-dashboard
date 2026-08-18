@@ -32,6 +32,7 @@ If something doesn't work, feel free to open an issue but take it with a pinch o
 - 💰 **Market prices** — current sell-point prices per ton, sortable, with hide-zero-stock filter.
 - 📅 **Field calendar** — Gantt timeline with per-field crop rotation; each crop gets its own row (no overlap). Plans the work: plowing (only when the game requires it), lime, sowing, **two fertilizer passes**, rolling, **weed window**, harvest. Custom dropdown crop order via drag-and-drop. Game year boundaries on March 1 (FS25 calendar), alternating shading for calendar-year orientation.
 - 📈 **History** — balance and commodity prices over 7/30/90 days + 12-month seasonal price forecast. **Click a month bar to watch its price** — a notification fires when the in-game calendar reaches the best month. Records tagged by savegame so slot-switching doesn't mix data.
+- 🗺️ **Live map** — player and vehicle positions in real time (4× per second) over the in-game map image, with true field outlines, station markers and AutoDrive / Courseplay routes. Switchable off in the game menu (Esc → Settings → General → Dashboard) when you would rather not pay for it.
 - 📱 **Mobile** — works on phones (375 px+): hamburger menu, compact Gantt, single-column layout.
 - 🔔 **Browser notifications** — low fuel, low food, harvest ready, field empty too long, seasonal price peak.
 
@@ -56,6 +57,7 @@ Dashboard and calendar at phone width (375 px) — hamburger menu, stacked secti
 - Windows (the server ships as a Windows .exe)
 - A modern browser (Chrome / Edge / Firefox)
 - ~60 MB disk space
+- *Optional*: [`ffmpeg`](https://ffmpeg.org/) on PATH — without it the Live map still works, just without the map background image (see the Live map section above).
 
 Node.js is **not** required — the server is a bundled single-file executable that includes its own runtime. If you want to run from source or build the exe yourself, see *Development* below.
 

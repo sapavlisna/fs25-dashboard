@@ -57,27 +57,59 @@ function detectSaveDir() {
     return dir;
 }
 
-function detectSaveDirUncached() {
-    try {
-        const stat = fs.statSync(LOG_FILE);
-        if (stat.size === 0) return null;
-        const start = Math.max(0, stat.size - LOG_TAIL_MAX);
-        const fd = fs.openSync(LOG_FILE, 'r');
-        const buf = Buffer.alloc(stat.size - start);
-        try { fs.readSync(fd, buf, 0, buf.length, start); }
-        finally { fs.closeSync(fd); }
-        const tail = buf.toString('utf8');
+// Scan log.txt for the loaded save's "…/savegameN/…" path. `tailOnly` reads
+// just the last LOG_TAIL_MAX bytes (fast path — the reference sits near the end
+// right after load/save); pass false to scan the whole file when a long session
+// has pushed the reference out of the tail window.
+function scanLogForSaveDir(tailOnly) {
+    const stat = fs.statSync(LOG_FILE);
+    if (stat.size === 0) return null;
+    const start = tailOnly ? Math.max(0, stat.size - LOG_TAIL_MAX) : 0;
+    const fd = fs.openSync(LOG_FILE, 'r');
+    const buf = Buffer.alloc(stat.size - start);
+    try { fs.readSync(fd, buf, 0, buf.length, start); }
+    finally { fs.closeSync(fd); }
+    const text = buf.toString('utf8');
 
-        let lastN = null;
-        // Match either Unix or Windows separators.
-        const re = /[\/\\]savegame(\d+)[\/\\]/g;
-        let m;
-        while ((m = re.exec(tail)) !== null) lastN = m[1];
-        if (!lastN) return null;
-        const dir = path.join(FS25_DOCS, `savegame${lastN}`);
-        return fs.existsSync(dir) ? dir : null;
+    let lastN = null;
+    // Match either Unix or Windows separators.
+    const re = /[\/\\]savegame(\d+)[\/\\]/g;
+    let m;
+    while ((m = re.exec(text)) !== null) lastN = m[1];
+    if (!lastN) return null;
+    const dir = path.join(FS25_DOCS, `savegame${lastN}`);
+    return fs.existsSync(dir) ? dir : null;
+}
+
+// Fallback when the log no longer names the active save (a long session pushes
+// the reference past even a full-file scan window, or the log was rotated): the
+// active save is the one whose careerSavegame.xml was written most recently.
+function detectSaveDirByMtime() {
+    try {
+        let best = null, bestMtime = -1;
+        for (const name of fs.readdirSync(FS25_DOCS)) {
+            if (!/^savegame\d+$/.test(name)) continue;
+            const career = path.join(FS25_DOCS, name, 'careerSavegame.xml');
+            let st;
+            try { st = fs.statSync(career); } catch (_) { continue; }
+            if (st.mtimeMs > bestMtime) { bestMtime = st.mtimeMs; best = path.join(FS25_DOCS, name); }
+        }
+        return best;
     } catch (_) {
         return null;
+    }
+}
+
+function detectSaveDirUncached() {
+    try {
+        // log.txt is authoritative for *which* save is loaded, so prefer it:
+        // cheap tail scan first, then the whole file. Fall back to newest-mtime
+        // detection only when the log has stopped mentioning the save.
+        return scanLogForSaveDir(true)
+            || scanLogForSaveDir(false)
+            || detectSaveDirByMtime();
+    } catch (_) {
+        return detectSaveDirByMtime();
     }
 }
 

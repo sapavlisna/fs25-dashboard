@@ -105,6 +105,8 @@
             // ── Prices ────────────────────────────────────────────────────
             pricesOwnedOnly:          'pricesOwnedOnly',           // bool, default false
             pricesShowStock:          'pricesShowStock',           // bool, default true
+
+            // ── Live Map ──────────────────────────────────────────────────
         },
     };
 })();
