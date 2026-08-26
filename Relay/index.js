@@ -28,8 +28,17 @@ const num = (name, def) => {
 };
 
 const CFG = {
-    PORT:                  num('RELAY_PORT', 8080),
+    // PaaS hosts (Northflank, Render, Railway, Fly) inject the port as PORT and
+    // expect us to bind it; RELAY_PORT stays as the explicit local override.
+    PORT:                  num('PORT', num('RELAY_PORT', 8080)),
     PUBLISHERS_FILE:       process.env.PUBLISHERS_FILE || path.join(__dirname, 'publishers.json'),
+    // Inline allowlist for hosts with no writable disk / no file mounts — same
+    // JSON as publishers.json, pasted into an env var. Takes precedence.
+    PUBLISHERS_JSON:       process.env.PUBLISHERS_JSON || '',
+    // permessage-deflate on the viewer fan-out. Frames are JSON and compress
+    // ~5-10×, which is the difference between fitting a metered plan's egress
+    // allowance and blowing through it. Set RELAY_COMPRESS=false to disable.
+    COMPRESS: String(process.env.RELAY_COMPRESS || 'true').toLowerCase() !== 'false',
     // Docker image copies the frontend to ./public; in dev it lives at
     // ../Server/public (sibling of the Relay/ folder).
     PUBLIC_DIR:            process.env.PUBLIC_DIR ||
@@ -90,20 +99,29 @@ const LABEL_RE = /^[^\x00-\x1f<>]{0,40}$/;
 // connect so enable/disable takes effect on the next (re)connect without a
 // restart. Missing file → empty allowlist (everyone rejected) but keep running.
 // Malformed JSON at startup → fail-fast; malformed on reload → keep last good.
+//
+// PUBLISHERS_JSON (env) holds the same array inline and wins over the file —
+// that is the only way to configure a host that gives you env vars but no disk.
 
 let lastGoodPublishers = [];
 
 function loadPublishers({ strict } = {}) {
-    let raw;
-    try {
-        raw = fs.readFileSync(CFG.PUBLISHERS_FILE, 'utf8');
-    } catch (e) {
-        if (strict) {
-            log.warn('auth', `${CFG.PUBLISHERS_FILE} chybí — allowlist prázdný (vše odmítáno). Zkopíruj publishers.example.json.`);
+    const inline = CFG.PUBLISHERS_JSON.trim();
+    const source = inline ? 'PUBLISHERS_JSON' : CFG.PUBLISHERS_FILE;
+    let raw = inline;
+
+    if (!inline) {
+        try {
+            raw = fs.readFileSync(CFG.PUBLISHERS_FILE, 'utf8');
+        } catch (e) {
+            if (strict) {
+                log.warn('auth', `${CFG.PUBLISHERS_FILE} chybí — allowlist prázdný (vše odmítáno). Zkopíruj publishers.example.json nebo nastav PUBLISHERS_JSON.`);
+            }
+            lastGoodPublishers = [];
+            return lastGoodPublishers;
         }
-        lastGoodPublishers = [];
-        return lastGoodPublishers;
     }
+
     try {
         const arr = JSON.parse(raw);
         if (!Array.isArray(arr)) throw new Error('kořen není pole');
@@ -111,10 +129,10 @@ function loadPublishers({ strict } = {}) {
         return lastGoodPublishers;
     } catch (e) {
         if (strict) {
-            log.error('auth', `${CFG.PUBLISHERS_FILE} je nevalidní JSON: ${e.message} — končím (fail-fast).`);
+            log.error('auth', `${source} je nevalidní JSON: ${e.message} — končím (fail-fast).`);
             process.exit(1);
         }
-        log.error('auth', `${CFG.PUBLISHERS_FILE} nevalidní při reloadu (${e.message}) — používám poslední platný allowlist.`);
+        log.error('auth', `${source} nevalidní při reloadu (${e.message}) — používám poslední platný allowlist.`);
         return lastGoodPublishers;
     }
 }
@@ -252,8 +270,14 @@ const server = http.createServer(app);
 
 // ─── WebSocket routing (noServer + manual upgrade) ─────────────────────────────
 
-const publishWss = new WebSocketServer({ noServer: true, maxPayload: CFG.MAX_FRAME_BYTES });
-const viewWss    = new WebSocketServer({ noServer: true, maxPayload: 1024 }); // viewers never send real data
+// Context takeover (the default) is what makes the repetitive dashboard JSON
+// compress well — each frame is diffed against the connection's zlib history.
+// The cost is a compressor per connection, which is fine at our connection caps
+// and pays for itself many times over on a metered-egress host.
+const DEFLATE = CFG.COMPRESS ? { threshold: 1024, zlibDeflateOptions: { level: 6 } } : false;
+
+const publishWss = new WebSocketServer({ noServer: true, maxPayload: CFG.MAX_FRAME_BYTES, perMessageDeflate: DEFLATE });
+const viewWss    = new WebSocketServer({ noServer: true, maxPayload: 1024, perMessageDeflate: DEFLATE }); // viewers never send real data
 
 server.on('upgrade', (req, socket, head) => {
     let url;
@@ -497,8 +521,9 @@ server.on('error', (e) => {
 server.listen(CFG.PORT, () => {
     log.banner([
         `FS25 Dashboard Relay v${require('./package.json').version}`,
-        `▸ port:       ${CFG.PORT} (interní; ven přes Tailscale Funnel 443)`,
-        `▸ publishers: ${CFG.PUBLISHERS_FILE}`,
+        `▸ port:       ${CFG.PORT} (TLS a doménu řeší hosting / Tailscale Funnel)`,
+        `▸ publishers: ${CFG.PUBLISHERS_JSON.trim() ? 'PUBLISHERS_JSON (env)' : CFG.PUBLISHERS_FILE}`,
+        `▸ komprese:   ${CFG.COMPRESS ? 'permessage-deflate zapnutá' : 'vypnutá'}`,
         `▸ public:     ${CFG.PUBLIC_DIR}`,
         `▸ capy:       ${CFG.MAX_ROOMS} room · ${CFG.MAX_VIEWERS_PER_ROOM} div/room · ${CFG.MAX_CONNS_PER_IP}/IP`,
     ]);

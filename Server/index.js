@@ -147,8 +147,19 @@ app.post('/api/relay', (req, res) => {
     const body = req.body || {};
     const url = typeof body.url === 'string' ? body.url.trim() : '';
     const enabled = body.enabled !== false;
-    if (url && !/^wss?:\/\//i.test(url)) {
-        return res.status(400).json({ error: 'URL musí začínat ws:// nebo wss://' });
+    if (url) {
+        let parsed = null;
+        try { parsed = new URL(url); } catch (_) { /* not a URL at all */ }
+        if (!parsed || !/^wss?:$/i.test(parsed.protocol) || !parsed.hostname) {
+            return res.status(400).json({ error: 'URL musí být ws://host nebo wss://host' });
+        }
+        // A URL pasted INTO the old one (cursor mid-field) still parses — the
+        // second scheme just becomes part of the path — and the server then
+        // spent every reconnect dialing a host like "relay.tail37wss". Reject
+        // the leftover scheme instead of storing an address nobody can reach.
+        if (/wss?:\/\//i.test(url.slice(parsed.protocol.length + 2))) {
+            return res.status(400).json({ error: 'URL obsahuje dvě adresy — vymaž pole a vlož ji znovu' });
+        }
     }
     const patch = { relayUrl: url, relayEnabled: enabled };
     if (typeof body.key === 'string' && body.key.length) patch.relayPublishKey = body.key;

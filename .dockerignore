@@ -1,0 +1,20 @@
+# Build context for Relay/Dockerfile is src/Dashboard, but the image needs only
+# Relay/*.js + Relay/package*.json + Server/public. Everything below is the 85 MB
+# of workspace that would otherwise be uploaded to the builder on every deploy.
+**/node_modules
+.git
+.github
+.claude
+publish/
+docs/
+_marketing/
+FS25/
+Server/test/
+Server/test-results/
+Server/dist/
+Server/scripts/
+Server/data/
+Server/.tmp/
+Relay/publishers.json
+Relay/.env
+*.md
