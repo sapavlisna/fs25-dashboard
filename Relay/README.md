@@ -78,35 +78,37 @@ are **not** used in this mode. Two things replace them:
   give you env vars but no file mounts.
 - `PORT` — injected by the platform; the relay binds it (falls back to `RELAY_PORT`).
 
-### Northflank (free Sandbox: 2 always-on services, no sleeping)
+### Render (free, no credit card)
 
-1. Sign up at <https://northflank.com> and add a card — the Sandbox tier is free,
-   the card is anti-abuse verification only.
-2. **Create service → Build & deploy from a Git repo**, pick this repo, then set:
-   - Build context: the folder holding `Relay/` and `Server/` — the repo root here,
-     `src/Dashboard` if you build from the development workspace
-   - Dockerfile path: `Relay/Dockerfile` (relative to that context)
-3. **Networking:** expose port `8080` (HTTP), enable the public DNS entry. You get
-   `https://<service>--<project>.code.run` with TLS; a custom domain is free too.
-4. **Environment variables:**
-   ```
-   PUBLISHERS_JSON=[{"id":"pavel","label":"Pavel","key":"<24-byte hex key>","enabled":true}]
-   RELAY_STABLE_ROOMS=true
-   MAX_FRAME_BYTES=1048576
-   ```
-   Mark `PUBLISHERS_JSON` as a secret. Generate the key exactly as in step 1 of Setup A.
-5. **Health check:** HTTP `GET /health` on port 8080.
+`render.yaml` in the repo root describes the whole service, so there is nothing to
+configure by hand:
 
-Changing the allowlist means editing the env var and restarting — there is no file to
-re-read. Everything else behaves identically to the Docker setup.
+1. Sign up at <https://render.com> (GitHub login is enough — the free tier asks for
+   no card).
+2. **New → Blueprint**, pick this repo. Render reads `render.yaml` and prompts for
+   **`PUBLISHERS_JSON`** — paste the allowlist, generated as in step 1 of Setup A:
+   ```
+   [{"id":"pavel","label":"Pavel","key":"<24-byte hex key>","enabled":true}]
+   ```
+3. Deploy. You get `https://fs25-relay.onrender.com` with TLS.
+
+What the free instance costs you: it **spins down after 15 minutes with no traffic**
+and takes ~1 minute to wake, so the first publisher connect after an idle spell fails
+and the dashboard's reconnect loop picks it up on the next attempt. WebSocket messages
+count as traffic, so it stays awake for as long as you are playing. The Hobby workspace
+includes **5 GB egress/month** — with compression on that is roughly 150 hours of
+streaming to one viewer, and every extra viewer divides it.
 
 ### Other hosts
 
 | Host | Notes |
 |---|---|
-| **Render** | `render.yaml` blueprint or Docker deploy; free instance stays awake while WS traffic flows, but the Hobby workspace includes only **5 GB egress/month** |
+| **Northflank** | free Sandbox runs 2 always-on services (no spin-down), but wants a card for verification; build context = repo root, dockerfile `Relay/Dockerfile`, expose 8080 |
 | **Fly.io** | `fly launch` over the same Dockerfile; ~$2/month for a 256 MB always-on machine, egress $0.02/GB. No free tier |
 | **Railway** | template deploy, $5/month minimum |
+
+On any of them the allowlist lives in `PUBLISHERS_JSON`, so changing it means editing
+the env var and restarting — there is no file to re-read.
 
 Avoid anything that scales to zero or caps request duration (Cloud Run tops out at
 60 minutes per connection) — the publisher holds one long-lived WS connection.

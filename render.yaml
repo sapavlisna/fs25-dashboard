@@ -1,0 +1,24 @@
+# Render blueprint for the relay. This file sits at the root of the published
+# repo (github.com/sapavlisna/fs25-dashboard), which is where Render looks for
+# it — in the development workspace it lives under src/Dashboard/ instead.
+#
+# New > Blueprint > pick the repo. Render prompts for PUBLISHERS_JSON during
+# creation (sync: false keeps it out of the repo) and asks for nothing else.
+services:
+  - type: web
+    name: fs25-relay
+    runtime: docker
+    plan: free
+    region: frankfurt
+    dockerfilePath: ./Relay/Dockerfile
+    # The image needs Server/public too, so the context is the whole repo.
+    dockerContext: .
+    healthCheckPath: /health
+    envVars:
+      # [{ "id": "...", "label": "...", "key": "<24-byte hex>", "enabled": true }]
+      - key: PUBLISHERS_JSON
+        sync: false
+      - key: RELAY_STABLE_ROOMS
+        value: "true"
+      - key: MAX_FRAME_BYTES
+        value: "1048576"
