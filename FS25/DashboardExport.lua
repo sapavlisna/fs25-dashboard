@@ -883,12 +883,22 @@ function DashboardExport:tickFieldScan()
         -- change detector to spot edits (sow/harvest) and trigger a fresh scan.
         local fs = safeCall(field.getFieldState, field) or field.fieldState
         local lastFs = fs and fs.fruitTypeIndex or 0
-        -- Growth: cheap 5-point probe; trust it only when it agrees with the
-        -- area-scan winner (probe body může trefit okraj s jinou plodinou).
+        -- The scan square is 1.5× the field's side, so over half of it lies
+        -- outside the field — roadside grass and neighbour plots routinely
+        -- outweigh the crop (issue #2: every field decayed to grass 0 % once
+        -- its cache expired). The probe samples inside the field, so it wins
+        -- whenever it hits a crop; the scan winner counts only if the engine's
+        -- own field state confirms it, otherwise 0 lets getFieldFruit fall back
+        -- to fieldState.
         local pIdx, pGrowth = self:probeFieldFruit(field)
-        local growth = (pIdx == bestIdx) and pGrowth or 0
+        local fruitIdx, growth = 0, 0
+        if pIdx > 0 then
+            fruitIdx, growth = pIdx, pGrowth
+        elseif bestIdx > 0 and bestIdx == lastFs then
+            fruitIdx, growth = bestIdx, fs.growthState or 0
+        end
         self.fruitCache[st.farmlandId] = {
-            fruitIdx   = bestIdx,
+            fruitIdx   = fruitIdx,
             growth     = growth,
             expiresAt  = now + self.FRUIT_TTL,
             lastFsFruit = lastFs,

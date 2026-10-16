@@ -13,6 +13,22 @@ All notable changes to this project will be documented here.
 
 Mod and server share **one release version**. Each release ships both ZIPs even when only one component functionally changed — the release notes call out which one is the meaningful update so users can selectively download. `schemaVersion` in the JSON payload is independent and only bumps on incompatible payload shape changes.
 
+## [1.10.1.0] — 2026-10-16
+
+_Opravná verze módu: pole po pár minutách hraní přestala ukazovat skutečnou plodinu.
+Server se funkčně nemění._
+
+### Fixed
+- **Pole se po pár minutách měnila na „tráva, 0 % růstu"** (`DashboardExport.lua`,
+  [#2](https://github.com/sapavlisna/fs25-dashboard/issues/2)) — po vypršení cache
+  (5 min) pole postupně přepočítával plošný sken, který měřil čtverec 1,5× větší než
+  pole, tedy i travnaté okraje a sousední pozemky. Na mapách s trávou kolem polí
+  (např. Riverbend Springs) tráva přeměřila skutečnou plodinu a růst vyšel 0. Nově
+  plodinu určují vzorky uvnitř pole; výsledek skenu platí jen tehdy, když ho potvrdí
+  stav pole ze hry, jinak se použije ten.
+- **`deploy.bat` balil neúplný mód** — do ZIPu chyběly `DashboardSettings.lua`
+  a `DashboardSettingsFrame.lua`, které `modDesc.xml` od 1.10.0.0 vyžaduje.
+
 ## [1.10.0.0] — 2026-08-18
 
 _Živá mapa: nová stránka `map.html` s pozicí hráče a vozidel v reálném čase, skutečnými
